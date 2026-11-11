@@ -7,7 +7,7 @@ import { expect, test, type Browser, type Page } from '@playwright/test';
  */
 const stamp = Date.now();
 const OWNER = { email: `carte-${stamp}@example.test`, password: 'Motdepasse-gerant-1' };
-const MOBILE = { width: 390, height: 844 };
+const MOBILE = { width: 360, height: 780 }; // CA-002-13 : petit téléphone
 const SHOTS = process.env.SCREENSHOT_DIR;
 
 test.describe.configure({ mode: 'serial' });
@@ -25,8 +25,8 @@ async function newPage(browser: Browser, viewport = { width: 1366, height: 900 }
   return page;
 }
 
-async function shot(page: Page, name: string) {
-  if (SHOTS) await page.screenshot({ path: `${SHOTS}/${name}.png`, fullPage: true });
+async function shot(page: Page, name: string, fullPage = true) {
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/${name}.png`, fullPage });
 }
 
 async function expectNoHorizontalScroll(page: Page) {
@@ -76,7 +76,7 @@ test('CA-001-01, 03, 05, 07, 27 — le gérant construit sa carte', async () => 
   await owner.getByRole('link', { name: 'Carte' }).click();
   await expect(owner.getByText('Votre carte est vide')).toBeVisible();
 
-  for (const name of ['Boissons', 'Plats']) {
+  for (const name of ['Boissons', 'Plats', 'Desserts']) {
     await owner.getByRole('button', { name: /Créer une rubrique|Nouvelle rubrique/ }).click();
     await owner.getByLabel('Nom').fill(name);
     await owner.getByRole('button', { name: 'Créer', exact: true }).click();
@@ -96,6 +96,7 @@ test('CA-001-01, 03, 05, 07, 27 — le gérant construit sa carte', async () => 
   await addItem('Plats', 'Garba', '1500');
   await addItem('Plats', 'Alloco', '1000');
   await addItem('Boissons', 'Bissap', '500');
+  await addItem('Desserts', 'Dêguê', '1000');
 
   // Un prix invalide est refusé avant l'envoi.
   await owner.getByRole('button', { name: 'Ajouter un article' }).first().click();
@@ -112,6 +113,7 @@ test('CA-001-01, 03, 05, 07, 27 — le gérant construit sa carte', async () => 
   await owner.getByRole('dialog').getByRole('button', { name: 'Enregistrer' }).click();
   await expect(owner.getByRole('dialog')).toHaveCount(0);
   await expect(owner.getByRole('img', { name: 'Garba' })).toBeVisible();
+  await expect.poll(() => owner.getByRole('img', { name: 'Garba' }).evaluate((img: HTMLImageElement) => img.naturalWidth)).toBeGreaterThan(0);
 
   // Plats passe avant Boissons.
   await owner.getByRole('button', { name: 'Monter la rubrique Plats' }).click();
@@ -125,38 +127,66 @@ test('CA-001-01, 03, 05, 07, 27 — le gérant construit sa carte', async () => 
   await shot(owner, '01-carte-gerant');
 });
 
-test('CA-001-12, 05, 14 — le client consulte la carte et commande depuis son téléphone', async () => {
+test('CA-001-12, 05, 14 et CA-002-01 à 09, 12, 13 — le client choisit par l’image et commande depuis son téléphone', async () => {
   await guest.goto(qrUrl);
   await expect(guest.getByRole('heading', { level: 1 })).toContainText('Table 7');
   await guest.getByRole('tab', { name: /Carte/ }).click();
+
+  // Grille photo : Garba a une photo, les autres une initiale ; Alloco est épuisé, sans « + ».
   await expect(guest.getByRole('heading', { name: 'Plats' })).toBeVisible();
-  await expect(guest.locator('li').filter({ hasText: 'Alloco' }).getByText('Épuisé')).toBeVisible();
+  await expect(guest.getByRole('img', { name: 'Garba' })).toBeVisible();
+  // Image réellement chargée (une image bloquée par la CSP reste « visible » par son texte alternatif).
+  await expect.poll(() => guest.getByRole('img', { name: 'Garba' }).evaluate((img: HTMLImageElement) => img.naturalWidth)).toBeGreaterThan(0);
+  await expect(guest.getByRole('button', { name: /^Alloco, .*épuisé/ })).toBeVisible();
   await expect(guest.getByRole('button', { name: 'Ajouter Alloco' })).toHaveCount(0);
   await expectNoHorizontalScroll(guest);
 
+  // Rubriques fixes : un appui amène à la rubrique et la met en évidence.
+  const chips = guest.getByRole('navigation', { name: 'Rubriques de la carte' });
+  await chips.getByRole('button', { name: 'Desserts' }).click();
+  await expect(chips.getByRole('button', { name: 'Desserts' })).toHaveAttribute('aria-current', 'true');
+  await expect(guest.getByRole('heading', { name: 'Desserts' })).toBeInViewport();
+  await chips.getByRole('button', { name: 'Plats' }).click();
+
+  // « + » sur la photo, puis la fiche pour passer à 2.
   await guest.getByRole('button', { name: 'Ajouter Garba' }).click();
-  await guest.getByRole('button', { name: 'Ajouter un Garba' }).click();
+  await guest.getByRole('button', { name: '1 Garba dans la commande, modifier' }).click();
+  const itemSheet = guest.getByRole('dialog', { name: 'Garba' });
+  await itemSheet.getByRole('button', { name: 'Ajouter un Garba' }).click();
+  await itemSheet.getByRole('button', { name: /Mettre à jour/ }).click();
   await guest.getByRole('button', { name: 'Ajouter Bissap' }).click();
-  const bar = guest.getByRole('button', { name: /Voir le panier/ });
-  await expect(bar).toContainText('3 articles');
+
+  const bar = guest.getByRole('button', { name: /Voir la commande/ });
+  await expect(bar).toContainText('3');
   await expect(bar).toContainText(money('3 500 F CFA'));
+  await expectNoHorizontalScroll(guest);
   await shot(guest, '02-carte-client');
 
-  // Le panier survit à un rechargement.
+  // La commande survit à un rechargement.
   await guest.reload();
   await guest.getByRole('tab', { name: /Carte/ }).click();
-  await guest.getByRole('button', { name: /Voir le panier/ }).click();
-  const sheet = guest.getByRole('dialog', { name: 'Votre commande' });
-  await expect(sheet.getByText(money('3 500 F CFA'))).toBeVisible();
-  await sheet.getByLabel('Une précision ? (facultatif)').fill('Sans piment');
-  await shot(guest, '03-panier');
-  await sheet.getByRole('button', { name: 'Envoyer la commande' }).click();
+  await guest.getByRole('button', { name: /Voir la commande/ }).click();
+  const screen = guest.getByRole('dialog', { name: 'Votre commande' });
+  await expect(screen.getByText('Total de la commande')).toBeVisible();
+  await expect(screen.getByText(money('3 500 F CFA'))).toBeVisible();
+  // Suggestion : sans historique, un article d'une rubrique absente de la commande.
+  await expect(screen.getByRole('region', { name: 'Souvent commandés avec' }).getByRole('button', { name: 'Ajouter Dêguê' })).toBeVisible();
+  await screen.getByLabel('Une précision ? (facultatif)').fill('Sans piment');
+  await guest.waitForTimeout(400); // fin de l'animation d'ouverture
+  await shot(guest, '03-votre-commande', false);
+
+  // « Ajouter d’autres articles » ramène à la carte sans rien perdre.
+  await screen.getByRole('button', { name: 'Ajouter d’autres articles' }).click();
+  await expect(guest.getByRole('button', { name: /Voir la commande/ })).toContainText(money('3 500 F CFA'));
+  await guest.getByRole('button', { name: /Voir la commande/ }).click();
+  await guest.getByRole('dialog', { name: 'Votre commande' }).getByLabel('Une précision ? (facultatif)').fill('Sans piment');
+  await guest.getByRole('dialog', { name: 'Votre commande' }).getByRole('button', { name: 'Commander' }).click();
 
   const tracking = guest.getByRole('region', { name: 'Vos demandes en cours' });
   await expect(tracking.getByText('Votre commande est bien reçue')).toBeVisible();
   await expect(tracking.getByText('Garba')).toBeVisible();
   await expect(tracking.getByText(money('3 500 F CFA'))).toBeVisible();
-  await expect(guest.getByRole('button', { name: /Voir le panier/ })).toHaveCount(0);
+  await expect(guest.getByRole('button', { name: /Voir la commande/ })).toHaveCount(0);
   await shot(guest, '04-suivi-client');
 });
 

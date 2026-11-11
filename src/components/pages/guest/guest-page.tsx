@@ -12,7 +12,7 @@ import { errorMessage, toHttpError } from '@/services/http';
 import { formatMoney } from '@/utils/money';
 import { formatTime } from '@/utils/time';
 import { cartLines, useCart } from './cart';
-import { CartBar, CartSheet, GuestOrderLines, MenuView } from './guest-menu';
+import { CartBar, GuestOrderLines, MenuView, OrderScreen } from './guest-menu';
 import { guestRequestsKey, upsert, useGuestRequests } from './use-guest-requests';
 import { useGuestSession } from './use-guest-session';
 
@@ -193,7 +193,7 @@ function GuestTable({ token, context, onSessionClosed, onContextStale }: GuestTa
         <CartBar count={summary.count} totalMinor={summary.totalMinor} currency={currency} onOpen={() => setCartOpen(true)} />
       )}
       {cartOpen && (
-        <CartSheet
+        <OrderScreen
           token={token}
           context={context}
           cart={cart}

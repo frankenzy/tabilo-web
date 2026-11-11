@@ -2,6 +2,7 @@ import {
   guestContextSchema, guestCreateResultSchema, guestRequestListSchema, guestRequestSchema, guestSessionSchema,
   type GuestContext, type GuestRequest,
 } from '@/contracts';
+import { z } from 'zod';
 import { httpGuest } from '@/services/http';
 
 /** Appels du parcours client. Chaque réponse est validée : un schéma inattendu est une erreur, pas un affichage faux. */
@@ -33,6 +34,10 @@ export const guestApi = {
       headers: { ...headers(token), 'idempotency-key': idempotencyKey },
     });
     return guestCreateResultSchema.parse(response.data);
+  },
+  async suggestions(token: string, items: string[]): Promise<string[]> {
+    const response = await httpGuest.get('/guest/suggestions', { headers: headers(token), params: items.length ? { items: items.join(',') } : {} });
+    return z.object({ menuItemIds: z.array(z.string()) }).parse(response.data).menuItemIds;
   },
   async cancel(token: string, id: string): Promise<GuestRequest> {
     const response = await httpGuest.post(`/guest/requests/${id}/cancel`, {}, { headers: headers(token) });

@@ -10,7 +10,8 @@ const csp = [
   "default-src 'self'",
   `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ''}`,
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob:",
+  // Photos de la carte servies par l'API (spec 001/002).
+  `img-src 'self' data: blob: ${apiOrigin}`,
   "font-src 'self'",
   `connect-src 'self' ${apiOrigin} ${wsOrigin}`,
   "frame-ancestors 'none'",
