@@ -1,0 +1,9 @@
+packages:
+  - "."
+onlyBuiltDependencies:
+  - sharp
+  - esbuild
+  - "@tailwindcss/oxide"
+# Force la version corrigée de PostCSS embarquée par Next (alertes sourceMappingURL).
+overrides:
+  postcss: ^8.5.23

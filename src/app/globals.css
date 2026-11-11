@@ -1,0 +1,79 @@
+@import 'tailwindcss';
+
+/*
+ * Système visuel TABILO.
+ * Papier chaud, encre presque noire, un seul accent (terracotta) réservé à l'action principale.
+ * Les couleurs d'urgence ne servent qu'à dire l'état d'une demande : calme → attente → retard.
+ */
+@theme {
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+
+  --color-paper: #f7f5f1;
+  --color-surface: #ffffff;
+  --color-sunken: #efece6;
+  --color-line: #e4dfd6;
+  --color-ink: #1b1917;
+  --color-ink-2: #57524c;
+  --color-ink-3: #8c867e;
+
+  --color-brand: #d9480f;
+  --color-brand-strong: #b83a09;
+  --color-brand-soft: #fdeee6;
+
+  --color-calm: #f1efea;
+  --color-calm-ink: #3d3935;
+  --color-wait: #fbe3b0;
+  --color-wait-ink: #7a4a00;
+  --color-late: #d92d20;
+  --color-late-soft: #fde8e6;
+  --color-progress: #2f5fd0;
+  --color-progress-soft: #e6edfc;
+  --color-done: #1f7a4d;
+  --color-done-soft: #e3f3ea;
+
+  --radius-card: 14px;
+  --shadow-pop: 0 12px 40px -12px rgb(27 25 23 / 0.25);
+
+  --animate-rise: rise 180ms ease-out;
+  --animate-attention: attention 1.6s ease-in-out infinite;
+}
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes attention {
+  0%, 100% { box-shadow: 0 0 0 0 rgb(217 45 32 / 0.45); }
+  50% { box-shadow: 0 0 0 6px rgb(217 45 32 / 0); }
+}
+
+@layer base {
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    background: var(--color-paper);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-feature-settings: 'ss01', 'cv11';
+    -webkit-font-smoothing: antialiased;
+  }
+  /* Focus toujours visible au clavier. */
+  :focus-visible {
+    outline: 2px solid var(--color-ink);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+  button, [role='button'] { cursor: pointer; }
+  button:disabled { cursor: not-allowed; }
+  .tabular { font-variant-numeric: tabular-nums; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+
+@media print {
+  .no-print { display: none !important; }
+  body { background: #fff; }
+}
