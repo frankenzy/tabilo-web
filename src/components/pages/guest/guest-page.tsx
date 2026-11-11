@@ -2,7 +2,7 @@
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  BellRing, Check, Droplet, Minus, Plus, CheckCircle2, Clock, CookingPot, Loader2, QrCode, RotateCw, Send, UserRound, WifiOff, X, XCircle,
+  BellRing, Check, Droplet, HandPlatter, Minus, Plus, CheckCircle2, Clock, CookingPot, Loader2, QrCode, RotateCw, Send, UserRound, WifiOff, X, XCircle,
   type LucideIcon,
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
@@ -181,6 +181,19 @@ function GuestTable({ token, context, onSessionClosed, onContextStale }: GuestTa
 
       <p className="mt-auto pt-10 text-center text-xs text-ink-3">Service assuré avec TABILO</p>
 
+      {hasMenu && context.requestTypes.length > 0 && !cartOpen && (
+        // Bouton flottant « Serveur » (spec 005, R8) : toujours à portée de pouce, au-dessus de la barre de commande.
+        <div className={cn('pointer-events-none fixed inset-x-0 z-30 mx-auto flex max-w-md justify-end px-4', showBar ? 'bottom-[5.5rem]' : 'bottom-[max(1rem,env(safe-area-inset-bottom))]')}>
+          <button
+            type="button"
+            onClick={() => setServerOpen(true)}
+            aria-label="Appeler le serveur"
+            className="pointer-events-auto grid size-14 place-items-center rounded-full bg-ink text-white shadow-pop ring-4 ring-paper active:scale-95"
+          >
+            <HandPlatter className="size-7" aria-hidden />
+          </button>
+        </div>
+      )}
       {showBar && !cartOpen && <CartBar count={summary.count} totalMinor={summary.totalMinor} currency={currency} onOpen={() => setCartOpen(true)} />}
       {cartOpen && (
         <OrderScreen

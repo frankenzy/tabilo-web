@@ -178,6 +178,12 @@ test('CA-001-12, 05, 14 et CA-002-01 à 09, 12, 13 — le client choisit par l�
   await expect(search).toBeInViewport();
   await expect(guest.getByRole('button', { name: 'Serveur', exact: true })).toBeInViewport();
   await expect(chips).toBeInViewport();
+  // CA-005-07 : le bouton flottant « Serveur » reste en bas à droite et ouvre la fenêtre d'appel.
+  const floating = guest.getByRole('button', { name: 'Appeler le serveur', exact: true });
+  await expect(floating).toBeInViewport();
+  await floating.click();
+  await expect(guest.getByRole('dialog', { name: 'De quoi avez-vous besoin ?' })).toBeVisible();
+  await guest.keyboard.press('Escape');
   await guest.evaluate(() => window.scrollTo(0, 0));
 
   // « + » sur la photo, puis la fiche pour passer à 2.
