@@ -300,6 +300,8 @@ test('CA-001-13, R14 — commande suspendue : la carte reste consultable, sans p
 
 test('CA-001-29, 30 — le montant servi apparaît dans les statistiques', async () => {
   await owner.getByRole('link', { name: 'Statistiques' }).click();
+  // Contre `next dev`, la première visite compile la page : on laisse le temps d'arriver.
+  await expect(owner.getByRole('heading', { name: 'Statistiques', level: 1 })).toBeVisible({ timeout: 60_000 });
   const sales = owner.getByRole('region', { name: 'Ventes' });
   await expect(sales.getByText('Montant des commandes servies')).toBeVisible();
   await expect(sales.getByText(money('3 500 F CFA')).first()).toBeVisible();

@@ -2,7 +2,7 @@
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  BellRing, Check, Droplet, HandPlatter, Minus, Plus, CheckCircle2, Clock, CookingPot, Loader2, QrCode, RotateCw, Send, UserRound, WifiOff, X, XCircle,
+  BellRing, Check, Droplet, Minus, Plus, CheckCircle2, Clock, CookingPot, Loader2, QrCode, RotateCw, Send, UserRound, WifiOff, X, XCircle,
   type LucideIcon,
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
@@ -188,9 +188,14 @@ function GuestTable({ token, context, onSessionClosed, onContextStale }: GuestTa
             type="button"
             onClick={() => setServerOpen(true)}
             aria-label="Appeler le serveur"
-            className="pointer-events-auto grid size-14 place-items-center rounded-full bg-ink text-white shadow-pop ring-4 ring-paper active:scale-95"
+            className="pointer-events-auto relative size-16 rounded-full shadow-pop ring-4 ring-surface active:scale-95"
           >
-            <HandPlatter className="size-7" aria-hidden />
+            {/* Une vraie photo de serveur : plus parlante qu'un pictogramme pour qui ne lit pas (spec 005, R8). */}
+            {/* eslint-disable-next-line @next/next/no-img-element -- image statique de l'interface */}
+            <img src="/images/serveur.jpg" alt="" className="size-full rounded-full object-cover" />
+            <span className="absolute -top-1 -left-1 grid size-6 place-items-center rounded-full bg-ink text-white ring-2 ring-surface">
+              <BellRing className="size-3.5" aria-hidden />
+            </span>
           </button>
         </div>
       )}
