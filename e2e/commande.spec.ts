@@ -192,7 +192,10 @@ test('CA-001-12, 05, 14 et CA-002-01 à 09, 12, 13 — le client choisit par l�
   const itemSheet = guest.getByRole('dialog', { name: 'Garba' });
   await itemSheet.getByRole('button', { name: 'Ajouter un Garba' }).click();
   await itemSheet.getByRole('button', { name: /Mettre à jour/ }).click();
+  // CA-003-09 : crochets verts, un par unité.
+  await expect(guest.getByRole('img', { name: '2 sélectionnés' }).locator('svg')).toHaveCount(2);
   await guest.getByRole('button', { name: 'Ajouter Bissap' }).click();
+  await expect(guest.getByRole('img', { name: '1 sélectionné' }).locator('svg')).toHaveCount(1);
 
   const bar = guest.getByRole('button', { name: /Voir la commande/ });
   await expect(bar).toContainText('3');

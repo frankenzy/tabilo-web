@@ -277,8 +277,14 @@ function MenuCard({ item, currency, quantity, orderable, onAdd, onOpen }: MenuCa
   return (
     <li>
       <div className="relative">
-        <button type="button" onClick={onOpen} className="block w-full" aria-label={`${item.name}, ${price}${item.isAvailable ? '' : ', épuisé'}`}>
+        <button
+          type="button"
+          onClick={onOpen}
+          className="block w-full"
+          aria-label={`${item.name}, ${price}${item.isAvailable ? '' : ', épuisé'}${quantity > 0 ? `, ${quantity} dans la commande` : ''}`}
+        >
           <ItemPhoto item={item} dimmed={!item.isAvailable} className="aspect-square w-full rounded-2xl text-2xl" />
+          {item.isAvailable && quantity > 0 && <SelectionChecks quantity={quantity} />}
           {!item.isAvailable && (
             <span className="absolute top-2 left-2 inline-flex items-center gap-1 rounded-full bg-surface/95 px-2 py-1 text-xs font-medium text-late shadow-sm">
               <Ban className="size-3.5" aria-hidden />
@@ -303,6 +309,26 @@ function MenuCard({ item, currency, quantity, orderable, onAdd, onOpen }: MenuCa
         <span className={cn('tabular mt-0.5 block text-sm', item.isAvailable ? 'text-ink-2' : 'text-ink-3')}>{price}</span>
       </button>
     </li>
+  );
+}
+
+/**
+ * Crochets verts de sélection (spec 003, R6) : un crochet par unité, superposés comme une
+ * double coche ; on voit « deux » sans savoir lire le 2. Au-delà de 5 : cinq crochets et « + ».
+ */
+function SelectionChecks({ quantity }: { quantity: number }) {
+  const shown = Math.min(quantity, 5);
+  return (
+    <span
+      role="img"
+      aria-label={`${quantity} sélectionné${quantity > 1 ? 's' : ''}`}
+      className="absolute top-2 left-2 flex items-center rounded-full bg-done py-1 pr-2 pl-1.5 text-white shadow-pop ring-2 ring-surface"
+    >
+      {Array.from({ length: shown }, (_, index) => (
+        <Check key={index} className={cn('size-4', index > 0 && '-ml-2')} strokeWidth={3.5} aria-hidden />
+      ))}
+      {quantity > 5 && <span className="ml-0.5 text-xs leading-none font-bold">+</span>}
+    </span>
   );
 }
 
