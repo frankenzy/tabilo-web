@@ -98,23 +98,20 @@ function GuestTable({ token, context, onSessionClosed, onContextStale }: GuestTa
 
   return (
     <main className={cn('mx-auto flex min-h-dvh w-full max-w-md flex-col px-4 pt-6', showBar ? 'pb-24' : 'pb-10')}>
-      <header className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="truncate text-sm text-ink-2">{context.establishment.name}</p>
-          <h1 className="mt-0.5 text-2xl font-semibold tracking-tight text-ink">
-            Table {context.table.label}
-            <span className="ml-2 text-base font-normal text-ink-3">{context.table.area}</span>
+      <header>
+        {hasMenu ? (
+          // Repères discrets : l'en-tête de la carte (recherche, tuiles, cloche) prend le haut de l'écran (spec 005).
+          <h1 className="truncate text-[13px] text-ink-2">
+            <span className="font-semibold text-ink">Table {context.table.label}</span> · {context.table.area} · {context.establishment.name}
           </h1>
-        </div>
-        {hasMenu && context.requestTypes.length > 0 && (
-          <button
-            type="button"
-            onClick={() => setServerOpen(true)}
-            className="flex h-14 shrink-0 flex-col items-center justify-center gap-0.5 rounded-2xl bg-ink px-4 text-white shadow-pop active:scale-95"
-          >
-            <BellRing className="size-5" aria-hidden />
-            <span className="text-xs font-semibold">Serveur</span>
-          </button>
+        ) : (
+          <>
+            <p className="text-sm text-ink-2">{context.establishment.name}</p>
+            <h1 className="mt-0.5 text-2xl font-semibold tracking-tight text-ink">
+              Table {context.table.label}
+              <span className="ml-2 text-base font-normal text-ink-3">{context.table.area}</span>
+            </h1>
+          </>
         )}
       </header>
 
@@ -125,23 +122,37 @@ function GuestTable({ token, context, onSessionClosed, onContextStale }: GuestTa
         </p>
       )}
 
-      {active.length > 0 && (
-        <section aria-label="Vos demandes en cours" className="mt-5 flex flex-col gap-3">
-          {active.map((request) => (
-            <Tracking key={request.id} request={request} token={token} currency={currency} />
-          ))}
-        </section>
-      )}
-
       {hasMenu ? (
-        <div className="mt-4">
-          <MenuView context={context} cart={cart} onQuantity={setQuantity} />
+        <div className="mt-1">
+          <MenuView
+            context={context}
+            cart={cart}
+            onQuantity={setQuantity}
+            action={
+              context.requestTypes.length > 0 ? (
+                // Cloche toujours visible : elle est dans l'en-tête fixe de la carte (spec 005, R4).
+                <button
+                  type="button"
+                  onClick={() => setServerOpen(true)}
+                  aria-label="Serveur"
+                  title="Appeler le serveur"
+                  className="grid size-12 shrink-0 place-items-center rounded-full bg-ink text-white shadow-pop active:scale-95"
+                >
+                  <BellRing className="size-5" aria-hidden />
+                </button>
+              ) : undefined
+            }
+            banner={active.length > 0 ? <ActiveTracking active={active} token={token} currency={currency} /> : undefined}
+          />
         </div>
       ) : (
+        <>
+          {active.length > 0 && <ActiveTracking active={active} token={token} currency={currency} />}
         <section className="mt-8">
           <h2 className="text-[15px] font-semibold text-ink">{active.length > 0 ? 'Autre chose ?' : 'De quoi avez-vous besoin ?'}</h2>
           <RequestTiles types={context.requestTypes} activeTypeIds={activeTypeIds} onSelect={setSelected} />
         </section>
+        </>
       )}
 
       {finished.length > 0 && (
@@ -199,6 +210,17 @@ function GuestTable({ token, context, onSessionClosed, onContextStale }: GuestTa
       )}
       {selected && <ConfirmRequest key={selected.id} type={selected} token={token} onClose={() => setSelected(null)} onSessionClosed={onSessionClosed} />}
     </main>
+  );
+}
+
+/** Commandes et demandes en cours, au-dessus de la carte (spec 004, R3). */
+function ActiveTracking({ active, token, currency }: { active: GuestRequest[]; token: string; currency: string }) {
+  return (
+    <section aria-label="Vos demandes en cours" className="mt-4 flex flex-col gap-3">
+      {active.map((request) => (
+        <Tracking key={request.id} request={request} token={token} currency={currency} />
+      ))}
+    </section>
   );
 }
 

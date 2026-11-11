@@ -2,8 +2,8 @@
 
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Ban, Check, Minus, PauseCircle, Plus, RefreshCw, ShoppingBag, Sparkles, Trash2, X } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { Ban, Check, Minus, PauseCircle, Plus, RefreshCw, Search, SearchX, ShoppingBag, Sparkles, Trash2, X } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Button, Dialog, FormError, Textarea } from '@/components/ui';
 import type { GuestContext, GuestRequest, MenuItem, OrderLine } from '@/contracts';
 import { CategoryImage } from '@/components/pages/menu/category-image';
@@ -74,10 +74,25 @@ interface MenuViewProps {
   context: GuestContext;
   cart: Cart;
   onQuantity: (itemId: string, quantity: number) => void;
+  /** Bouton toujours visible à droite de la recherche (la cloche « Serveur », spec 005). */
+  action?: ReactNode;
+  /** Contenu placé sous l'en-tête fixe, avant la carte (suivi des commandes en cours). */
+  banner?: ReactNode;
 }
 
-export function MenuView({ context, cart, onQuantity }: MenuViewProps) {
+/** Recherche sans accents ni majuscules : « attieke » trouve « Attiéké ». */
+const normalize = (text: string) => text.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().trim();
+
+export function MenuView({ context, cart, onQuantity, action, banner }: MenuViewProps) {
   const currency = context.establishment.currency;
+  const [query, setQuery] = useState('');
+  const shown = useMemo(() => {
+    const needle = normalize(query);
+    if (!needle) return context.menu;
+    return context.menu
+      .map((category) => ({ ...category, items: category.items.filter((item) => normalize(`${item.name} ${item.description ?? ''}`).includes(needle)) }))
+      .filter((category) => category.items.length > 0);
+  }, [context.menu, query]);
   const [active, setActive] = useState(context.menu[0]?.id);
   const [opened, setOpened] = useState<MenuItem | null>(null);
   const sections = useRef(new Map<string, HTMLElement>());
@@ -98,11 +113,12 @@ export function MenuView({ context, cart, onQuantity }: MenuViewProps) {
         const first = order.find((id) => visible.has(id));
         if (first) setActive(first);
       },
-      { rootMargin: '-64px 0px -55% 0px' },
+      // Sous l'en-tête fixe (recherche + tuiles, environ 150 px).
+      { rootMargin: '-150px 0px -50% 0px' },
     );
     sections.current.forEach((element) => observer.observe(element));
     return () => observer.disconnect();
-  }, [context.menu]);
+  }, [context.menu, shown]);
 
   useEffect(() => {
     if (active) chips.current.get(active)?.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
@@ -110,40 +126,71 @@ export function MenuView({ context, cart, onQuantity }: MenuViewProps) {
 
   return (
     <>
-      <nav aria-label="Rubriques de la carte" className="sticky top-0 z-20 -mx-4 bg-paper/95 px-4 pt-2 pb-2 backdrop-blur">
-        <div className="-mx-1 flex gap-3 overflow-x-auto px-1 pt-1.5 pb-1 [scrollbar-width:none]">
-          {context.menu.map((category) => (
-            <button
-              key={category.id}
-              ref={(element) => {
-                if (element) chips.current.set(category.id, element);
-              }}
-              type="button"
-              aria-current={active === category.id ? 'true' : undefined}
-              onClick={() => {
-                setActive(category.id);
-                sections.current.get(category.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-              }}
-              aria-label={category.name}
-              className="flex w-[72px] shrink-0 flex-col items-center gap-1.5"
-            >
-              {/* Image d'abord : beaucoup de clients ne lisent pas (spec 003). */}
-              <CategoryImage
-                icon={category.icon}
-                imageId={category.imageId}
-                name=""
-                className={cn(
-                  'size-16 rounded-2xl transition-shadow',
-                  active === category.id ? 'ring-[3px] ring-ink ring-offset-2 ring-offset-paper' : 'ring-1 ring-line',
-                  !category.imageId && 'bg-surface',
-                )}
-                iconClassName="size-8"
-              />
-              <span className={cn('w-full truncate text-center text-xs', active === category.id ? 'font-semibold text-ink' : 'text-ink-2')}>{category.name}</span>
-            </button>
-          ))}
+      {/* En-tête fixe (spec 005) : recherche et cloche, puis les tuiles des rubriques. */}
+      <div className="sticky top-0 z-20 -mx-4 bg-paper/95 px-4 pt-3 pb-1 backdrop-blur">
+        <div className="flex items-center gap-2">
+          <div className="relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute top-1/2 left-4 size-5 -translate-y-1/2 text-ink-3" aria-hidden />
+            <input
+              type="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Rechercher un plat…"
+              aria-label="Rechercher dans la carte"
+              enterKeyHint="search"
+              className="h-12 w-full rounded-full bg-surface pr-11 pl-12 text-[15px] text-ink shadow-sm ring-1 ring-line placeholder:text-ink-3 focus:ring-2 focus:ring-ink focus:outline-none [&::-webkit-search-cancel-button]:hidden"
+            />
+            {query && (
+              <button
+                type="button"
+                onClick={() => setQuery('')}
+                aria-label="Effacer la recherche"
+                className="absolute top-1/2 right-1.5 grid size-9 -translate-y-1/2 place-items-center rounded-full text-ink-2 hover:bg-sunken"
+              >
+                <X className="size-4" aria-hidden />
+              </button>
+            )}
+          </div>
+          {action}
         </div>
-      </nav>
+        <nav aria-label="Rubriques de la carte">
+          <div className="-mx-1 flex gap-1 overflow-x-auto px-1 pt-3 pb-2 [scrollbar-width:none]">
+            {context.menu.map((category) => (
+              <button
+                key={category.id}
+                ref={(element) => {
+                  if (element) chips.current.set(category.id, element);
+                }}
+                type="button"
+                aria-current={active === category.id ? 'true' : undefined}
+                onClick={() => {
+                  setQuery('');
+                  setActive(category.id);
+                  // Après l'effacement de la recherche, la rubrique est de nouveau dans la page.
+                  requestAnimationFrame(() => sections.current.get(category.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+                }}
+                aria-label={category.name}
+                className="flex w-16 shrink-0 flex-col items-center gap-1"
+              >
+                {/* Image d'abord : beaucoup de clients ne lisent pas (spec 003). */}
+                <span
+                  className={cn(
+                    'grid size-12 place-items-center overflow-hidden rounded-xl bg-surface shadow-sm transition-shadow',
+                    active === category.id ? 'ring-2 ring-ink ring-offset-2 ring-offset-paper' : 'ring-1 ring-line',
+                  )}
+                >
+                  <CategoryImage icon={category.icon} imageId={category.imageId} name="" className="size-full bg-surface" iconClassName="size-6" />
+                </span>
+                <span className={cn('w-full truncate text-center text-[11px] leading-tight', active === category.id ? 'font-semibold text-ink' : 'text-ink-2')}>
+                  {category.name}
+                </span>
+              </button>
+            ))}
+          </div>
+        </nav>
+      </div>
+
+      {banner}
 
       {!context.orderingEnabled && (
         <p role="status" className="mt-3 flex items-start gap-2.5 rounded-xl bg-sunken px-3 py-2.5 text-[13px] text-ink-2">
@@ -152,8 +199,19 @@ export function MenuView({ context, cart, onQuantity }: MenuViewProps) {
         </p>
       )}
 
-      <div className="mt-2 flex flex-col gap-8">
-        {context.menu.map((category) => (
+      {shown.length === 0 && (
+        <div role="status" className="mt-10 flex flex-col items-center gap-2 text-center text-ink-2">
+          <SearchX className="size-10 text-ink-3" aria-hidden />
+          <p className="text-[15px] font-medium text-ink">Aucun plat trouvé</p>
+          <button type="button" onClick={() => setQuery('')} className="mt-1 inline-flex h-10 items-center gap-1.5 rounded-full bg-sunken px-4 text-[13px] font-medium text-ink">
+            <X className="size-4" aria-hidden />
+            Effacer la recherche
+          </button>
+        </div>
+      )}
+
+      <div className="mt-4 flex flex-col gap-8">
+        {shown.map((category) => (
           <section
             key={category.id}
             id={`cat-${category.id}`}
@@ -161,7 +219,7 @@ export function MenuView({ context, cart, onQuantity }: MenuViewProps) {
               if (element) sections.current.set(category.id, element);
             }}
             aria-labelledby={`title-${category.id}`}
-            className="scroll-mt-16"
+            className="scroll-mt-40"
           >
             <h2 id={`title-${category.id}`} className="flex items-center gap-2.5 text-lg font-semibold tracking-tight text-ink">
               <CategoryImage icon={category.icon} imageId={category.imageId} name="" className="size-9 rounded-xl bg-surface ring-1 ring-line" iconClassName="size-5" />

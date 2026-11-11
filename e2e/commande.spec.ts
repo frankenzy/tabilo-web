@@ -163,6 +163,23 @@ test('CA-001-12, 05, 14 et CA-002-01 à 09, 12, 13 — le client choisit par l�
   await expect(guest.getByRole('heading', { name: 'Desserts' })).toBeInViewport();
   await chips.getByRole('button', { name: 'Plats' }).click();
 
+  // CA-005-02 : recherche sans accents ; aucun résultat ; la croix rétablit la carte.
+  const search = guest.getByRole('searchbox', { name: 'Rechercher dans la carte' });
+  await search.fill('degue');
+  await expect(guest.getByRole('button', { name: /^Dêguê,/ })).toBeVisible();
+  await expect(guest.getByRole('button', { name: /^Garba,/ })).toHaveCount(0);
+  await search.fill('zzz');
+  await expect(guest.getByText('Aucun plat trouvé')).toBeVisible();
+  await guest.getByRole('button', { name: 'Effacer la recherche' }).first().click();
+  await expect(guest.getByRole('button', { name: /^Garba,/ })).toBeVisible();
+
+  // CA-005-01, 04 : en bas de page, recherche, cloche et tuiles restent visibles.
+  await guest.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+  await expect(search).toBeInViewport();
+  await expect(guest.getByRole('button', { name: 'Serveur' })).toBeInViewport();
+  await expect(chips).toBeInViewport();
+  await guest.evaluate(() => window.scrollTo(0, 0));
+
   // « + » sur la photo, puis la fiche pour passer à 2.
   await guest.getByRole('button', { name: 'Ajouter Garba' }).click();
   await guest.getByRole('button', { name: '1 Garba dans la commande, modifier' }).click();
