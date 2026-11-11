@@ -2,7 +2,7 @@
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  Bell, Check, CheckCircle2, Clock, CookingPot, Loader2, QrCode, RotateCw, Send, UserRound, UtensilsCrossed, WifiOff, X, XCircle,
+  BellRing, Check, CheckCircle2, Clock, CookingPot, Loader2, QrCode, RotateCw, Send, UserRound, WifiOff, X, XCircle,
   type LucideIcon,
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
@@ -70,8 +70,6 @@ function Screen({ children }: { children: React.ReactNode }) {
   return <main className="flex min-h-dvh flex-col items-center justify-center gap-3 px-6 text-center">{children}</main>;
 }
 
-type GuestTab = 'requests' | 'menu';
-
 interface GuestTableProps {
   token: string;
   context: GuestContext;
@@ -79,28 +77,45 @@ interface GuestTableProps {
   onContextStale: () => void;
 }
 
+/**
+ * Page de table (spec 004) : la carte occupe l'écran, la commande passe par la barre du bas,
+ * l'appel au personnel par le bouton « Serveur » en haut. Sans carte, les demandes restent à l'écran.
+ */
 function GuestTable({ token, context, onSessionClosed, onContextStale }: GuestTableProps) {
   const { data: requests = [], live, isError, isPending } = useGuestRequests(token, onSessionClosed);
   const [selected, setSelected] = useState<GuestRequestType | null>(null);
-  const [tab, setTab] = useState<GuestTab>('requests');
+  const [serverOpen, setServerOpen] = useState(false);
   const [cartOpen, setCartOpen] = useState(false);
   const { cart, setQuantity, clear } = useCart(token);
   const hasMenu = context.menu.length > 0;
   const currency = context.establishment.currency;
   const summary = cartLines(cart, context.menu);
+  const showBar = context.orderingEnabled && (summary.count > 0 || summary.hasInvalid);
 
   const active = useMemo(() => requests.filter((r) => ACTIVE.includes(r.status)), [requests]);
   const finished = useMemo(() => requests.filter((r) => !ACTIVE.includes(r.status)).slice(0, 3), [requests]);
   const activeTypeIds = new Set(active.map((r) => r.type.id));
 
   return (
-    <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col px-4 pt-6 pb-10">
-      <header>
-        <p className="text-sm text-ink-2">{context.establishment.name}</p>
-        <h1 className="mt-0.5 text-2xl font-semibold tracking-tight text-ink">
-          Table {context.table.label}
-          <span className="ml-2 text-base font-normal text-ink-3">{context.table.area}</span>
-        </h1>
+    <main className={cn('mx-auto flex min-h-dvh w-full max-w-md flex-col px-4 pt-6', showBar ? 'pb-24' : 'pb-10')}>
+      <header className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="truncate text-sm text-ink-2">{context.establishment.name}</p>
+          <h1 className="mt-0.5 text-2xl font-semibold tracking-tight text-ink">
+            Table {context.table.label}
+            <span className="ml-2 text-base font-normal text-ink-3">{context.table.area}</span>
+          </h1>
+        </div>
+        {hasMenu && context.requestTypes.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setServerOpen(true)}
+            className="flex h-14 shrink-0 flex-col items-center justify-center gap-0.5 rounded-2xl bg-ink px-4 text-white shadow-pop active:scale-95"
+          >
+            <BellRing className="size-5" aria-hidden />
+            <span className="text-xs font-semibold">Serveur</span>
+          </button>
+        )}
       </header>
 
       {!live && !isPending && (
@@ -110,70 +125,27 @@ function GuestTable({ token, context, onSessionClosed, onContextStale }: GuestTa
         </p>
       )}
 
-      {hasMenu && (
-        <GuestTabs
-          value={tab}
-          onChange={setTab}
-          tabs={[
-            { value: 'requests', label: 'Demandes', icon: Bell, count: active.length },
-            { value: 'menu', label: 'Carte', icon: UtensilsCrossed, count: summary.count },
-          ]}
-        />
-      )}
-
-      {tab === 'menu' && hasMenu ? (
-        <div className={cn('mt-6', context.orderingEnabled && summary.count > 0 && 'pb-20')}>
-          <MenuView context={context} cart={cart} onQuantity={setQuantity} />
-        </div>
-      ) : (
-        <>
       {active.length > 0 && (
-        <section aria-label="Vos demandes en cours" className="mt-6 flex flex-col gap-3">
+        <section aria-label="Vos demandes en cours" className="mt-5 flex flex-col gap-3">
           {active.map((request) => (
             <Tracking key={request.id} request={request} token={token} currency={currency} />
           ))}
         </section>
       )}
 
-      <section className="mt-8">
-        <h2 className="text-[15px] font-semibold text-ink">{active.length > 0 ? 'Autre chose ?' : 'De quoi avez-vous besoin ?'}</h2>
-        {context.requestTypes.length === 0 ? (
-          <p className="mt-3 text-sm text-ink-2">Aucune demande n’est disponible pour le moment. Adressez-vous au personnel.</p>
-        ) : (
-          <div className="mt-3 grid grid-cols-2 gap-3">
-            {context.requestTypes.map((type) => {
-              const Icon = requestIcon(type.icon);
-              const pending = activeTypeIds.has(type.id);
-              return (
-                <button
-                  key={type.id}
-                  type="button"
-                  disabled={pending}
-                  onClick={() => setSelected(type)}
-                  className={cn(
-                    'flex min-h-28 flex-col justify-between rounded-2xl p-4 text-left ring-1 ring-inset transition-colors',
-                    pending ? 'bg-sunken text-ink-3 ring-transparent' : 'bg-surface text-ink ring-line active:bg-sunken',
-                  )}
-                >
-                  <Icon className="size-6" aria-hidden />
-                  <span className="text-[15px] leading-tight font-medium">
-                    {type.label}
-                    {pending && (
-                      <span className="mt-0.5 flex items-center gap-1 text-xs font-normal">
-                        <Clock className="size-3.5" aria-hidden />
-                        Déjà demandé
-                      </span>
-                    )}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </section>
+      {hasMenu ? (
+        <div className="mt-4">
+          <MenuView context={context} cart={cart} onQuantity={setQuantity} />
+        </div>
+      ) : (
+        <section className="mt-8">
+          <h2 className="text-[15px] font-semibold text-ink">{active.length > 0 ? 'Autre chose ?' : 'De quoi avez-vous besoin ?'}</h2>
+          <RequestTiles types={context.requestTypes} activeTypeIds={activeTypeIds} onSelect={setSelected} />
+        </section>
+      )}
 
       {finished.length > 0 && (
-        <section className="mt-8">
+        <section className="mt-10">
           <h2 className="text-[13px] font-medium text-ink-3">Terminées</h2>
           <ul className="mt-2 divide-y divide-line">
             {finished.map((request) => (
@@ -192,14 +164,9 @@ function GuestTable({ token, context, onSessionClosed, onContextStale }: GuestTa
         </section>
       )}
 
-        </>
-      )}
+      <p className="mt-auto pt-10 text-center text-xs text-ink-3">Service assuré avec TABILO</p>
 
-      <p className={cn('mt-auto pt-10 text-center text-xs text-ink-3', tab === 'menu' && summary.count > 0 && 'pb-20')}>Service assuré avec TABILO</p>
-
-      {context.orderingEnabled && (summary.count > 0 || summary.hasInvalid) && !cartOpen && (
-        <CartBar count={summary.count} totalMinor={summary.totalMinor} currency={currency} onOpen={() => setCartOpen(true)} />
-      )}
+      {showBar && !cartOpen && <CartBar count={summary.count} totalMinor={summary.totalMinor} currency={currency} onOpen={() => setCartOpen(true)} />}
       {cartOpen && (
         <OrderScreen
           token={token}
@@ -210,15 +177,66 @@ function GuestTable({ token, context, onSessionClosed, onContextStale }: GuestTa
           onOrdered={() => {
             clear();
             setCartOpen(false);
-            setTab('requests');
+            // Retour en haut, sur le suivi de la commande (R4).
+            window.scrollTo({ top: 0, behavior: 'smooth' });
           }}
           onContextStale={onContextStale}
           onSessionClosed={onSessionClosed}
         />
       )}
 
+      {serverOpen && (
+        <Dialog open onOpenChange={(open) => !open && setServerOpen(false)} title="De quoi avez-vous besoin ?" description="L’équipe est prévenue tout de suite.">
+          <RequestTiles
+            types={context.requestTypes}
+            activeTypeIds={activeTypeIds}
+            onSelect={(type) => {
+              setServerOpen(false);
+              setSelected(type);
+            }}
+          />
+        </Dialog>
+      )}
       {selected && <ConfirmRequest key={selected.id} type={selected} token={token} onClose={() => setSelected(null)} onSessionClosed={onSessionClosed} />}
     </main>
+  );
+}
+
+/** Tuiles des demandes de service : une grande icône par demande (spec 003). */
+function RequestTiles({ types, activeTypeIds, onSelect }: { types: GuestRequestType[]; activeTypeIds: Set<string>; onSelect: (type: GuestRequestType) => void }) {
+  if (types.length === 0) {
+    return <p className="mt-3 text-sm text-ink-2">Aucune demande n’est disponible pour le moment. Adressez-vous au personnel.</p>;
+  }
+  return (
+    <div className="mt-3 grid grid-cols-2 gap-3">
+      {types.map((type) => {
+        const Icon = requestIcon(type.icon);
+        const pending = activeTypeIds.has(type.id);
+        return (
+          <button
+            key={type.id}
+            type="button"
+            disabled={pending}
+            onClick={() => onSelect(type)}
+            className={cn(
+              'flex min-h-28 flex-col justify-between rounded-2xl p-4 text-left ring-1 ring-inset transition-colors',
+              pending ? 'bg-sunken text-ink-3 ring-transparent' : 'bg-surface text-ink ring-line active:bg-sunken',
+            )}
+          >
+            <Icon className="size-7" aria-hidden />
+            <span className="text-[15px] leading-tight font-medium">
+              {type.label}
+              {pending && (
+                <span className="mt-0.5 flex items-center gap-1 text-xs font-normal">
+                  <Clock className="size-3.5" aria-hidden />
+                  Déjà demandé
+                </span>
+              )}
+            </span>
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
@@ -229,39 +247,6 @@ const STEPS: { label: string; icon: LucideIcon }[] = [
   { label: 'En cours', icon: CookingPot },
   { label: 'Terminée', icon: CheckCircle2 },
 ];
-
-/** Onglets du client : grande icône d'abord, mot ensuite (spec 003). */
-function GuestTabs<T extends string>({ value, onChange, tabs }: { value: T; onChange: (value: T) => void; tabs: { value: T; label: string; icon: LucideIcon; count: number }[] }) {
-  return (
-    <div role="tablist" aria-label="Rubriques de la page" className="mt-5 grid grid-cols-2 gap-2 rounded-2xl bg-sunken p-1.5">
-      {tabs.map((tab) => {
-        const Icon = tab.icon;
-        const selected = value === tab.value;
-        return (
-          <button
-            key={tab.value}
-            role="tab"
-            type="button"
-            aria-selected={selected}
-            onClick={() => onChange(tab.value)}
-            className={cn(
-              'relative flex h-16 flex-col items-center justify-center gap-1 rounded-xl text-[13px] font-medium transition-colors',
-              selected ? 'bg-surface text-ink shadow-sm' : 'text-ink-2',
-            )}
-          >
-            <Icon className="size-6" strokeWidth={selected ? 2.25 : 1.75} aria-hidden />
-            {tab.label}
-            {tab.count > 0 && (
-              <span className="tabular absolute top-1.5 right-[calc(50%-1.75rem)] grid min-w-5 place-items-center rounded-full bg-brand px-1 text-[11px] font-bold text-white">
-                {tab.count}
-              </span>
-            )}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
 
 function stepOf(request: GuestRequest): number {
   if (request.status === 'resolved') return 3;

@@ -70,6 +70,12 @@ test('le gérant ouvre son établissement et une table', async () => {
   qrUrl = (await owner.getByText(/\/t\/[\w-]+$/).textContent()) ?? '';
   expect(qrUrl).toMatch(/\/t\/[\w-]{20,}$/);
   await owner.keyboard.press('Escape');
+
+  // Le test enchaîne commande et appel depuis le même téléphone : pas de délai entre deux demandes.
+  await owner.getByRole('link', { name: 'Paramètres' }).click();
+  await owner.getByLabel('Délai entre deux demandes (secondes)').fill('0');
+  await owner.getByRole('button', { name: 'Enregistrer' }).click();
+  await expect(owner.getByText('Paramètres enregistrés')).toBeVisible();
 });
 
 test('CA-001-01, 03, 05, 07, 27 — le gérant construit sa carte', async () => {
@@ -133,7 +139,8 @@ test('CA-001-01, 03, 05, 07, 27 — le gérant construit sa carte', async () => 
 test('CA-001-12, 05, 14 et CA-002-01 à 09, 12, 13 — le client choisit par l’image et commande depuis son téléphone', async () => {
   await guest.goto(qrUrl);
   await expect(guest.getByRole('heading', { level: 1 })).toContainText('Table 7');
-  await guest.getByRole('tab', { name: /Carte/ }).click();
+  // CA-004-01 : page unique, la carte est visible dès l'ouverture, sans onglet.
+  await expect(guest.getByRole('tab')).toHaveCount(0);
 
   // Grille photo : Garba a une photo, les autres une initiale ; Alloco est épuisé, sans « + ».
   await expect(guest.getByRole('heading', { name: 'Plats' })).toBeVisible();
@@ -149,8 +156,8 @@ test('CA-001-12, 05, 14 et CA-002-01 à 09, 12, 13 — le client choisit par l�
   for (const name of ['Plats', 'Boissons', 'Desserts']) {
     await expect(chips.getByRole('button', { name }).locator('svg')).toBeVisible();
   }
-  // CA-003-05 : onglets et actions portent une icône.
-  await expect(guest.getByRole('tab', { name: /Carte/ }).locator('svg')).toBeVisible();
+  // CA-003-05 : les actions portent une icône.
+  await expect(guest.getByRole('button', { name: 'Serveur' }).locator('svg')).toBeVisible();
   await chips.getByRole('button', { name: 'Desserts' }).click();
   await expect(chips.getByRole('button', { name: 'Desserts' })).toHaveAttribute('aria-current', 'true');
   await expect(guest.getByRole('heading', { name: 'Desserts' })).toBeInViewport();
@@ -174,7 +181,6 @@ test('CA-001-12, 05, 14 et CA-002-01 à 09, 12, 13 — le client choisit par l�
 
   // La commande survit à un rechargement.
   await guest.reload();
-  await guest.getByRole('tab', { name: /Carte/ }).click();
   await guest.getByRole('button', { name: /Voir la commande/ }).click();
   const screen = guest.getByRole('dialog', { name: 'Votre commande' });
   await expect(screen.getByText('Total de la commande')).toBeVisible();
@@ -200,7 +206,22 @@ test('CA-001-12, 05, 14 et CA-002-01 à 09, 12, 13 — le client choisit par l�
   await expect(tracking.getByText('Garba')).toBeVisible();
   await expect(tracking.getByText(money('3 500 F CFA'))).toBeVisible();
   await expect(guest.getByRole('button', { name: /Voir la commande/ })).toHaveCount(0);
-  await shot(guest, '04-suivi-client');
+  // CA-004-04 : le suivi est au-dessus de la carte, en haut de page.
+  await expect(tracking).toBeInViewport();
+  await shot(guest, '04-suivi-client', false);
+
+  // CA-004-02 : « Serveur » ouvre les demandes, puis la confirmation habituelle.
+  await guest.getByRole('button', { name: 'Serveur' }).click();
+  const needs = guest.getByRole('dialog', { name: 'De quoi avez-vous besoin ?' });
+  await expect(needs.getByRole('button', { name: 'Appeler un serveur' })).toBeVisible();
+  await shot(guest, '05-serveur', false);
+  await needs.getByRole('button', { name: 'De l\'eau' }).click();
+  await guest.getByRole('dialog', { name: 'De l\'eau' }).getByRole('button', { name: 'Envoyer la demande' }).click();
+  await expect(tracking.getByText('De l\'eau')).toBeVisible();
+  // CA-004-03 : déjà demandé.
+  await guest.getByRole('button', { name: 'Serveur' }).click();
+  await expect(guest.getByRole('dialog', { name: 'De quoi avez-vous besoin ?' }).getByRole('button', { name: /De l'eau.*Déjà demandé/ })).toBeDisabled();
+  await guest.keyboard.press('Escape');
 });
 
 test('CA-001-22, 23 — le service reçoit la commande avec son contenu et la traite', async () => {
@@ -231,7 +252,6 @@ test('CA-001-13, R14 — commande suspendue : la carte reste consultable, sans p
   await expect(owner.getByText('Type modifié')).toBeVisible();
 
   await guest.reload();
-  await guest.getByRole('tab', { name: /Carte/ }).click();
   await expect(guest.getByText('La commande en ligne est suspendue.')).toBeVisible();
   await expect(guest.getByRole('button', { name: 'Ajouter Garba' })).toHaveCount(0);
 
