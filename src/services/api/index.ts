@@ -1,8 +1,8 @@
 import type {
-  AppNotification, Area, AuditEntry, EscalationRule, Establishment, LiveOverview, Me, Page, QrCode, Report,
-  RequestType, Role, ServiceRequest, ServiceRequestDetail, StaffMember, Table,
+  AppNotification, Area, AuditEntry, EscalationRule, Establishment, LiveOverview, Me, MenuCategory, MenuItem, Page, QrCode,
+  Report, RequestType, Role, ServiceRequest, ServiceRequestDetail, StaffMember, Table,
 } from '@/contracts';
-import { http, httpAuth } from '@/services/http';
+import { API_BASE, http, httpAuth } from '@/services/http';
 import { setAccessToken } from '@/services/auth/auth-token';
 
 /** Appels de l'espace personnel. Un fichier, une fonction par opération : les composants n'appellent jamais axios. */
@@ -80,8 +80,8 @@ export const floorApi = {
 
 export const requestTypesApi = {
   list: (e: string) => data(http.get<RequestType[]>(`${est(e)}/request-types`)),
-  create: (e: string, body: Omit<RequestType, 'id' | 'position'>) => data(http.post<RequestType>(`${est(e)}/request-types`, body)),
-  update: (e: string, id: string, body: Partial<Omit<RequestType, 'id'>>) =>
+  create: (e: string, body: Omit<RequestType, 'id' | 'position' | 'kind'>) => data(http.post<RequestType>(`${est(e)}/request-types`, body)),
+  update: (e: string, id: string, body: Partial<Omit<RequestType, 'id' | 'kind'>>) =>
     data(http.patch<RequestType>(`${est(e)}/request-types/${id}`, body)),
   archive: (e: string, id: string) => data(http.delete(`${est(e)}/request-types/${id}`)),
 };
@@ -115,6 +115,33 @@ export const establishmentApi = {
   get: (e: string) => data(http.get<Establishment>(est(e))),
   update: (e: string, body: Partial<Omit<Establishment, 'id'>>) => data(http.patch<Establishment>(est(e), body)),
 };
+
+export interface MenuItemInput {
+  categoryId: string;
+  name: string;
+  description: string | null;
+  priceMinor: number;
+  isAvailable: boolean;
+}
+
+export const menuApi = {
+  overview: (e: string) => data(http.get<MenuCategory[]>(`${est(e)}/menu`)),
+  createCategory: (e: string, body: { name: string }) => data(http.post<MenuCategory>(`${est(e)}/menu/categories`, body)),
+  renameCategory: (e: string, id: string, name: string) => data(http.patch(`${est(e)}/menu/categories/${id}`, { name })),
+  archiveCategory: (e: string, id: string) => data(http.delete(`${est(e)}/menu/categories/${id}`)),
+  reorderCategories: (e: string, ids: string[]) => data(http.put<MenuCategory[]>(`${est(e)}/menu/categories/order`, { ids })),
+  reorderItems: (e: string, categoryId: string, ids: string[]) =>
+    data(http.put<MenuCategory>(`${est(e)}/menu/categories/${categoryId}/items/order`, { ids })),
+  createItem: (e: string, body: MenuItemInput) => data(http.post<MenuItem>(`${est(e)}/menu/items`, body)),
+  updateItem: (e: string, id: string, body: Partial<MenuItemInput>) => data(http.patch<MenuItem>(`${est(e)}/menu/items/${id}`, body)),
+  archiveItem: (e: string, id: string) => data(http.delete(`${est(e)}/menu/items/${id}`)),
+  setImage: (e: string, id: string, body: { mime: string; data: string }) =>
+    data(http.put<MenuItem>(`${est(e)}/menu/items/${id}/image`, body)),
+  removeImage: (e: string, id: string) => data(http.delete<MenuItem>(`${est(e)}/menu/items/${id}/image`)),
+};
+
+/** Photo d'un article : publique, servie par son identifiant immuable (cache long). */
+export const menuImageUrl = (imageId: string) => `${API_BASE}/guest/menu-images/${imageId}`;
 
 export const analyticsApi = {
   live: (e: string) => data(http.get<LiveOverview>(`${est(e)}/analytics/live`)),

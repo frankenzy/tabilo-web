@@ -38,6 +38,15 @@ export interface Me {
   }[];
 }
 
+/** Ligne d'une commande : nom et prix figés au moment de la commande. */
+export interface OrderLine {
+  name: string;
+  quantity: number;
+  unitPriceMinor: number;
+}
+
+export type RequestKind = 'service' | 'order';
+
 export interface ServiceRequest {
   id: string;
   status: RequestStatus;
@@ -47,7 +56,11 @@ export interface ServiceRequest {
   note: string | null;
   table: { id: string; label: string };
   area: { id: string; name: string };
-  type: { id: string; label: string; icon: string };
+  type: { id: string; label: string; icon: string; kind: RequestKind };
+  /** Lignes d'une commande ; vide pour une demande de service. */
+  items: OrderLine[];
+  /** Total d'une commande en unité mineure de la devise ; null pour une demande de service. */
+  totalMinor: number | null;
   assignee: { id: string; firstName: string; lastName: string } | null;
   version: number;
   createdAt: string;
@@ -109,6 +122,8 @@ export interface QrCode {
 export interface RequestType {
   id: string;
   label: string;
+  /** `order` : le type « Commande », unique, utilisé par la carte. Il ne se supprime pas. */
+  kind: RequestKind;
   icon: string;
   priority: 'normal' | 'high';
   slaSeconds: number;
@@ -151,6 +166,7 @@ export interface Establishment {
   id: string;
   name: string;
   timezone: string;
+  currency: string;
   address: string | null;
   phone: string | null;
   sessionTtlMinutes: number;
@@ -190,6 +206,16 @@ export interface Breakdown {
   late: number;
   medianAcceptSeconds: number | null;
   medianResolveSeconds: number | null;
+  /** Montant des commandes servies (résolues), en unité mineure. */
+  amountMinor: number;
+}
+
+export interface SalesSummary {
+  currency: string;
+  orders: number;
+  amountMinor: number;
+  averageMinor: number | null;
+  topItems: { menuItemId: string; name: string; quantity: number; amountMinor: number }[];
 }
 
 export interface Report {
@@ -203,8 +229,27 @@ export interface Report {
   byArea: Breakdown[];
   byTable: Breakdown[];
   byStaff: Breakdown[];
-  series: { bucket: string; total: number; resolved: number; late: number }[];
+  series: { bucket: string; total: number; resolved: number; late: number; amountMinor: number }[];
+  sales: SalesSummary;
 }
+
+// ------------------------------------------------------------------- carte
+
+/** Devises proposées (liste fermée côté API). */
+export const CURRENCIES = ['XOF', 'XAF', 'EUR', 'USD', 'MAD', 'GNF', 'NGN', 'GHS', 'CDF', 'TND', 'DZD', 'CAD', 'CHF', 'GBP'] as const;
+
+const menuItemSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string().nullable(),
+  priceMinor: z.number().int(),
+  imageId: z.string().nullable(),
+  isAvailable: z.boolean(),
+});
+const menuCategorySchema = z.object({ id: z.string(), name: z.string(), items: z.array(menuItemSchema) });
+
+export type MenuItem = z.infer<typeof menuItemSchema>;
+export type MenuCategory = z.infer<typeof menuCategorySchema>;
 
 export interface AuditEntry {
   id: string;
@@ -221,16 +266,21 @@ export interface AuditEntry {
 const guestTypeSchema = z.object({ id: z.string(), label: z.string(), icon: z.string(), allowNote: z.boolean() });
 
 export const guestContextSchema = z.object({
-  establishment: z.object({ name: z.string() }),
+  establishment: z.object({ name: z.string(), currency: z.string() }),
   table: z.object({ label: z.string(), area: z.string() }),
   requestTypes: z.array(guestTypeSchema),
+  menu: z.array(menuCategorySchema),
+  /** La commande est ouverte : type « Commande » actif et carte non vide. */
+  orderingEnabled: z.boolean(),
 });
 export const guestSessionSchema = guestContextSchema.extend({ token: z.string().min(32), expiresAt: z.string() });
 
 export const guestRequestSchema = z.object({
   id: z.string(),
   status: z.enum(REQUEST_STATUSES),
-  type: z.object({ id: z.string(), label: z.string(), icon: z.string() }),
+  type: z.object({ id: z.string(), label: z.string(), icon: z.string(), kind: z.enum(['service', 'order']) }),
+  items: z.array(z.object({ name: z.string(), quantity: z.number().int(), unitPriceMinor: z.number().int() })),
+  totalMinor: z.number().int().nullable(),
   handledBy: z.string().nullable(),
   createdAt: z.string(),
   acceptedAt: z.string().nullable(),
@@ -308,12 +358,23 @@ export const escalationRuleSchema = z.object({
 export const establishmentSchema = z.object({
   name: z.string().trim().min(2, 'Nom requis.').max(80),
   timezone: z.string().min(1),
+  currency: z.enum(CURRENCIES),
   address: z.string().trim().max(160),
   phone: z.string().trim().max(30),
   sessionTtlMinutes: z.coerce.number().int().min(15).max(720),
   maxActiveRequestsPerTable: z.coerce.number().int().min(1).max(20),
   maxRequestsPerSession: z.coerce.number().int().min(1).max(200),
   requestCooldownSeconds: z.coerce.number().int().min(0).max(300),
+});
+
+export const menuCategoryFormSchema = z.object({ name: z.string().trim().min(1, 'Nom de rubrique requis.').max(40, '40 caractères au plus.') });
+
+export const menuItemFormSchema = z.object({
+  categoryId: z.string().uuid('Choisissez une rubrique.'),
+  name: z.string().trim().min(1, 'Nom requis.').max(60, '60 caractères au plus.'),
+  description: z.string().trim().max(200, '200 caractères au plus.'),
+  price: z.string().trim().min(1, 'Prix requis.'),
+  isAvailable: z.boolean(),
 });
 
 /** Erreurs par champ, à partir d'un résultat Zod. */

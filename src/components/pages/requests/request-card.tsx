@@ -10,6 +10,7 @@ import type { RequestAction } from '@/services/api';
 import { formatClock, secondsSince } from '@/utils/time';
 import { URGENCY_TILE, urgencyOf } from '@/utils/urgency';
 import { capabilitiesOf, type Viewer } from './capabilities';
+import { OrderLines } from './order-lines';
 import type { RequestDialog } from './request-dialogs';
 
 export { capabilitiesOf, type Viewer };
@@ -71,6 +72,7 @@ export function RequestCard({ request, now, viewer, busy, onAction, onDialog }: 
           </button>
         </div>
 
+        {request.type.kind === 'order' && <OrderLines items={request.items} totalMinor={request.totalMinor} compact />}
         {request.note && <p className="mt-1.5 line-clamp-2 text-sm text-ink">« {request.note} »</p>}
 
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-ink-2">

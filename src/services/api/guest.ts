@@ -28,6 +28,12 @@ export const guestApi = {
     });
     return guestCreateResultSchema.parse(response.data);
   },
+  async order(token: string, body: { items: { menuItemId: string; quantity: number }[]; note?: string }, idempotencyKey: string) {
+    const response = await httpGuest.post('/guest/orders', body, {
+      headers: { ...headers(token), 'idempotency-key': idempotencyKey },
+    });
+    return guestCreateResultSchema.parse(response.data);
+  },
   async cancel(token: string, id: string): Promise<GuestRequest> {
     const response = await httpGuest.post(`/guest/requests/${id}/cancel`, {}, { headers: headers(token) });
     return guestRequestSchema.parse(response.data);

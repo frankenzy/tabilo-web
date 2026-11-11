@@ -12,6 +12,7 @@ import { useAuthStore, useCan } from '@/stores/auth.store';
 import { toast } from '@/stores/toast.store';
 import { formatDateTime, formatDuration } from '@/utils/time';
 import { useFloor, useRequestAction, useRequestTypes, useStaff } from './use-requests';
+import { OrderLines } from './order-lines';
 
 export type RequestDialog =
   | { kind: 'assign' | 'transfer' | 'release' | 'cancel' | 'detail'; request: ServiceRequest }
@@ -159,7 +160,8 @@ function CreateRequestDialog({ onClose }: { onClose: () => void }) {
     create.mutate();
   }
 
-  const activeTypes = (types.data ?? []).filter((type) => type.isActive);
+  // Une commande se passe depuis la carte, par le client : le personnel ne crée que des demandes de service.
+  const activeTypes = (types.data ?? []).filter((type) => type.isActive && type.kind === 'service');
   const hasTables = (floor.data ?? []).some((area) => area.tables.length > 0);
 
   return (
@@ -235,6 +237,7 @@ function RequestDetail({ request, onClose }: { request: ServiceRequest; onClose:
         {current.priority === 'high' && <Badge tone="brand">Prioritaire</Badge>}
         <Badge>{current.source === 'customer' ? 'Par le client' : 'Par le personnel'}</Badge>
       </div>
+      {current.type.kind === 'order' && <OrderLines items={current.items} totalMinor={current.totalMinor} />}
       {current.note && <p className="mt-4 rounded-lg bg-sunken px-3 py-2 text-sm text-ink">« {current.note} »</p>}
       <dl className="mt-5 grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
         <div>

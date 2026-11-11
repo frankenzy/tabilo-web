@@ -3,13 +3,16 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Check, Loader2, QrCode, WifiOff } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import { Button, Dialog, FormError, Textarea } from '@/components/ui';
+import { Button, Dialog, FormError, Tabs, Textarea } from '@/components/ui';
 import { requestIcon } from '@/constants/requests';
 import type { GuestContext, GuestRequest, GuestRequestType } from '@/contracts';
 import { cn } from '@/lib/utils';
 import { guestApi } from '@/services/api/guest';
 import { errorMessage, toHttpError } from '@/services/http';
+import { formatMoney } from '@/utils/money';
 import { formatTime } from '@/utils/time';
+import { cartLines, useCart } from './cart';
+import { CartBar, CartSheet, GuestOrderLines, MenuView } from './guest-menu';
 import { guestRequestsKey, upsert, useGuestRequests } from './use-guest-requests';
 import { useGuestSession } from './use-guest-session';
 
@@ -17,7 +20,7 @@ const NOTE_MAX = 280;
 const ACTIVE = ['pending', 'assigned', 'accepted', 'in_progress'];
 
 export function GuestPage({ code }: { code: string }) {
-  const { state, retry, markClosed } = useGuestSession(code);
+  const { state, retry, markClosed, refresh } = useGuestSession(code);
 
   if (state.phase === 'loading') {
     return (
@@ -55,16 +58,31 @@ export function GuestPage({ code }: { code: string }) {
       </Screen>
     );
   }
-  return <GuestTable token={state.token} context={state.context} onSessionClosed={markClosed} />;
+  return <GuestTable token={state.token} context={state.context} onSessionClosed={markClosed} onContextStale={refresh} />;
 }
 
 function Screen({ children }: { children: React.ReactNode }) {
   return <main className="flex min-h-dvh flex-col items-center justify-center gap-3 px-6 text-center">{children}</main>;
 }
 
-function GuestTable({ token, context, onSessionClosed }: { token: string; context: GuestContext; onSessionClosed: () => void }) {
+type GuestTab = 'requests' | 'menu';
+
+interface GuestTableProps {
+  token: string;
+  context: GuestContext;
+  onSessionClosed: () => void;
+  onContextStale: () => void;
+}
+
+function GuestTable({ token, context, onSessionClosed, onContextStale }: GuestTableProps) {
   const { data: requests = [], live, isError, isPending } = useGuestRequests(token, onSessionClosed);
   const [selected, setSelected] = useState<GuestRequestType | null>(null);
+  const [tab, setTab] = useState<GuestTab>('requests');
+  const [cartOpen, setCartOpen] = useState(false);
+  const { cart, setQuantity, clear } = useCart(token);
+  const hasMenu = context.menu.length > 0;
+  const currency = context.establishment.currency;
+  const summary = cartLines(cart, context.menu);
 
   const active = useMemo(() => requests.filter((r) => ACTIVE.includes(r.status)), [requests]);
   const finished = useMemo(() => requests.filter((r) => !ACTIVE.includes(r.status)).slice(0, 3), [requests]);
@@ -87,10 +105,30 @@ function GuestTable({ token, context, onSessionClosed }: { token: string; contex
         </p>
       )}
 
+      {hasMenu && (
+        <div className="mt-5">
+          <Tabs
+            label="Rubriques de la page"
+            value={tab}
+            onChange={setTab}
+            tabs={[
+              { value: 'requests', label: 'Demandes', count: active.length || undefined },
+              { value: 'menu', label: 'Carte', count: summary.count || undefined },
+            ]}
+          />
+        </div>
+      )}
+
+      {tab === 'menu' && hasMenu ? (
+        <div className={cn('mt-6', context.orderingEnabled && summary.count > 0 && 'pb-20')}>
+          <MenuView context={context} cart={cart} onQuantity={setQuantity} />
+        </div>
+      ) : (
+        <>
       {active.length > 0 && (
         <section aria-label="Vos demandes en cours" className="mt-6 flex flex-col gap-3">
           {active.map((request) => (
-            <Tracking key={request.id} request={request} token={token} />
+            <Tracking key={request.id} request={request} token={token} currency={currency} />
           ))}
         </section>
       )}
@@ -133,7 +171,10 @@ function GuestTable({ token, context, onSessionClosed }: { token: string; contex
           <ul className="mt-2 divide-y divide-line">
             {finished.map((request) => (
               <li key={request.id} className="flex items-center justify-between py-2.5 text-sm">
-                <span className="text-ink-2">{request.type.label}</span>
+                <span className="text-ink-2">
+                  {request.type.label}
+                  {request.totalMinor !== null && <span className="tabular text-ink-3"> · {formatMoney(request.totalMinor, currency)}</span>}
+                </span>
                 <span className={request.status === 'resolved' ? 'text-done' : 'text-ink-3'}>
                   {request.status === 'resolved' ? 'Traitée' : 'Annulée'}
                 </span>
@@ -143,7 +184,30 @@ function GuestTable({ token, context, onSessionClosed }: { token: string; contex
         </section>
       )}
 
-      <p className="mt-auto pt-10 text-center text-xs text-ink-3">Service assuré avec TABILO</p>
+        </>
+      )}
+
+      <p className={cn('mt-auto pt-10 text-center text-xs text-ink-3', tab === 'menu' && summary.count > 0 && 'pb-20')}>Service assuré avec TABILO</p>
+
+      {context.orderingEnabled && (summary.count > 0 || summary.hasInvalid) && !cartOpen && (
+        <CartBar count={summary.count} totalMinor={summary.totalMinor} currency={currency} onOpen={() => setCartOpen(true)} />
+      )}
+      {cartOpen && (
+        <CartSheet
+          token={token}
+          context={context}
+          cart={cart}
+          onQuantity={setQuantity}
+          onClose={() => setCartOpen(false)}
+          onOrdered={() => {
+            clear();
+            setCartOpen(false);
+            setTab('requests');
+          }}
+          onContextStale={onContextStale}
+          onSessionClosed={onSessionClosed}
+        />
+      )}
 
       {selected && <ConfirmRequest key={selected.id} type={selected} token={token} onClose={() => setSelected(null)} onSessionClosed={onSessionClosed} />}
     </main>
@@ -159,7 +223,7 @@ function stepOf(request: GuestRequest): number {
   return 0;
 }
 
-function Tracking({ request, token }: { request: GuestRequest; token: string }) {
+function Tracking({ request, token, currency }: { request: GuestRequest; token: string; currency: string }) {
   const queryClient = useQueryClient();
   const Icon = requestIcon(request.type.icon);
   const step = stepOf(request);
@@ -172,7 +236,9 @@ function Tracking({ request, token }: { request: GuestRequest; token: string }) 
 
   const message =
     step === 0
-      ? 'Votre demande est bien reçue. L’équipe est prévenue.'
+      ? request.type.kind === 'order'
+        ? 'Votre commande est bien reçue. L’équipe est prévenue.'
+        : 'Votre demande est bien reçue. L’équipe est prévenue.'
       : step === 1
         ? `${request.handledBy ?? 'Un membre de l’équipe'} s’en occupe.`
         : `${request.handledBy ?? 'Un membre de l’équipe'} est en train de traiter votre demande.`;
@@ -189,6 +255,7 @@ function Tracking({ request, token }: { request: GuestRequest; token: string }) 
       <p role="status" className="mt-2 text-sm text-white/80">
         {message}
       </p>
+      {request.type.kind === 'order' && <GuestOrderLines items={request.items} totalMinor={request.totalMinor} currency={currency} />}
       <ol className="mt-4 grid grid-cols-4 gap-1.5" aria-label="Avancement">
         {STEPS.map((label, index) => (
           <li key={label} aria-current={index === step ? 'step' : undefined}>

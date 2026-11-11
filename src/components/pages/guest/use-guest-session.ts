@@ -31,9 +31,9 @@ export function useGuestSession(code: string) {
           storeToken(code, null);
         }
       }
-      const { token, establishment, table, requestTypes } = await guestApi.openSession(code);
+      const { token, establishment, table, requestTypes, menu, orderingEnabled } = await guestApi.openSession(code);
       storeToken(code, token);
-      setState({ phase: 'ready', token, context: { establishment, table, requestTypes } });
+      setState({ phase: 'ready', token, context: { establishment, table, requestTypes, menu, orderingEnabled } });
     } catch (error) {
       const http = toHttpError(error);
       const kind = http.status === 404 || http.status === 400 ? 'invalid' : http.status === 429 ? 'busy' : 'network';
@@ -57,5 +57,16 @@ export function useGuestSession(code: string) {
     setState({ phase: 'closed' });
   }, [code]);
 
-  return { state, retry: start, markClosed };
+  /** Relit le contexte (carte, commande ouverte ou non) sans rouvrir de session. */
+  const refresh = useCallback(async () => {
+    if (state.phase !== 'ready') return;
+    try {
+      const context = await guestApi.context(state.token);
+      setState({ phase: 'ready', token: state.token, context });
+    } catch {
+      // on garde la carte affichée : la prochaine commande dira ce qui a changé
+    }
+  }, [state]);
+
+  return { state, retry: start, markClosed, refresh };
 }

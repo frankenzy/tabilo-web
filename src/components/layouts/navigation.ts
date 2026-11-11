@@ -1,5 +1,5 @@
 import {
-  BarChart3, ConciergeBell, History, LayoutDashboard, ScrollText, Settings, Users, Utensils, type LucideIcon,
+  BarChart3, BookOpen, ConciergeBell, History, LayoutDashboard, ScrollText, Settings, Users, Utensils, type LucideIcon,
 } from 'lucide-react';
 
 export interface NavItem {
@@ -15,6 +15,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: '/app/dashboard', label: 'Tableau de bord', icon: LayoutDashboard, anyOf: ['analytics.read'] },
   { href: '/app/demandes', label: 'Historique', icon: History, anyOf: ['requests.read'] },
   { href: '/app/salle', label: 'Salle', icon: Utensils, anyOf: ['floor.read'] },
+  { href: '/app/carte', label: 'Carte', icon: BookOpen, anyOf: ['requests.read'] },
   { href: '/app/equipe', label: 'Équipe', icon: Users, anyOf: ['staff.manage'] },
   { href: '/app/statistiques', label: 'Statistiques', icon: BarChart3, anyOf: ['analytics.read'] },
   { href: '/app/parametres', label: 'Paramètres', icon: Settings, anyOf: ['establishment.update', 'request_types.manage', 'escalation.manage'] },

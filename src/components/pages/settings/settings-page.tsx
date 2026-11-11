@@ -6,7 +6,7 @@ import { useState, type FormEvent } from 'react';
 import { useRequestTypes } from '@/components/pages/requests/use-requests';
 import { Badge, Button, Card, Checkbox, ConfirmDialog, Dialog, DialogActions, EmptyState, ErrorState, FormError, Input, PageHeader, Select, Spinner, Tabs } from '@/components/ui';
 import { ICON_LABELS, REQUEST_ICONS, requestIcon } from '@/constants/requests';
-import { escalationRuleSchema, establishmentSchema, fieldErrors, requestTypeSchema, type EscalationRule, type RequestType } from '@/contracts';
+import { CURRENCIES, escalationRuleSchema, establishmentSchema, fieldErrors, requestTypeSchema, type EscalationRule, type RequestType } from '@/contracts';
 import { estKey, useEstablishmentId } from '@/hooks/use-establishment';
 import { cn } from '@/lib/utils';
 import { escalationApi, establishmentApi, requestTypesApi } from '@/services/api';
@@ -85,6 +85,13 @@ function EstablishmentSettings() {
             </option>
           ))}
         </Select>
+        <Select label="Devise" name="currency" defaultValue={data.currency} error={errors.currency} hint="Devise des prix de la carte et des montants des commandes.">
+          {CURRENCIES.map((code) => (
+            <option key={code} value={code}>
+              {code} — {currencyName(code)}
+            </option>
+          ))}
+        </Select>
         <Input label="Adresse" name="address" defaultValue={data.address ?? ''} error={errors.address} />
         <Input label="Téléphone" name="phone" type="tel" defaultValue={data.phone ?? ''} error={errors.phone} />
       </fieldset>
@@ -106,6 +113,14 @@ function EstablishmentSettings() {
       </div>
     </form>
   );
+}
+
+function currencyName(code: string): string {
+  try {
+    return new Intl.DisplayNames(['fr'], { type: 'currency' }).of(code) ?? code;
+  } catch {
+    return code;
+  }
 }
 
 // --------------------------------------------------------- types de demande
@@ -154,6 +169,7 @@ function RequestTypesSettings() {
                     <div className="min-w-0">
                       <p className="flex flex-wrap items-center gap-2 text-sm font-medium text-ink">
                         {type.label}
+                        {type.kind === 'order' && <Badge tone="neutral">Commandes de la carte</Badge>}
                         {type.priority === 'high' && <Badge tone="brand">Prioritaire</Badge>}
                         {!type.isActive && <Badge tone="muted">Masqué</Badge>}
                       </p>
@@ -164,9 +180,12 @@ function RequestTypesSettings() {
                     <Button variant="secondary" size="sm" onClick={() => setEditing(type)}>
                       Modifier
                     </Button>
-                    <Button variant="ghost" size="sm" onClick={() => setRemoving(type)}>
-                      Supprimer
-                    </Button>
+                    {/* Le type « Commande » ne se supprime pas : on le masque pour suspendre les commandes. */}
+                    {type.kind !== 'order' && (
+                      <Button variant="ghost" size="sm" onClick={() => setRemoving(type)}>
+                        Supprimer
+                      </Button>
+                    )}
                   </div>
                 </li>
               );
@@ -196,7 +215,7 @@ function RequestTypeDialog({ type, onClose, onSaved }: { type?: RequestType; onC
   const [icon, setIcon] = useState(type?.icon ?? 'bell');
   const [errors, setErrors] = useState<Record<string, string>>({});
   const save = useMutation({
-    mutationFn: (body: Omit<RequestType, 'id' | 'position'>) =>
+    mutationFn: (body: Omit<RequestType, 'id' | 'position' | 'kind'>) =>
       type ? requestTypesApi.update(establishmentId, type.id, body) : requestTypesApi.create(establishmentId, body),
     onSuccess: () => {
       toast.success(type ? 'Type modifié' : 'Type ajouté');
@@ -253,7 +272,16 @@ function RequestTypeDialog({ type, onClose, onSaved }: { type?: RequestType; onC
         </div>
         <p className="-mt-2 text-[13px] text-ink-3">Passé le délai cible sans prise en charge, la demande est signalée « en retard ».</p>
         <Checkbox label="Le client peut ajouter une précision" name="allowNote" defaultChecked={type?.allowNote ?? true} />
-        <Checkbox label="Proposé aux clients" hint="Décochez pour masquer ce type sans le supprimer." name="isActive" defaultChecked={type?.isActive ?? true} />
+        <Checkbox
+          label={type?.kind === 'order' ? 'Commande en ligne ouverte' : 'Proposé aux clients'}
+          hint={
+            type?.kind === 'order'
+              ? 'Décochez pour suspendre les commandes : la carte reste consultable, sans panier.'
+              : 'Décochez pour masquer ce type sans le supprimer.'
+          }
+          name="isActive"
+          defaultChecked={type?.isActive ?? true}
+        />
         <FormError message={save.isError ? errorMessage(save.error) : null} />
         <DialogActions>
           <Button variant="secondary" onClick={onClose}>
