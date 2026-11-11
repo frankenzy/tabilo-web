@@ -246,7 +246,14 @@ const menuItemSchema = z.object({
   imageId: z.string().nullable(),
   isAvailable: z.boolean(),
 });
-const menuCategorySchema = z.object({ id: z.string(), name: z.string(), items: z.array(menuItemSchema) });
+const menuCategorySchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  /** Pictogramme (spec 003) ; remplacé par la photo de rubrique si `imageId` existe. */
+  icon: z.string(),
+  imageId: z.string().nullable(),
+  items: z.array(menuItemSchema),
+});
 
 export type MenuItem = z.infer<typeof menuItemSchema>;
 export type MenuCategory = z.infer<typeof menuCategorySchema>;

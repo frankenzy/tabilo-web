@@ -2,10 +2,11 @@
 
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Minus, Plus, Trash2, X } from 'lucide-react';
+import { Ban, Check, Minus, PauseCircle, Plus, RefreshCw, ShoppingBag, Sparkles, Trash2, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Button, Dialog, FormError, Textarea } from '@/components/ui';
 import type { GuestContext, GuestRequest, MenuItem, OrderLine } from '@/contracts';
+import { CategoryImage } from '@/components/pages/menu/category-image';
 import { cn } from '@/lib/utils';
 import { menuImageUrl } from '@/services/api';
 import { guestApi } from '@/services/api/guest';
@@ -109,8 +110,8 @@ export function MenuView({ context, cart, onQuantity }: MenuViewProps) {
 
   return (
     <>
-      <nav aria-label="Rubriques de la carte" className="sticky top-0 z-20 -mx-4 bg-paper/95 px-4 py-2.5 backdrop-blur">
-        <div className="flex gap-2 overflow-x-auto [scrollbar-width:none]">
+      <nav aria-label="Rubriques de la carte" className="sticky top-0 z-20 -mx-4 bg-paper/95 px-4 pt-2 pb-2 backdrop-blur">
+        <div className="-mx-1 flex gap-3 overflow-x-auto px-1 pt-1.5 pb-1 [scrollbar-width:none]">
           {context.menu.map((category) => (
             <button
               key={category.id}
@@ -123,19 +124,30 @@ export function MenuView({ context, cart, onQuantity }: MenuViewProps) {
                 setActive(category.id);
                 sections.current.get(category.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
               }}
-              className={cn(
-                'h-9 shrink-0 rounded-full px-4 text-sm font-medium whitespace-nowrap transition-colors',
-                active === category.id ? 'bg-ink text-white' : 'bg-surface text-ink-2 ring-1 ring-line ring-inset',
-              )}
+              aria-label={category.name}
+              className="flex w-[72px] shrink-0 flex-col items-center gap-1.5"
             >
-              {category.name}
+              {/* Image d'abord : beaucoup de clients ne lisent pas (spec 003). */}
+              <CategoryImage
+                icon={category.icon}
+                imageId={category.imageId}
+                name=""
+                className={cn(
+                  'size-16 rounded-2xl transition-shadow',
+                  active === category.id ? 'ring-[3px] ring-ink ring-offset-2 ring-offset-paper' : 'ring-1 ring-line',
+                  !category.imageId && 'bg-surface',
+                )}
+                iconClassName="size-8"
+              />
+              <span className={cn('w-full truncate text-center text-xs', active === category.id ? 'font-semibold text-ink' : 'text-ink-2')}>{category.name}</span>
             </button>
           ))}
         </div>
       </nav>
 
       {!context.orderingEnabled && (
-        <p role="status" className="mt-3 rounded-xl bg-sunken px-3 py-2.5 text-[13px] text-ink-2">
+        <p role="status" className="mt-3 flex items-start gap-2.5 rounded-xl bg-sunken px-3 py-2.5 text-[13px] text-ink-2">
+          <PauseCircle className="mt-0.5 size-5 shrink-0 text-ink" aria-hidden />
           La commande en ligne est suspendue. Vous pouvez consulter la carte et commander auprès du personnel.
         </p>
       )}
@@ -151,7 +163,8 @@ export function MenuView({ context, cart, onQuantity }: MenuViewProps) {
             aria-labelledby={`title-${category.id}`}
             className="scroll-mt-16"
           >
-            <h2 id={`title-${category.id}`} className="text-lg font-semibold tracking-tight text-ink">
+            <h2 id={`title-${category.id}`} className="flex items-center gap-2.5 text-lg font-semibold tracking-tight text-ink">
+              <CategoryImage icon={category.icon} imageId={category.imageId} name="" className="size-9 rounded-xl bg-surface ring-1 ring-line" iconClassName="size-5" />
               {category.name}
             </h2>
             <ul className="mt-3 grid grid-cols-2 gap-x-3 gap-y-5">
@@ -206,7 +219,10 @@ function MenuCard({ item, currency, quantity, orderable, onAdd, onOpen }: MenuCa
         <button type="button" onClick={onOpen} className="block w-full" aria-label={`${item.name}, ${price}${item.isAvailable ? '' : ', épuisé'}`}>
           <ItemPhoto item={item} dimmed={!item.isAvailable} className="aspect-square w-full rounded-2xl text-2xl" />
           {!item.isAvailable && (
-            <span className="absolute top-2 left-2 rounded-full bg-surface/95 px-2.5 py-1 text-xs font-medium text-ink-2 shadow-sm">Épuisé</span>
+            <span className="absolute top-2 left-2 inline-flex items-center gap-1 rounded-full bg-surface/95 px-2 py-1 text-xs font-medium text-late shadow-sm">
+              <Ban className="size-3.5" aria-hidden />
+              Épuisé
+            </span>
           )}
         </button>
         {canAdd && (
@@ -241,12 +257,18 @@ function ItemSheet({ item, currency, orderable, inCart, onSave, onClose }: { ite
         <div>
           <p className="tabular text-lg font-semibold text-ink">{formatMoney(item.priceMinor, currency)}</p>
           {item.description && <p className="mt-1 text-sm text-ink-2">{item.description}</p>}
-          {!item.isAvailable && <p className="mt-2 text-sm font-medium text-late">Épuisé pour le moment</p>}
+          {!item.isAvailable && (
+            <p className="mt-2 flex items-center gap-1.5 text-sm font-medium text-late">
+              <Ban className="size-4" aria-hidden />
+              Épuisé pour le moment
+            </p>
+          )}
         </div>
         {canOrder && (
           <div className="flex items-center gap-3">
             <Stepper name={item.name} quantity={quantity} size="lg" onChange={(q) => setQuantity(Math.max(inCart > 0 ? 0 : 1, q))} />
             <Button size="lg" className="h-12 flex-1 rounded-full" variant={label === 'Retirer' ? 'secondary' : 'primary'} onClick={() => onSave(quantity)}>
+              {label === 'Retirer' ? <Trash2 className="size-5" aria-hidden /> : label === 'Ajouter' ? <Plus className="size-5" aria-hidden /> : <RefreshCw className="size-5" aria-hidden />}
               {label}
               {quantity > 0 && <span className="tabular font-normal opacity-80">· {formatMoney(quantity * item.priceMinor, currency)}</span>}
             </Button>
@@ -270,7 +292,10 @@ export function CartBar({ count, totalMinor, currency, onOpen }: { count: number
         className="pointer-events-auto mx-auto flex h-14 w-full max-w-md items-center justify-between gap-3 rounded-full bg-ink pr-5 pl-2 text-white shadow-pop active:scale-[0.99]"
       >
         <span className="flex items-center gap-3 text-[15px] font-semibold">
-          <span className="tabular grid size-10 place-items-center rounded-full bg-white/15 text-sm">{count}</span>
+          <span className="relative grid size-10 place-items-center rounded-full bg-white/15">
+            <ShoppingBag className="size-5" aria-hidden />
+            <span className="tabular absolute -top-1 -right-1 grid size-5 place-items-center rounded-full bg-brand text-[11px] font-bold text-white">{count}</span>
+          </span>
           Voir la commande
         </span>
         <span className="tabular text-[15px] font-semibold">{formatMoney(totalMinor, currency)}</span>
@@ -345,13 +370,17 @@ export function OrderScreen({ token, context, cart, onQuantity, onClose, onOrder
                       <div className="min-w-0 flex-1">
                         <p className={cn('truncate text-[15px] font-medium', line.invalid ? 'text-ink-3 line-through' : 'text-ink')}>{line.item?.name ?? 'Article retiré'}</p>
                         {line.invalid ? (
-                          <p className="text-[13px] text-late">N’est plus disponible</p>
+                          <p className="flex items-center gap-1 text-[13px] text-late">
+                            <Ban className="size-3.5" aria-hidden />
+                            N’est plus disponible
+                          </p>
                         ) : (
                           <p className="tabular text-[13px] text-ink-2">{formatMoney(line.item?.priceMinor ?? 0, currency)}</p>
                         )}
                       </div>
                       {line.invalid ? (
                         <Button variant="ghost" size="sm" onClick={() => onQuantity(line.itemId, 0)}>
+                          <Trash2 className="size-4" aria-hidden />
                           Retirer
                         </Button>
                       ) : (
@@ -362,7 +391,8 @@ export function OrderScreen({ token, context, cart, onQuantity, onClose, onOrder
                 </ul>
               )}
               <div className="flex justify-end pb-4">
-                <button type="button" onClick={onClose} className="h-9 rounded-full bg-sunken px-4 text-[13px] font-medium text-ink hover:bg-line">
+                <button type="button" onClick={onClose} className="inline-flex h-10 items-center gap-1.5 rounded-full bg-sunken px-4 text-[13px] font-medium text-ink hover:bg-line">
+                  <Plus className="size-4" aria-hidden />
                   Ajouter d’autres articles
                 </button>
               </div>
@@ -391,6 +421,7 @@ export function OrderScreen({ token, context, cart, onQuantity, onClose, onOrder
                 <span className="tabular text-lg font-semibold text-ink">{formatMoney(totalMinor, currency)}</span>
               </p>
               <Button size="lg" className="h-14 rounded-full text-base" loading={send.isPending} disabled={count === 0 || hasInvalid || !context.orderingEnabled} onClick={() => send.mutate()}>
+                {!send.isPending && <Check className="size-5" strokeWidth={2.5} aria-hidden />}
                 Commander
               </Button>
               <p className="text-center text-xs text-ink-3">Le règlement se fait auprès du personnel.</p>
@@ -417,7 +448,8 @@ function Suggestions({ token, context, cart, onAdd }: { token: string; context: 
   if (suggested.length === 0) return null;
   return (
     <section aria-labelledby="suggestions-title" className="border-t-8 border-paper pt-5">
-      <h2 id="suggestions-title" className="px-4 text-[17px] font-semibold tracking-tight text-ink">
+      <h2 id="suggestions-title" className="flex items-center gap-2 px-4 text-[17px] font-semibold tracking-tight text-ink">
+        <Sparkles className="size-5 text-brand" aria-hidden />
         Souvent commandés avec
       </h2>
       <ul className="mt-3 flex snap-x gap-3 overflow-x-auto px-4 pb-1 [scrollbar-width:none]">

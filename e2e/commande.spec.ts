@@ -76,9 +76,12 @@ test('CA-001-01, 03, 05, 07, 27 — le gérant construit sa carte', async () => 
   await owner.getByRole('link', { name: 'Carte' }).click();
   await expect(owner.getByText('Votre carte est vide')).toBeVisible();
 
-  for (const name of ['Boissons', 'Plats', 'Desserts']) {
+  // CA-003-02 : chaque rubrique reçoit un pictogramme.
+  for (const [name, pictogram] of [['Boissons', 'Boisson, soda'], ['Plats', 'Plats'], ['Desserts', 'Glace']]) {
     await owner.getByRole('button', { name: /Créer une rubrique|Nouvelle rubrique/ }).click();
     await owner.getByLabel('Nom').fill(name);
+    await owner.getByRole('dialog').getByRole('button', { name: pictogram, exact: true }).click();
+    await expect(owner.getByRole('dialog').getByRole('button', { name: pictogram, exact: true })).toHaveAttribute('aria-pressed', 'true');
     await owner.getByRole('button', { name: 'Créer', exact: true }).click();
     await expect(owner.getByRole('heading', { name: new RegExp(`^${name}`) })).toBeVisible();
   }
@@ -141,8 +144,13 @@ test('CA-001-12, 05, 14 et CA-002-01 à 09, 12, 13 — le client choisit par l�
   await expect(guest.getByRole('button', { name: 'Ajouter Alloco' })).toHaveCount(0);
   await expectNoHorizontalScroll(guest);
 
-  // Rubriques fixes : un appui amène à la rubrique et la met en évidence.
+  // Rubriques fixes, en images (CA-003-01) : un appui amène à la rubrique et la met en évidence.
   const chips = guest.getByRole('navigation', { name: 'Rubriques de la carte' });
+  for (const name of ['Plats', 'Boissons', 'Desserts']) {
+    await expect(chips.getByRole('button', { name }).locator('svg')).toBeVisible();
+  }
+  // CA-003-05 : onglets et actions portent une icône.
+  await expect(guest.getByRole('tab', { name: /Carte/ }).locator('svg')).toBeVisible();
   await chips.getByRole('button', { name: 'Desserts' }).click();
   await expect(chips.getByRole('button', { name: 'Desserts' })).toHaveAttribute('aria-current', 'true');
   await expect(guest.getByRole('heading', { name: 'Desserts' })).toBeInViewport();
@@ -160,7 +168,9 @@ test('CA-001-12, 05, 14 et CA-002-01 à 09, 12, 13 — le client choisit par l�
   await expect(bar).toContainText('3');
   await expect(bar).toContainText(money('3 500 F CFA'));
   await expectNoHorizontalScroll(guest);
-  await shot(guest, '02-carte-client');
+  await guest.evaluate(() => window.scrollTo(0, 0));
+  await guest.waitForTimeout(300);
+  await shot(guest, '02-carte-client', false);
 
   // La commande survit à un rechargement.
   await guest.reload();
@@ -168,6 +178,7 @@ test('CA-001-12, 05, 14 et CA-002-01 à 09, 12, 13 — le client choisit par l�
   await guest.getByRole('button', { name: /Voir la commande/ }).click();
   const screen = guest.getByRole('dialog', { name: 'Votre commande' });
   await expect(screen.getByText('Total de la commande')).toBeVisible();
+  await expect(screen.getByRole('button', { name: 'Commander' }).locator('svg')).toBeVisible();
   await expect(screen.getByText(money('3 500 F CFA'))).toBeVisible();
   // Suggestion : sans historique, un article d'une rubrique absente de la commande.
   await expect(screen.getByRole('region', { name: 'Souvent commandés avec' }).getByRole('button', { name: 'Ajouter Dêguê' })).toBeVisible();
@@ -184,6 +195,8 @@ test('CA-001-12, 05, 14 et CA-002-01 à 09, 12, 13 — le client choisit par l�
 
   const tracking = guest.getByRole('region', { name: 'Vos demandes en cours' });
   await expect(tracking.getByText('Votre commande est bien reçue')).toBeVisible();
+  // CA-003-06 : quatre étapes en pictogrammes, la première atteinte.
+  await expect(tracking.getByRole('list', { name: 'Avancement' }).locator('svg')).toHaveCount(4);
   await expect(tracking.getByText('Garba')).toBeVisible();
   await expect(tracking.getByText(money('3 500 F CFA'))).toBeVisible();
   await expect(guest.getByRole('button', { name: /Voir la commande/ })).toHaveCount(0);

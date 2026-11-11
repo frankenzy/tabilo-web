@@ -126,8 +126,12 @@ export interface MenuItemInput {
 
 export const menuApi = {
   overview: (e: string) => data(http.get<MenuCategory[]>(`${est(e)}/menu`)),
-  createCategory: (e: string, body: { name: string }) => data(http.post<MenuCategory>(`${est(e)}/menu/categories`, body)),
-  renameCategory: (e: string, id: string, name: string) => data(http.patch(`${est(e)}/menu/categories/${id}`, { name })),
+  createCategory: (e: string, body: { name: string; icon: string }) => data(http.post<MenuCategory>(`${est(e)}/menu/categories`, body)),
+  updateCategory: (e: string, id: string, body: { name?: string; icon?: string }) =>
+    data(http.patch<MenuCategory>(`${est(e)}/menu/categories/${id}`, body)),
+  setCategoryImage: (e: string, id: string, body: { mime: string; data: string }) =>
+    data(http.put<MenuCategory>(`${est(e)}/menu/categories/${id}/image`, body)),
+  removeCategoryImage: (e: string, id: string) => data(http.delete<MenuCategory>(`${est(e)}/menu/categories/${id}/image`)),
   archiveCategory: (e: string, id: string) => data(http.delete(`${est(e)}/menu/categories/${id}`)),
   reorderCategories: (e: string, ids: string[]) => data(http.put<MenuCategory[]>(`${est(e)}/menu/categories/order`, { ids })),
   reorderItems: (e: string, categoryId: string, ids: string[]) =>

@@ -1,9 +1,12 @@
 'use client';
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Check, Loader2, QrCode, WifiOff } from 'lucide-react';
+import {
+  Bell, Check, CheckCircle2, Clock, CookingPot, Loader2, QrCode, RotateCw, Send, UserRound, UtensilsCrossed, WifiOff, X, XCircle,
+  type LucideIcon,
+} from 'lucide-react';
 import { useMemo, useState } from 'react';
-import { Button, Dialog, FormError, Tabs, Textarea } from '@/components/ui';
+import { Button, Dialog, FormError, Textarea } from '@/components/ui';
 import { requestIcon } from '@/constants/requests';
 import type { GuestContext, GuestRequest, GuestRequestType } from '@/contracts';
 import { cn } from '@/lib/utils';
@@ -37,6 +40,7 @@ export function GuestPage({ code }: { code: string }) {
         <h1 className="text-lg font-semibold text-ink">Session terminée</h1>
         <p className="max-w-xs text-sm text-ink-2">Scannez à nouveau le QR code de votre table pour faire une demande.</p>
         <Button onClick={retry} size="lg" className="mt-2">
+          <RotateCw className="size-5" aria-hidden />
           Rouvrir une session
         </Button>
       </Screen>
@@ -52,6 +56,7 @@ export function GuestPage({ code }: { code: string }) {
         </p>
         {state.kind !== 'invalid' && (
           <Button onClick={retry} size="lg" className="mt-2">
+            <RotateCw className="size-5" aria-hidden />
             Réessayer
           </Button>
         )}
@@ -106,17 +111,14 @@ function GuestTable({ token, context, onSessionClosed, onContextStale }: GuestTa
       )}
 
       {hasMenu && (
-        <div className="mt-5">
-          <Tabs
-            label="Rubriques de la page"
-            value={tab}
-            onChange={setTab}
-            tabs={[
-              { value: 'requests', label: 'Demandes', count: active.length || undefined },
-              { value: 'menu', label: 'Carte', count: summary.count || undefined },
-            ]}
-          />
-        </div>
+        <GuestTabs
+          value={tab}
+          onChange={setTab}
+          tabs={[
+            { value: 'requests', label: 'Demandes', icon: Bell, count: active.length },
+            { value: 'menu', label: 'Carte', icon: UtensilsCrossed, count: summary.count },
+          ]}
+        />
       )}
 
       {tab === 'menu' && hasMenu ? (
@@ -156,7 +158,12 @@ function GuestTable({ token, context, onSessionClosed, onContextStale }: GuestTa
                   <Icon className="size-6" aria-hidden />
                   <span className="text-[15px] leading-tight font-medium">
                     {type.label}
-                    {pending && <span className="mt-0.5 block text-xs font-normal">Déjà demandé</span>}
+                    {pending && (
+                      <span className="mt-0.5 flex items-center gap-1 text-xs font-normal">
+                        <Clock className="size-3.5" aria-hidden />
+                        Déjà demandé
+                      </span>
+                    )}
                   </span>
                 </button>
               );
@@ -175,7 +182,8 @@ function GuestTable({ token, context, onSessionClosed, onContextStale }: GuestTa
                   {request.type.label}
                   {request.totalMinor !== null && <span className="tabular text-ink-3"> · {formatMoney(request.totalMinor, currency)}</span>}
                 </span>
-                <span className={request.status === 'resolved' ? 'text-done' : 'text-ink-3'}>
+                <span className={cn('flex items-center gap-1.5', request.status === 'resolved' ? 'text-done' : 'text-ink-3')}>
+                  {request.status === 'resolved' ? <CheckCircle2 className="size-5" aria-hidden /> : <XCircle className="size-5" aria-hidden />}
                   {request.status === 'resolved' ? 'Traitée' : 'Annulée'}
                 </span>
               </li>
@@ -214,7 +222,46 @@ function GuestTable({ token, context, onSessionClosed, onContextStale }: GuestTa
   );
 }
 
-const STEPS = ['Envoyée', 'Prise en charge', 'En cours', 'Terminée'];
+/** Étapes du suivi en pictogrammes (spec 003, R4) : le même dessin partout pour le même état. */
+const STEPS: { label: string; icon: LucideIcon }[] = [
+  { label: 'Envoyée', icon: Send },
+  { label: 'Prise en charge', icon: UserRound },
+  { label: 'En cours', icon: CookingPot },
+  { label: 'Terminée', icon: CheckCircle2 },
+];
+
+/** Onglets du client : grande icône d'abord, mot ensuite (spec 003). */
+function GuestTabs<T extends string>({ value, onChange, tabs }: { value: T; onChange: (value: T) => void; tabs: { value: T; label: string; icon: LucideIcon; count: number }[] }) {
+  return (
+    <div role="tablist" aria-label="Rubriques de la page" className="mt-5 grid grid-cols-2 gap-2 rounded-2xl bg-sunken p-1.5">
+      {tabs.map((tab) => {
+        const Icon = tab.icon;
+        const selected = value === tab.value;
+        return (
+          <button
+            key={tab.value}
+            role="tab"
+            type="button"
+            aria-selected={selected}
+            onClick={() => onChange(tab.value)}
+            className={cn(
+              'relative flex h-16 flex-col items-center justify-center gap-1 rounded-xl text-[13px] font-medium transition-colors',
+              selected ? 'bg-surface text-ink shadow-sm' : 'text-ink-2',
+            )}
+          >
+            <Icon className="size-6" strokeWidth={selected ? 2.25 : 1.75} aria-hidden />
+            {tab.label}
+            {tab.count > 0 && (
+              <span className="tabular absolute top-1.5 right-[calc(50%-1.75rem)] grid min-w-5 place-items-center rounded-full bg-brand px-1 text-[11px] font-bold text-white">
+                {tab.count}
+              </span>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 function stepOf(request: GuestRequest): number {
   if (request.status === 'resolved') return 3;
@@ -256,10 +303,20 @@ function Tracking({ request, token, currency }: { request: GuestRequest; token: 
         {message}
       </p>
       {request.type.kind === 'order' && <GuestOrderLines items={request.items} totalMinor={request.totalMinor} currency={currency} />}
-      <ol className="mt-4 grid grid-cols-4 gap-1.5" aria-label="Avancement">
-        {STEPS.map((label, index) => (
-          <li key={label} aria-current={index === step ? 'step' : undefined}>
-            <span className={cn('block h-1 rounded-full', index <= step ? 'bg-brand' : 'bg-white/20')} />
+      <ol className="mt-4 grid grid-cols-4" aria-label="Avancement">
+        {STEPS.map(({ label, icon: StepIcon }, index) => (
+          <li key={label} aria-current={index === step ? 'step' : undefined} className="relative flex flex-col items-center text-center">
+            {index > 0 && (
+              <span aria-hidden className={cn('absolute top-[1.125rem] right-1/2 h-0.5 w-full -translate-y-1/2', index <= step ? 'bg-brand' : 'bg-white/20')} />
+            )}
+            <span
+              className={cn(
+                'relative grid size-9 place-items-center rounded-full',
+                index < step ? 'bg-brand text-white' : index === step ? 'bg-brand text-white ring-4 ring-brand/30' : 'bg-[#3a3632] text-white/45',
+              )}
+            >
+              <StepIcon className="size-[18px]" aria-hidden />
+            </span>
             <span className={cn('mt-1.5 block text-[11px] leading-tight', index <= step ? 'text-white' : 'text-white/45')}>{label}</span>
           </li>
         ))}
@@ -269,8 +326,9 @@ function Tracking({ request, token, currency }: { request: GuestRequest; token: 
           type="button"
           onClick={() => cancel.mutate()}
           disabled={cancel.isPending}
-          className="mt-4 text-[13px] font-medium text-white/70 underline underline-offset-4 disabled:opacity-50"
+          className="mt-4 inline-flex h-10 items-center gap-1.5 rounded-full bg-white/10 px-4 text-[13px] font-medium text-white/85 disabled:opacity-50"
         >
+          <X className="size-4" aria-hidden />
           {cancel.isPending ? 'Annulation…' : 'Annuler cette demande'}
         </button>
       )}
@@ -316,7 +374,7 @@ function ConfirmRequest({ type, token, onClose, onSessionClosed }: { type: Guest
         )}
         <FormError message={create.isError ? errorMessage(create.error) : null} />
         <Button size="lg" loading={create.isPending} onClick={() => create.mutate()} className="h-14 text-base">
-          {!create.isPending && <Check className="size-5" aria-hidden />}
+          {!create.isPending && <Check className="size-5" strokeWidth={2.5} aria-hidden />}
           Envoyer la demande
         </Button>
       </div>

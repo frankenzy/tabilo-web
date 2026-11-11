@@ -10,6 +10,7 @@ import {
 import { fieldErrors, menuCategoryFormSchema, menuItemFormSchema, type MenuCategory, type MenuItem } from '@/contracts';
 import { useCurrency } from '@/hooks/use-currency';
 import { estKey, useEstablishmentId } from '@/hooks/use-establishment';
+import { CATEGORY_ICONS } from '@/constants/menu-icons';
 import { cn } from '@/lib/utils';
 import { menuApi, menuImageUrl } from '@/services/api';
 import { errorMessage, toHttpError } from '@/services/http';
@@ -17,6 +18,7 @@ import { useMembership } from '@/stores/auth.store';
 import { toast } from '@/stores/toast.store';
 import { ImageError, shrinkImage } from '@/utils/image';
 import { formatMoney, parseMoney, toMajorInput } from '@/utils/money';
+import { CategoryImage } from './category-image';
 
 /** Écran « Carte » (spec 001, P1) : rubriques, articles, prix, photos, ruptures et ordre d'affichage. */
 
@@ -149,7 +151,8 @@ export function MenuPage() {
           {data.map((category, index) => (
             <Card key={category.id}>
               <header className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-3">
-                <h2 className="text-[15px] font-semibold text-ink">
+                <h2 className="flex items-center gap-2.5 text-[15px] font-semibold text-ink">
+                  <CategoryImage icon={category.icon} imageId={category.imageId} name="" className="size-9 rounded-lg" />
                   {category.name}
                   <span className="ml-2 text-[13px] font-normal text-ink-3">
                     {category.items.length} article{category.items.length > 1 ? 's' : ''}
@@ -165,7 +168,7 @@ export function MenuPage() {
                       onMove={(step) => reorder.mutate({ ids: moved(data, index, step).map((c) => c.id) })}
                     />
                     <Button variant="ghost" size="sm" onClick={() => setEditingCategory(category)}>
-                      Renommer
+                      Modifier
                     </Button>
                     <Button variant="ghost" size="sm" onClick={() => setArchivingCategory(category)} aria-label={`Supprimer la rubrique ${category.name}`}>
                       <Trash2 className="size-4" aria-hidden />
@@ -318,14 +321,40 @@ function Thumbnail({ imageId, name, size = 'size-14' }: { imageId: string | null
 function CategoryDialog({ category, onClose, onSaved }: { category?: MenuCategory; onClose: () => void; onSaved: () => void }) {
   const establishmentId = useEstablishmentId();
   const [error, setError] = useState<string>();
+  const [icon, setIcon] = useState(category?.icon ?? 'utensils');
+  // Photo : null = inchangée ; 'remove' = à retirer ; sinon la photo réduite à envoyer.
+  const [photo, setPhoto] = useState<{ mime: string; data: string } | 'remove' | null>(null);
+  const [photoError, setPhotoError] = useState<string>();
+  const [preparing, setPreparing] = useState(false);
   const save = useMutation({
-    mutationFn: (name: string) => (category ? menuApi.renameCategory(establishmentId, category.id, name) : menuApi.createCategory(establishmentId, { name })),
+    mutationFn: async (name: string) => {
+      const saved = category
+        ? await menuApi.updateCategory(establishmentId, category.id, { name, icon })
+        : await menuApi.createCategory(establishmentId, { name, icon });
+      if (photo === 'remove' && category?.imageId) await menuApi.removeCategoryImage(establishmentId, saved.id);
+      else if (photo && photo !== 'remove') await menuApi.setCategoryImage(establishmentId, saved.id, photo);
+      return saved;
+    },
     onSuccess: () => {
-      toast.success(category ? 'Rubrique renommée' : 'Rubrique créée');
+      toast.success(category ? 'Rubrique modifiée' : 'Rubrique créée');
       onSaved();
       onClose();
     },
+    onError: () => onSaved(),
   });
+
+  async function pick(file: File | undefined) {
+    if (!file) return;
+    setPhotoError(undefined);
+    setPreparing(true);
+    try {
+      setPhoto(await shrinkImage(file));
+    } catch (e) {
+      setPhotoError(e instanceof ImageError ? e.message : 'Photo illisible.');
+    } finally {
+      setPreparing(false);
+    }
+  }
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -335,16 +364,63 @@ function CategoryDialog({ category, onClose, onSaved }: { category?: MenuCategor
     save.mutate(parsed.data.name);
   }
 
+  const previewSrc = photo && photo !== 'remove' ? `data:${photo.mime};base64,${photo.data}` : photo === 'remove' ? null : category?.imageId ? menuImageUrl(category.imageId) : null;
+  const saveError = save.isError ? (IMAGE_ERRORS[toHttpError(save.error).code] ?? errorMessage(save.error)) : null;
+
   return (
-    <Dialog open onOpenChange={(open) => !open && onClose()} title={category ? 'Renommer la rubrique' : 'Nouvelle rubrique'}>
+    <Dialog open onOpenChange={(open) => !open && !save.isPending && onClose()} title={category ? 'Modifier la rubrique' : 'Nouvelle rubrique'}>
       <form onSubmit={submit} noValidate className="flex flex-col gap-4">
         <Input label="Nom" name="name" defaultValue={category?.name} placeholder="Ex. : Boissons" error={error} autoFocus maxLength={40} />
-        <FormError message={save.isError ? errorMessage(save.error) : null} />
+        <fieldset>
+          <legend className="text-[13px] font-medium text-ink">Image vue par les clients</legend>
+          <p className="mt-0.5 mb-2 text-[13px] text-ink-3">Beaucoup de clients choisissent par l’image : prenez un pictogramme clair, ou une photo.</p>
+          <div className="grid grid-cols-7 gap-1.5">
+            {CATEGORY_ICONS.map(({ key, label, icon: Icon }) => (
+              <button
+                key={key}
+                type="button"
+                aria-pressed={icon === key}
+                aria-label={label}
+                title={label}
+                onClick={() => setIcon(key)}
+                className={cn('grid aspect-square place-items-center rounded-lg ring-1 ring-inset', icon === key ? 'bg-ink text-white ring-ink' : 'bg-surface text-ink-2 ring-line hover:bg-sunken')}
+              >
+                <Icon className="size-5" aria-hidden />
+              </button>
+            ))}
+          </div>
+          <div className="mt-3 flex items-center gap-3">
+            {previewSrc ? (
+              // eslint-disable-next-line @next/next/no-img-element -- aperçu local ou image de l'API
+              <img src={previewSrc} alt="Aperçu de la rubrique" className="size-14 rounded-xl object-cover" />
+            ) : (
+              <CategoryImage icon={icon} imageId={null} name="Aperçu de la rubrique" className="size-14 rounded-xl" />
+            )}
+            <div className="flex flex-col items-start gap-1">
+              <label className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg bg-surface px-3 text-[13px] font-medium text-ink ring-1 ring-line ring-inset hover:bg-sunken">
+                <ImagePlus className="size-4" aria-hidden />
+                {preparing ? 'Préparation…' : previewSrc ? 'Changer la photo' : 'Utiliser une photo à la place'}
+                <input type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" onChange={(e) => void pick(e.target.files?.[0])} disabled={preparing} />
+              </label>
+              {previewSrc && (
+                <button type="button" className="text-[13px] text-ink-3 underline underline-offset-4 hover:text-ink" onClick={() => setPhoto(category?.imageId ? 'remove' : null)}>
+                  Revenir au pictogramme
+                </button>
+              )}
+            </div>
+          </div>
+          {photoError && (
+            <p role="alert" className="mt-1.5 text-[13px] text-late">
+              {photoError}
+            </p>
+          )}
+        </fieldset>
+        <FormError message={saveError} />
         <DialogActions>
-          <Button variant="secondary" onClick={onClose}>
+          <Button variant="secondary" onClick={onClose} disabled={save.isPending}>
             Annuler
           </Button>
-          <Button type="submit" loading={save.isPending}>
+          <Button type="submit" loading={save.isPending} disabled={preparing}>
             {category ? 'Enregistrer' : 'Créer'}
           </Button>
         </DialogActions>
