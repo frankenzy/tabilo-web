@@ -2,7 +2,7 @@
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  BellRing, Check, CheckCircle2, Clock, CookingPot, Loader2, QrCode, RotateCw, Send, UserRound, WifiOff, X, XCircle,
+  BellRing, Check, Droplet, CheckCircle2, Clock, CookingPot, Loader2, QrCode, RotateCw, Send, UserRound, WifiOff, X, XCircle,
   type LucideIcon,
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
@@ -95,6 +95,8 @@ function GuestTable({ token, context, onSessionClosed, onContextStale }: GuestTa
   const active = useMemo(() => requests.filter((r) => ACTIVE.includes(r.status)), [requests]);
   const finished = useMemo(() => requests.filter((r) => !ACTIVE.includes(r.status)).slice(0, 3), [requests]);
   const activeTypeIds = new Set(active.map((r) => r.type.id));
+  // Demande d'eau : le type de service à l'icône « goutte » (spec 005, R6).
+  const waterType = context.requestTypes.find((type) => type.icon === 'droplet');
 
   return (
     <main className={cn('mx-auto flex min-h-dvh w-full max-w-md flex-col px-4 pt-6', showBar ? 'pb-24' : 'pb-10')}>
@@ -143,6 +145,7 @@ function GuestTable({ token, context, onSessionClosed, onContextStale }: GuestTa
               ) : undefined
             }
             banner={active.length > 0 ? <ActiveTracking active={active} token={token} currency={currency} /> : undefined}
+            leadingTile={waterType ? <WaterTile pending={activeTypeIds.has(waterType.id)} onCall={() => setSelected(waterType)} /> : undefined}
           />
         </div>
       ) : (
@@ -210,6 +213,36 @@ function GuestTable({ token, context, onSessionClosed, onContextStale }: GuestTa
       )}
       {selected && <ConfirmRequest key={selected.id} type={selected} token={token} onClose={() => setSelected(null)} onSessionClosed={onSessionClosed} />}
     </main>
+  );
+}
+
+/** Tuile spéciale « Eau » (spec 005, R6) : un geste pour demander de l'eau, sans lire ni passer par la cloche. */
+function WaterTile({ pending, onCall }: { pending: boolean; onCall: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onCall}
+      disabled={pending}
+      aria-label={pending ? 'De l’eau, déjà demandé' : 'De l’eau, appeler le serveur'}
+      className="mr-1 flex w-16 shrink-0 flex-col items-center gap-1"
+    >
+      <span
+        className={cn(
+          'relative grid size-12 place-items-center rounded-xl shadow-sm',
+          pending ? 'bg-sunken text-ink-3 ring-1 ring-line' : 'bg-progress text-white',
+        )}
+      >
+        <Droplet className="size-6" fill="currentColor" fillOpacity={pending ? 0 : 0.25} aria-hidden />
+        {pending && (
+          <span className="absolute -top-1 -right-1 grid size-5 place-items-center rounded-full bg-surface text-ink-2 shadow-sm ring-1 ring-line">
+            <Clock className="size-3" aria-hidden />
+          </span>
+        )}
+      </span>
+      <span className={cn('w-full truncate text-center text-[11px] leading-tight font-semibold', pending ? 'text-ink-3' : 'text-progress')}>
+        {pending ? 'Demandée' : 'Eau'}
+      </span>
+    </button>
   );
 }
 

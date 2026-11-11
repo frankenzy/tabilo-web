@@ -157,7 +157,7 @@ test('CA-001-12, 05, 14 et CA-002-01 à 09, 12, 13 — le client choisit par l�
     await expect(chips.getByRole('button', { name }).locator('svg')).toBeVisible();
   }
   // CA-003-05 : les actions portent une icône.
-  await expect(guest.getByRole('button', { name: 'Serveur' }).locator('svg')).toBeVisible();
+  await expect(guest.getByRole('button', { name: 'Serveur', exact: true }).locator('svg')).toBeVisible();
   await chips.getByRole('button', { name: 'Desserts' }).click();
   await expect(chips.getByRole('button', { name: 'Desserts' })).toHaveAttribute('aria-current', 'true');
   await expect(guest.getByRole('heading', { name: 'Desserts' })).toBeInViewport();
@@ -176,7 +176,7 @@ test('CA-001-12, 05, 14 et CA-002-01 à 09, 12, 13 — le client choisit par l�
   // CA-005-01, 04 : en bas de page, recherche, cloche et tuiles restent visibles.
   await guest.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
   await expect(search).toBeInViewport();
-  await expect(guest.getByRole('button', { name: 'Serveur' })).toBeInViewport();
+  await expect(guest.getByRole('button', { name: 'Serveur', exact: true })).toBeInViewport();
   await expect(chips).toBeInViewport();
   await guest.evaluate(() => window.scrollTo(0, 0));
 
@@ -227,16 +227,21 @@ test('CA-001-12, 05, 14 et CA-002-01 à 09, 12, 13 — le client choisit par l�
   await expect(tracking).toBeInViewport();
   await shot(guest, '04-suivi-client', false);
 
-  // CA-004-02 : « Serveur » ouvre les demandes, puis la confirmation habituelle.
-  await guest.getByRole('button', { name: 'Serveur' }).click();
-  const needs = guest.getByRole('dialog', { name: 'De quoi avez-vous besoin ?' });
-  await expect(needs.getByRole('button', { name: 'Appeler un serveur' })).toBeVisible();
-  await shot(guest, '05-serveur', false);
-  await needs.getByRole('button', { name: 'De l\'eau' }).click();
+  // CA-005-05 : la tuile bleue « Eau » appelle directement la demande d'eau.
+  await guest.getByRole('button', { name: 'De l’eau, appeler le serveur' }).click();
   await guest.getByRole('dialog', { name: 'De l\'eau' }).getByRole('button', { name: 'Envoyer la demande' }).click();
   await expect(tracking.getByText('De l\'eau')).toBeVisible();
+  await expect(guest.getByRole('button', { name: 'De l’eau, déjà demandé' })).toBeDisabled();
+
+  // CA-004-02 : « Serveur » ouvre les demandes, puis la confirmation habituelle.
+  await guest.getByRole('button', { name: 'Serveur', exact: true }).click();
+  const needs = guest.getByRole('dialog', { name: 'De quoi avez-vous besoin ?' });
+  await expect(needs.getByRole('button', { name: 'Appeler un serveur' })).toBeVisible();
+  await guest.waitForTimeout(400);
+  await shot(guest, '05-serveur', false);
+  await guest.keyboard.press('Escape');
   // CA-004-03 : déjà demandé.
-  await guest.getByRole('button', { name: 'Serveur' }).click();
+  await guest.getByRole('button', { name: 'Serveur', exact: true }).click();
   await expect(guest.getByRole('dialog', { name: 'De quoi avez-vous besoin ?' }).getByRole('button', { name: /De l'eau.*Déjà demandé/ })).toBeDisabled();
   await guest.keyboard.press('Escape');
 });

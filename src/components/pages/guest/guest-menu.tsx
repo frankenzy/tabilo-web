@@ -78,12 +78,14 @@ interface MenuViewProps {
   action?: ReactNode;
   /** Contenu placé sous l'en-tête fixe, avant la carte (suivi des commandes en cours). */
   banner?: ReactNode;
+  /** Tuile placée en tête de la rangée des rubriques (tuile spéciale « Eau », spec 005). */
+  leadingTile?: ReactNode;
 }
 
 /** Recherche sans accents ni majuscules : « attieke » trouve « Attiéké ». */
 const normalize = (text: string) => text.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().trim();
 
-export function MenuView({ context, cart, onQuantity, action, banner }: MenuViewProps) {
+export function MenuView({ context, cart, onQuantity, action, banner, leadingTile }: MenuViewProps) {
   const currency = context.establishment.currency;
   const [query, setQuery] = useState('');
   const shown = useMemo(() => {
@@ -155,6 +157,7 @@ export function MenuView({ context, cart, onQuantity, action, banner }: MenuView
         </div>
         <nav aria-label="Rubriques de la carte">
           <div className="-mx-1 flex gap-1 overflow-x-auto px-1 pt-3 pb-2 [scrollbar-width:none]">
+            {leadingTile}
             {context.menu.map((category) => (
               <button
                 key={category.id}
