@@ -229,8 +229,17 @@ test('CA-001-12, 05, 14 et CA-002-01 à 09, 12, 13 — le client choisit par l�
 
   // CA-005-05 : la tuile bleue « Eau » appelle directement la demande d'eau.
   await guest.getByRole('button', { name: 'De l’eau, appeler le serveur' }).click();
-  await guest.getByRole('dialog', { name: 'De l\'eau' }).getByRole('button', { name: 'Envoyer la demande' }).click();
+  const water = guest.getByRole('dialog', { name: 'De l\'eau' });
+  // CA-005-06 : la bouteille, la quantité, le bouton ; pas de précision à écrire.
+  await expect(water.getByRole('img', { name: 'Bouteille d’eau' })).toBeVisible();
+  await expect(water.getByLabel('Une précision ? (facultatif)')).toHaveCount(0);
+  await water.getByRole('button', { name: 'Une bouteille de plus' }).click();
+  await expect(water.getByLabel('2 bouteilles')).toBeVisible();
+  await guest.waitForTimeout(300);
+  await shot(guest, '06-eau', false);
+  await water.getByRole('button', { name: 'Envoyer la demande' }).click();
   await expect(tracking.getByText('De l\'eau')).toBeVisible();
+  await expect(tracking.getByText('× 2')).toBeVisible();
   await expect(guest.getByRole('button', { name: 'De l’eau, déjà demandé' })).toBeDisabled();
 
   // CA-004-02 : « Serveur » ouvre les demandes, puis la confirmation habituelle.

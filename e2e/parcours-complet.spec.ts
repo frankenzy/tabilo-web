@@ -159,7 +159,9 @@ test('le client scanne le QR et envoie une demande', async () => {
   await expectNoHorizontalScroll(guest);
 
   await guest.getByRole('button', { name: 'De l\'eau' }).click();
-  await guest.getByLabel('Une précision ? (facultatif)').fill('Sans glaçons');
+  // Demande d'eau (spec 005) : la bouteille et la quantité, sans précision à écrire.
+  await expect(guest.getByLabel('Une précision ? (facultatif)')).toHaveCount(0);
+  await guest.getByRole('button', { name: 'Une bouteille de plus' }).click();
   await guest.getByRole('button', { name: 'Envoyer la demande' }).click();
 
   const tracking = guest.getByRole('region', { name: 'Vos demandes en cours' });
@@ -177,7 +179,7 @@ test('le serveur reçoit la demande en temps réel et la traite ; le client suit
   // Reçue sans rechargement de page.
   const card = waiter.getByRole('article', { name: /Table 12, De l'eau/ });
   await expect(card).toBeVisible();
-  await expect(card.getByText('« Sans glaçons »')).toBeVisible();
+  await expect(card.getByText('× 2')).toBeVisible();
   await expect(card.getByText('Personne ne s’en occupe encore')).toBeVisible();
 
   await card.getByRole('button', { name: 'Accepter' }).click();
@@ -240,7 +242,7 @@ test('le gérant supervise : tableau de bord, réaffectation, historique, statis
   for (const step of ['Demande créée', 'Affectée', 'Acceptée', 'Traitement commencé', 'Résolue']) {
     await expect(owner.getByRole('listitem').filter({ hasText: step }).first()).toBeVisible();
   }
-  await expect(owner.getByText('« Sans glaçons »')).toBeVisible();
+  await expect(owner.getByRole('dialog').getByText(/De l'eau × 2/)).toBeVisible();
   await owner.keyboard.press('Escape');
 
   await owner.getByRole('link', { name: 'Statistiques' }).click();

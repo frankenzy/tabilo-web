@@ -55,7 +55,10 @@ export function RequestCard({ request, now, viewer, busy, onAction, onDialog }: 
           <div className="min-w-0">
             <h3 className="flex items-center gap-1.5 text-[15px] font-semibold text-ink">
               <Icon className="size-4 shrink-0" aria-hidden />
-              <span className="truncate">{request.type.label}</span>
+              <span className="truncate">
+                {request.type.label}
+                {request.quantity !== null && <span className="tabular"> × {request.quantity}</span>}
+              </span>
             </h3>
             <p className="mt-0.5 truncate text-[13px] text-ink-2">
               {request.area.name}

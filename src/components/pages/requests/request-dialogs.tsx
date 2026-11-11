@@ -27,7 +27,8 @@ export function RequestDialogs({ dialog, onClose }: { dialog: RequestDialog; onC
   return <ReasonDialog kind={dialog.kind} request={dialog.request} onClose={onClose} />;
 }
 
-const subject = (request: ServiceRequest) => `Table ${request.table.label} · ${request.type.label}`;
+const subject = (request: ServiceRequest) =>
+  `Table ${request.table.label} · ${request.type.label}${request.quantity !== null ? ` × ${request.quantity}` : ''}`;
 
 function PersonDialog({ kind, request, onClose }: { kind: 'assign' | 'transfer'; request: ServiceRequest; onClose: () => void }) {
   const staff = useStaff();

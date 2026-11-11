@@ -23,7 +23,7 @@ export const guestApi = {
     const response = await httpGuest.get('/guest/requests', { headers: headers(token) });
     return guestRequestListSchema.parse(response.data);
   },
-  async create(token: string, body: { requestTypeId: string; note?: string }, idempotencyKey: string) {
+  async create(token: string, body: { requestTypeId: string; note?: string; quantity?: number }, idempotencyKey: string) {
     const response = await httpGuest.post('/guest/requests', body, {
       headers: { ...headers(token), 'idempotency-key': idempotencyKey },
     });

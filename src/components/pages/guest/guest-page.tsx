@@ -2,7 +2,7 @@
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  BellRing, Check, Droplet, CheckCircle2, Clock, CookingPot, Loader2, QrCode, RotateCw, Send, UserRound, WifiOff, X, XCircle,
+  BellRing, Check, Droplet, Minus, Plus, CheckCircle2, Clock, CookingPot, Loader2, QrCode, RotateCw, Send, UserRound, WifiOff, X, XCircle,
   type LucideIcon,
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
@@ -166,6 +166,7 @@ function GuestTable({ token, context, onSessionClosed, onContextStale }: GuestTa
               <li key={request.id} className="flex items-center justify-between py-2.5 text-sm">
                 <span className="text-ink-2">
                   {request.type.label}
+                  {request.quantity !== null && <span className="tabular"> × {request.quantity}</span>}
                   {request.totalMinor !== null && <span className="tabular text-ink-3"> · {formatMoney(request.totalMinor, currency)}</span>}
                 </span>
                 <span className={cn('flex items-center gap-1.5', request.status === 'resolved' ? 'text-done' : 'text-ink-3')}>
@@ -336,6 +337,7 @@ function Tracking({ request, token, currency }: { request: GuestRequest; token: 
         <h3 className="flex items-center gap-2 text-[15px] font-semibold">
           <Icon className="size-4" aria-hidden />
           {request.type.label}
+          {request.quantity !== null && <span className="tabular"> × {request.quantity}</span>}
         </h3>
         <span className="tabular text-xs text-white/60">{formatTime(request.createdAt)}</span>
       </div>
@@ -380,12 +382,16 @@ function Tracking({ request, token, currency }: { request: GuestRequest; token: 
 function ConfirmRequest({ type, token, onClose, onSessionClosed }: { type: GuestRequestType; token: string; onClose: () => void; onSessionClosed: () => void }) {
   const queryClient = useQueryClient();
   const [note, setNote] = useState('');
+  // Demande d'eau (spec 005, R7) : la bouteille et la quantité, sans précision à écrire.
+  const isWater = type.icon === 'droplet';
+  const [quantity, setQuantity] = useState(1);
   // Une clé par intention : un double appui ou une reprise réseau ne crée qu'une demande.
   const [idempotencyKey] = useState(() => crypto.randomUUID());
   const Icon = requestIcon(type.icon);
 
   const create = useMutation({
-    mutationFn: () => guestApi.create(token, { requestTypeId: type.id, note: note.trim() || undefined }, idempotencyKey),
+    mutationFn: () =>
+      guestApi.create(token, isWater ? { requestTypeId: type.id, quantity } : { requestTypeId: type.id, note: note.trim() || undefined }, idempotencyKey),
     onSuccess: ({ request }) => {
       queryClient.setQueryData<GuestRequest[]>(guestRequestsKey(token), (list = []) => upsert(list, request));
       onClose();
@@ -398,10 +404,28 @@ function ConfirmRequest({ type, token, onClose, onSessionClosed }: { type: Guest
   return (
     <Dialog open onOpenChange={(open) => !open && !create.isPending && onClose()} title={type.label} description="Confirmez pour prévenir l’équipe.">
       <div className="flex flex-col gap-4">
-        <div className="grid size-12 place-items-center rounded-xl bg-sunken text-ink">
-          <Icon className="size-6" aria-hidden />
-        </div>
-        {type.allowNote && (
+        {isWater ? (
+          <div className="flex items-center justify-between gap-4">
+            {/* eslint-disable-next-line @next/next/no-img-element -- image statique de l'interface */}
+            <img src="/images/eau-bouteille.jpg" alt="Bouteille d’eau" className="size-28 rounded-2xl object-cover" />
+            <div className="inline-flex items-center rounded-full bg-sunken text-ink" role="group" aria-label="Nombre de bouteilles">
+              <button type="button" className="grid size-12 place-items-center rounded-full disabled:opacity-35" disabled={quantity <= 1} onClick={() => setQuantity(quantity - 1)} aria-label="Une bouteille de moins">
+                <Minus className="size-5" aria-hidden />
+              </button>
+              <span className="tabular min-w-8 text-center text-xl font-semibold" aria-live="polite" aria-label={`${quantity} bouteille${quantity > 1 ? 's' : ''}`}>
+                {quantity}
+              </span>
+              <button type="button" className="grid size-12 place-items-center rounded-full disabled:opacity-35" disabled={quantity >= 10} onClick={() => setQuantity(quantity + 1)} aria-label="Une bouteille de plus">
+                <Plus className="size-5" aria-hidden />
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="grid size-12 place-items-center rounded-xl bg-sunken text-ink">
+            <Icon className="size-6" aria-hidden />
+          </div>
+        )}
+        {!isWater && type.allowNote && (
           <Textarea
             label="Une précision ? (facultatif)"
             value={note}

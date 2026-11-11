@@ -54,6 +54,8 @@ export interface ServiceRequest {
   priority: 'normal' | 'high';
   source: 'customer' | 'staff';
   note: string | null;
+  /** Quantité demandée (ex. 2 bouteilles d'eau), sinon null. */
+  quantity: number | null;
   table: { id: string; label: string };
   area: { id: string; name: string };
   type: { id: string; label: string; icon: string; kind: RequestKind };
@@ -288,6 +290,7 @@ export const guestRequestSchema = z.object({
   type: z.object({ id: z.string(), label: z.string(), icon: z.string(), kind: z.enum(['service', 'order']) }),
   items: z.array(z.object({ name: z.string(), quantity: z.number().int(), unitPriceMinor: z.number().int() })),
   totalMinor: z.number().int().nullable(),
+  quantity: z.number().int().nullable(),
   handledBy: z.string().nullable(),
   createdAt: z.string(),
   acceptedAt: z.string().nullable(),
