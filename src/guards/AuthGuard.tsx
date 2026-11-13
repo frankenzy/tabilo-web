@@ -35,7 +35,7 @@ export function AuthGuard({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (status === 'anonymous') {
-      router.replace(`/login?next=${encodeURIComponent(pathname)}`);
+      router.replace(`/?next=${encodeURIComponent(pathname)}`);
     } else if (status === 'authenticated' && me?.mustChangePassword && pathname !== ACCOUNT_PATH) {
       router.replace(ACCOUNT_PATH);
     }

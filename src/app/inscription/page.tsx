@@ -28,7 +28,8 @@ export default function RegisterPage() {
       const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
       await authApi.register({ ...parsed.data, timezone });
       if (!(await restoreSession())) throw new Error('session');
-      router.replace('/app/salle');
+      // Spec 006, R12 : le nouveau propriétaire crée sa salle depuis « Tables ».
+      router.replace('/app/tables');
     } catch (error) {
       setFormError(errorMessage(error));
       setSubmitting(false);
@@ -42,7 +43,7 @@ export default function RegisterPage() {
       footer={
         <>
           Déjà inscrit ?{' '}
-          <Link href="/login" className="font-medium text-ink underline underline-offset-4">
+          <Link href="/" className="font-medium text-ink underline underline-offset-4">
             Se connecter
           </Link>
         </>

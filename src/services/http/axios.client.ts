@@ -1,7 +1,24 @@
 import axios, { AxiosError, AxiosInstance, InternalAxiosRequestConfig } from 'axios';
 import type { ApiError } from '@/contracts';
 
-export const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3090').replace(/\/$/, '');
+/**
+ * Adresse de l'API. Si elle est configurée sur « localhost » mais que la page est ouverte par une autre
+ * adresse (127.0.0.1, ou un téléphone du réseau local sur http://192.168.x.x:3004), on joint l'API sur
+ * cette même adresse : « localhost » désignerait sinon l'appareil du client lui-même.
+ */
+function resolveApiUrl(): string {
+  const configured = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3090').replace(/\/$/, '');
+  if (typeof window === 'undefined') return configured;
+  const url = new URL(configured);
+  const pageHost = window.location.hostname;
+  if ((url.hostname === 'localhost' || url.hostname === '127.0.0.1') && pageHost !== url.hostname) {
+    url.hostname = pageHost;
+    return url.toString().replace(/\/$/, '');
+  }
+  return configured;
+}
+
+export const API_URL = resolveApiUrl();
 export const API_BASE = `${API_URL}/api/v1`;
 
 /** Erreur normalisée : tout appelant reçoit un message lisible et un code stable. */

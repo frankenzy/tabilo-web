@@ -57,7 +57,7 @@ test('le gérant ouvre son établissement et une table', async () => {
   await owner.getByLabel('Adresse e-mail').fill(OWNER.email);
   await owner.getByLabel('Mot de passe').fill(OWNER.password);
   await owner.getByRole('button', { name: 'Créer mon compte' }).click();
-  await expect(owner).toHaveURL(/\/app\/salle/);
+  await expect(owner).toHaveURL(/\/app\/tables/);
 
   await owner.getByRole('button', { name: 'Créer une zone' }).click();
   await owner.getByLabel('Nom de la zone').fill('Salle');
@@ -65,8 +65,8 @@ test('le gérant ouvre son établissement et une table', async () => {
   await owner.getByRole('button', { name: 'Nouvelle table' }).click();
   await owner.getByLabel('Nom ou numéro').fill('7');
   await owner.getByRole('button', { name: 'Créer la table' }).click();
-  await owner.getByRole('button', { name: 'Actions sur la table 7' }).click();
-  await owner.getByRole('menuitem', { name: 'QR code' }).click();
+  await owner.getByRole('button', { name: /^Table 7,/ }).click();
+  await owner.getByRole('button', { name: 'QR code' }).click();
   qrUrl = (await owner.getByText(/\/t\/[\w-]+$/).textContent()) ?? '';
   expect(qrUrl).toMatch(/\/t\/[\w-]{20,}$/);
   await owner.keyboard.press('Escape');
@@ -79,7 +79,7 @@ test('le gérant ouvre son établissement et une table', async () => {
 });
 
 test('CA-001-01, 03, 05, 07, 27 — le gérant construit sa carte', async () => {
-  await owner.getByRole('link', { name: 'Carte' }).click();
+  await owner.getByRole('link', { name: 'Menus' }).click();
   await expect(owner.getByText('Votre carte est vide')).toBeVisible();
 
   // CA-003-02 : chaque rubrique reçoit un pictogramme.
@@ -302,9 +302,9 @@ test('CA-001-13, R14 — commande suspendue : la carte reste consultable, sans p
 });
 
 test('CA-001-29, 30 — le montant servi apparaît dans les statistiques', async () => {
-  await owner.getByRole('link', { name: 'Statistiques' }).click();
+  await owner.getByRole('link', { name: 'Rapport' }).click();
   // Contre `next dev`, la première visite compile la page : on laisse le temps d'arriver.
-  await expect(owner.getByRole('heading', { name: 'Statistiques', level: 1 })).toBeVisible({ timeout: 60_000 });
+  await expect(owner.getByRole('heading', { name: 'Rapport', level: 1 })).toBeVisible({ timeout: 60_000 });
   const sales = owner.getByRole('region', { name: 'Ventes' });
   await expect(sales.getByText('Montant des commandes servies')).toBeVisible();
   await expect(sales.getByText(money('3 500 F CFA')).first()).toBeVisible();

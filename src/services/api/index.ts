@@ -1,5 +1,5 @@
 import type {
-  AppNotification, Area, AuditEntry, EscalationRule, Establishment, LiveOverview, Me, MenuCategory, MenuItem, Page, QrCode,
+  AppNotification, Area, AuditEntry, EscalationRule, Establishment, LiveOverview, Me, MenuCategory, MenuItem, Page, QrCode, SalesOverview, SalesPeriod, TablesOverview, Timeline, TimelineQuery, TodayOverview,
   Report, RequestType, Role, ServiceRequest, ServiceRequestDetail, StaffMember, Table,
 } from '@/contracts';
 import { API_BASE, http, httpAuth } from '@/services/http';
@@ -60,10 +60,13 @@ export const requestsApi = {
 };
 
 export type RequestAction =
-  | 'accept' | 'start' | 'resolve' | 'release' | 'transfer' | 'assign' | 'cancel' | 'acknowledge-escalation';
+  | 'accept' | 'start' | 'resolve' | 'release' | 'transfer' | 'assign' | 'cancel' | 'acknowledge-escalation'
+  // Spec 007 : préparer (accepter + démarrer) et signaler prête.
+  | 'prepare' | 'ready';
 
 export const floorApi = {
   overview: (e: string) => data(http.get<Area[]>(`${est(e)}/floor`)),
+  tablesOverview: (e: string) => data(http.get<TablesOverview>(`${est(e)}/tables/overview`)),
   createArea: (e: string, body: { name: string }) => data(http.post(`${est(e)}/areas`, body)),
   updateArea: (e: string, id: string, body: { name?: string }) => data(http.patch(`${est(e)}/areas/${id}`, body)),
   archiveArea: (e: string, id: string) => data(http.delete(`${est(e)}/areas/${id}`)),
@@ -95,6 +98,9 @@ export const staffApi = {
     userId: string,
     body: { firstName?: string; lastName?: string; roleId?: string; status?: 'active' | 'disabled'; password?: string },
   ) => data(http.patch<StaffMember>(`${est(e)}/staff/${userId}`, body)),
+  /** Spec 010 : permissions effectives voulues, toutes incluses dans le rôle. */
+  setPermissions: (e: string, userId: string, permissions: string[]) =>
+    data(http.put<StaffMember>(`${est(e)}/staff/${userId}/permissions`, { permissions })),
   roles: (e: string) => data(http.get<Role[]>(`${est(e)}/roles`)),
   permissions: (e: string) => data(http.get<{ key: string; description: string }[]>(`${est(e)}/roles/permissions`)),
   createRole: (e: string, body: { name: string; permissions: string[] }) => data(http.post<Role>(`${est(e)}/roles`, body)),
@@ -149,6 +155,10 @@ export const menuImageUrl = (imageId: string) => `${API_BASE}/guest/menu-images/
 
 export const analyticsApi = {
   live: (e: string) => data(http.get<LiveOverview>(`${est(e)}/analytics/live`)),
+  today: (e: string) => data(http.get<TodayOverview>(`${est(e)}/analytics/today`)),
+  sales: (e: string, period: SalesPeriod) => data(http.get<SalesOverview>(`${est(e)}/analytics/sales`, { params: { period } })),
+  timeline: (e: string, query: TimelineQuery) =>
+    data(http.get<Timeline>(`${est(e)}/analytics/timeline`, { params: query })),
   report: (e: string, params: { from: string; to: string; areaId?: string; assigneeId?: string }) =>
     data(http.get<Report>(`${est(e)}/analytics/report`, { params: clean(params) })),
 };

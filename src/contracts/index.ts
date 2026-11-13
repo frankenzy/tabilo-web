@@ -6,7 +6,7 @@ import { z } from 'zod';
  * Les réponses du parcours client, qui arrivent d'un réseau non maîtrisé, sont validées par Zod.
  */
 
-export const REQUEST_STATUSES = ['pending', 'assigned', 'accepted', 'in_progress', 'resolved', 'cancelled'] as const;
+export const REQUEST_STATUSES = ['pending', 'assigned', 'accepted', 'in_progress', 'ready', 'resolved', 'cancelled'] as const;
 export type RequestStatus = (typeof REQUEST_STATUSES)[number];
 export type EscalationStatus = 'none' | 'escalated' | 'acknowledged';
 
@@ -40,6 +40,8 @@ export interface Me {
 
 /** Ligne d'une commande : nom et prix figés au moment de la commande. */
 export interface OrderLine {
+  /** Spec 007 : sert à afficher la photo du plat. */
+  menuItemId?: string;
   name: string;
   quantity: number;
   unitPriceMinor: number;
@@ -70,6 +72,8 @@ export interface ServiceRequest {
   assignedAt: string | null;
   acceptedAt: string | null;
   startedAt: string | null;
+  /** Spec 007 : commande signalée prête par la cuisine. */
+  readyAt?: string | null;
   resolvedAt: string | null;
   cancelledAt: string | null;
   escalatedAt: string | null;
@@ -103,6 +107,26 @@ export interface Table {
   areaId: string;
   openSessions: number;
   hasActiveQr: boolean;
+}
+
+/** Vue « Tables » du gérant et du propriétaire (spec 006). */
+export type TableStatus = 'occupied' | 'free';
+
+export interface TableStatusView {
+  id: string;
+  label: string;
+  seats: number;
+  areaId: string;
+  areaName: string;
+  status: TableStatus;
+  /** Commandes non annulées depuis l'arrivée des clients, en unité mineure. NULL si la table est libre. */
+  amountMinor: number | null;
+}
+
+export interface TablesOverview {
+  currency: string;
+  ordersToday: number;
+  tables: TableStatusView[];
 }
 
 export interface Area {
@@ -143,6 +167,12 @@ export interface StaffMember {
   mustChangePassword: boolean;
   lastLoginAt: string | null;
   role: { id: string; key: string; name: string };
+  /** Spec 010 : permissions du rôle (bornes de l'ajustement). */
+  rolePermissions: string[];
+  /** Permissions effectives : rôle moins retraits. */
+  permissions: string[];
+  /** Permissions retirées à cet employé ; vide = rôle complet. */
+  revokedPermissions: string[];
   canHandleRequests: boolean;
 }
 
@@ -175,6 +205,10 @@ export interface Establishment {
   maxActiveRequestsPerTable: number;
   maxRequestsPerSession: number;
   requestCooldownSeconds: number;
+  /** Spec 007 : cuisine séparée, étape « Prête » des commandes. */
+  separateKitchen: boolean;
+  /** Spec 012, R7 : « Souvent pris avec » dans la fiche d'un plat. */
+  pairingsEnabled: boolean;
 }
 
 export interface AppNotification {
@@ -185,6 +219,90 @@ export interface AppNotification {
   requestId: string | null;
   createdAt: string;
   readAt: string | null;
+}
+
+/** Spec 008 : blocs du tableau de bord pour aujourd'hui. */
+export interface TodayHour {
+  hour: string;
+  waiting: number;
+  progress: number;
+  ready: number;
+  resolved: number;
+  cancelled: number;
+}
+
+export interface TodayTopItem {
+  menuItemId: string;
+  name: string;
+  quantity: number;
+  rank: number;
+  /** Rang hier à la même heure ; null si pas commandé. */
+  previousRank: number | null;
+}
+
+/** Spec 008, R7 : découpage du graphique du tableau de bord. */
+export type TimelineBucket = 'month' | 'day' | 'hour';
+
+export interface TimelinePoint {
+  /** Début de la période, heure locale de l'établissement : « 2026-11-13T14:00 ». */
+  period: string;
+  waiting: number;
+  progress: number;
+  ready: number;
+  resolved: number;
+  cancelled: number;
+}
+
+export interface TimelineSummary {
+  total: number;
+  resolved: number;
+  cancelled: number;
+  late: number;
+  escalated: number;
+  medianAcceptSeconds: number | null;
+  averageAcceptSeconds: number | null;
+  medianResolveSeconds: number | null;
+  averageResolveSeconds: number | null;
+}
+
+export interface Timeline {
+  points: TimelinePoint[];
+  /** Spec 008, R8 : indicateurs de toute la période choisie. */
+  summary: TimelineSummary;
+  /** Première année avec une demande : borne basse du filtre Année. */
+  firstYear: number;
+  /** Date du jour dans le fuseau de l'établissement, « 2026-11-13 ». */
+  today: string;
+}
+
+export interface TimelineQuery {
+  bucket: TimelineBucket;
+  year: number;
+  month: number;
+  day: number;
+}
+
+/** Spec 009 : ventes du mois ou de l'année en cours. */
+export type SalesPeriod = 'month' | 'year';
+
+export interface SalesFigures {
+  totalMinor: number;
+  orders: number;
+  passages: number;
+  averageMinor: number | null;
+}
+
+export interface SalesOverview {
+  currency: string;
+  period: SalesPeriod;
+  from: string;
+  current: SalesFigures;
+  previous: SalesFigures;
+}
+
+export interface TodayOverview {
+  hours: TodayHour[];
+  topItems: TodayTopItem[];
 }
 
 export interface LiveOverview {
@@ -281,6 +399,8 @@ export const guestContextSchema = z.object({
   menu: z.array(menuCategorySchema),
   /** La commande est ouverte : type « Commande » actif et carte non vide. */
   orderingEnabled: z.boolean(),
+  /** Spec 012, R7 : rangée « Souvent pris avec » dans la fiche d'un plat. */
+  pairingsEnabled: z.boolean().default(false),
 });
 export const guestSessionSchema = guestContextSchema.extend({ token: z.string().min(32), expiresAt: z.string() });
 
@@ -375,6 +495,8 @@ export const establishmentSchema = z.object({
   maxActiveRequestsPerTable: z.coerce.number().int().min(1).max(20),
   maxRequestsPerSession: z.coerce.number().int().min(1).max(200),
   requestCooldownSeconds: z.coerce.number().int().min(0).max(300),
+  separateKitchen: z.boolean(),
+  pairingsEnabled: z.boolean(),
 });
 
 export const menuCategoryFormSchema = z.object({ name: z.string().trim().min(1, 'Nom de rubrique requis.').max(40, '40 caractères au plus.') });

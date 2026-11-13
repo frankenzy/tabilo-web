@@ -72,7 +72,9 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
       </header>
 
-      <div className="mx-auto w-full max-w-6xl px-4 pt-6 pb-28 lg:px-8 lg:pb-12">{children}</div>
+      <div key={pathname} className="w-full animate-page-in px-4 pt-6 pb-28 lg:px-8 lg:pb-12">
+        {children}
+      </div>
 
       <nav aria-label="Navigation principale" className="no-print fixed inset-x-0 bottom-0 z-30 flex border-t border-line bg-surface pb-[env(safe-area-inset-bottom)] lg:hidden">
         {primary.map((item) => (
@@ -219,7 +221,7 @@ function UserMenu({ side, compact }: { side: 'top' | 'bottom'; compact?: boolean
   async function logout() {
     await signOut();
     queryClient.clear();
-    router.replace('/login');
+    router.replace('/');
   }
 
   return (

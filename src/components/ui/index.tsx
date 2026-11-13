@@ -3,8 +3,8 @@
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { AlertTriangle, CheckCircle2, Info, Loader2, X } from 'lucide-react';
 import {
-  forwardRef, useId,
-  type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes,
+  forwardRef, useId, useLayoutEffect, useRef, useState,
+  type ButtonHTMLAttributes, type CSSProperties, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes,
 } from 'react';
 import { cn } from '@/lib/utils';
 import { useToastStore } from '@/stores/toast.store';
@@ -44,7 +44,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       disabled={disabled || loading}
       aria-busy={loading || undefined}
       className={cn(
-        'inline-flex shrink-0 items-center justify-center rounded-lg font-medium whitespace-nowrap transition-colors select-none',
+        'inline-flex shrink-0 items-center justify-center rounded-lg font-medium whitespace-nowrap transition-[color,background-color,box-shadow,transform] duration-200 ease-apple select-none enabled:active:scale-[0.97]',
         BUTTON_VARIANTS[variant],
         BUTTON_SIZES[size],
         className,
@@ -174,6 +174,34 @@ const BADGE_TONES: Record<BadgeTone, string> = {
   brand: 'bg-brand-soft text-brand-strong',
 };
 
+/** Interrupteur façon iOS : la pastille glisse avec un léger rebond. */
+export function Switch({
+  checked, onChange, disabled, label,
+}: { checked: boolean; onChange: (checked: boolean) => void; disabled?: boolean; label: string }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      className={cn(
+        'relative inline-flex h-[26px] w-[44px] shrink-0 items-center rounded-full transition-colors duration-300 ease-apple disabled:cursor-not-allowed disabled:opacity-45',
+        checked ? 'bg-done' : 'bg-line',
+      )}
+    >
+      <span
+        aria-hidden
+        className={cn(
+          'absolute left-[3px] size-5 rounded-full bg-white shadow-[0_2px_6px_rgb(0_0_0/0.2)] transition-transform duration-[380ms] ease-spring',
+          checked && 'translate-x-[18px]',
+        )}
+      />
+    </button>
+  );
+}
+
 export function Badge({ tone = 'neutral', className, children }: { tone?: BadgeTone; className?: string; children: ReactNode }) {
   return (
     <span className={cn('inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap', BADGE_TONES[tone], className)}>
@@ -198,14 +226,14 @@ export function Dialog({ open, onOpenChange, title, description, children, varia
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-ink/40" />
+        <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-ink/40 backdrop-blur-[2px] animate-fade-in" />
         <DialogPrimitive.Content
           aria-describedby={description ? undefined : undefined}
           className={cn(
-            'fixed z-50 flex flex-col bg-surface shadow-pop focus:outline-none animate-rise',
+            'fixed z-50 flex flex-col bg-surface shadow-pop focus:outline-none',
             variant === 'modal'
-              ? 'inset-x-0 bottom-0 max-h-[92dvh] rounded-t-2xl sm:inset-auto sm:top-1/2 sm:left-1/2 sm:w-full sm:max-w-md sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl'
-              : 'inset-y-0 right-0 w-full max-w-lg',
+              ? 'inset-x-0 bottom-0 max-h-[92dvh] animate-sheet-up rounded-t-2xl sm:inset-auto sm:top-1/2 sm:left-1/2 sm:w-full sm:max-w-md sm:-translate-x-1/2 sm:-translate-y-1/2 sm:animate-pop-in sm:rounded-2xl'
+              : 'inset-y-0 right-0 w-full max-w-lg animate-slide-in-right',
           )}
         >
           <div className="flex items-start justify-between gap-4 px-5 pt-5 pb-3">
@@ -260,10 +288,31 @@ export function ConfirmDialog({ open, onOpenChange, title, description, confirmL
 
 // ------------------------------------------------------------------- States
 
+/** Indicateur d'activité façon iOS : 8 rayons qui s'estompent tour à tour. */
+export function ActivityIndicator({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={cn('size-5 text-ink-3', className)} aria-hidden>
+      {Array.from({ length: 8 }, (_, i) => (
+        <rect
+          key={i}
+          x="11"
+          y="2"
+          width="2"
+          height="6"
+          rx="1"
+          fill="currentColor"
+          transform={`rotate(${i * 45} 12 12)`}
+          style={{ animation: `spoke 0.8s linear ${(i - 8) * 0.1}s infinite` }}
+        />
+      ))}
+    </svg>
+  );
+}
+
 export function Spinner({ label = 'Chargement…', className }: { label?: string; className?: string }) {
   return (
-    <div role="status" className={cn('flex items-center justify-center gap-2 py-10 text-sm text-ink-3', className)}>
-      <Loader2 className="size-4 animate-spin" aria-hidden />
+    <div role="status" className={cn('delayed-show flex flex-col items-center justify-center gap-2 py-10 text-[13px] text-ink-3', className)}>
+      <ActivityIndicator className="size-6" />
       {label}
     </div>
   );
@@ -317,8 +366,12 @@ export function PageHeader({ title, description, actions }: { title: string; des
   );
 }
 
-export function Card({ className, children }: { className?: string; children: ReactNode }) {
-  return <section className={cn('rounded-(--radius-card) bg-surface ring-1 ring-line', className)}>{children}</section>;
+export function Card({ className, children, style }: { className?: string; children: ReactNode; style?: CSSProperties }) {
+  return (
+    <section className={cn('rounded-(--radius-card) bg-surface ring-1 ring-line', className)} style={style}>
+      {children}
+    </section>
+  );
 }
 
 interface TabsProps<T extends string> {
@@ -328,19 +381,54 @@ interface TabsProps<T extends string> {
   label: string;
 }
 
+/**
+ * Fond d'un contrôle segmenté qui glisse jusqu'au segment actif (mouvement façon iOS).
+ * Le conteneur doit être `relative` ; chaque segment est enregistré avec `register(valeur)`.
+ */
+export function useSlidingIndicator<T extends string | number>(value: T) {
+  const container = useRef<HTMLDivElement>(null);
+  const items = useRef(new Map<T, HTMLElement>());
+  const [box, setBox] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
+  useLayoutEffect(() => {
+    const measure = () => {
+      const element = items.current.get(value);
+      if (element) setBox({ left: element.offsetLeft, top: element.offsetTop, width: element.offsetWidth, height: element.offsetHeight });
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    if (container.current) observer.observe(container.current);
+    return () => observer.disconnect();
+  }, [value]);
+  const register = (key: T) => (element: HTMLElement | null) => {
+    if (element) items.current.set(key, element);
+    else items.current.delete(key);
+  };
+  const indicator = box && (
+    <span
+      aria-hidden
+      className="pointer-events-none absolute rounded-lg bg-surface shadow-sm transition-[left,top,width,height] duration-[380ms] ease-apple"
+      style={box}
+    />
+  );
+  return { container, register, indicator };
+}
+
 export function Tabs<T extends string>({ value, onChange, tabs, label }: TabsProps<T>) {
+  const { container, register, indicator } = useSlidingIndicator(value);
   return (
-    <div role="tablist" aria-label={label} className="flex gap-1 overflow-x-auto rounded-xl bg-sunken p-1">
+    <div ref={container} role="tablist" aria-label={label} className="relative flex gap-1 overflow-x-auto rounded-xl bg-sunken p-1">
+      {indicator}
       {tabs.map((tab) => (
         <button
           key={tab.value}
+          ref={register(tab.value)}
           role="tab"
           type="button"
           aria-selected={value === tab.value}
           onClick={() => onChange(tab.value)}
           className={cn(
-            'flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium whitespace-nowrap transition-colors',
-            value === tab.value ? 'bg-surface text-ink shadow-sm' : 'text-ink-2 hover:text-ink',
+            'relative flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium whitespace-nowrap transition-colors duration-300',
+            value === tab.value ? 'text-ink' : 'text-ink-2 hover:text-ink',
           )}
         >
           {tab.label}
@@ -392,7 +480,7 @@ export function Toaster() {
         <div
           key={toast.id}
           role={toast.tone === 'error' || toast.tone === 'alert' ? 'alert' : 'status'}
-          className="pointer-events-auto flex w-full max-w-sm items-start gap-3 rounded-xl bg-surface p-3 shadow-pop ring-1 ring-line animate-rise"
+          className="pointer-events-auto flex w-full max-w-sm items-start gap-3 rounded-xl bg-surface/95 p-3 shadow-pop ring-1 ring-line backdrop-blur animate-toast-in"
         >
           <span className="mt-0.5">{TOAST_ICONS[toast.tone]}</span>
           <div className="min-w-0 flex-1">

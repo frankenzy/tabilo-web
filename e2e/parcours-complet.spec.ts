@@ -40,16 +40,17 @@ test.beforeAll(async ({ browser }) => {
 test('la page d’accueil mène à l’inscription et à la connexion', async () => {
   await owner.goto('/');
   await expect(owner.getByRole('heading', { level: 1 })).toContainText('Plus aucune demande oubliée');
-  await owner.getByRole('link', { name: 'J’ai déjà un compte' }).click();
-  await expect(owner).toHaveURL(/\/login/);
-  await owner.getByRole('link', { name: 'Créer mon établissement' }).click();
+  await expect(owner.getByRole('heading', { name: 'Connexion' })).toBeVisible();
+  await expect(owner.getByRole('button', { name: 'Se connecter' })).toBeVisible();
+  await owner.getByRole('link', { name: 'Créer mon établissement' }).first().click();
   await expect(owner).toHaveURL(/\/inscription/);
 });
 
 test('un espace protégé renvoie vers la connexion', async ({ browser }) => {
   const page = await newPage(browser);
   await page.goto('/app/dashboard');
-  await expect(page).toHaveURL(/\/login\?next=%2Fapp%2Fdashboard/);
+  // /login renvoie à l'accueil, qui porte le formulaire ; la destination est conservée.
+  await expect(page).toHaveURL(/\/\?next=%2Fapp%2Fdashboard/);
   await page.getByLabel('Adresse e-mail').fill('inconnu@example.test');
   await page.getByLabel('Mot de passe').fill('mauvais-mot-de-passe');
   await page.getByRole('button', { name: 'Se connecter' }).click();
@@ -72,7 +73,7 @@ test('le gérant crée son établissement', async () => {
   await owner.getByLabel('Mot de passe').fill(OWNER.password);
   await owner.getByRole('button', { name: 'Créer mon compte' }).click();
 
-  await expect(owner).toHaveURL(/\/app\/salle/);
+  await expect(owner).toHaveURL(/\/app\/tables/);
   await expect(owner.getByText('Commencez par créer une zone')).toBeVisible();
   await expect(owner.getByRole('status').filter({ hasText: 'En direct' })).toBeVisible();
 });
@@ -81,7 +82,7 @@ test('le gérant crée une zone, une table et récupère le QR code', async () =
   await owner.getByRole('button', { name: 'Créer une zone' }).click();
   await owner.getByLabel('Nom de la zone').fill('Terrasse');
   await owner.getByRole('button', { name: 'Créer la zone' }).click();
-  await expect(owner.getByRole('heading', { name: /Terrasse/ })).toBeVisible();
+  await expect(owner.getByText('Ajoutez vos tables')).toBeVisible();
 
   await owner.getByRole('button', { name: 'Nouvelle table' }).click();
   await owner.getByLabel('Nom ou numéro').fill('12');
@@ -96,8 +97,8 @@ test('le gérant crée une zone, une table et récupère le QR code', async () =
   await expect(owner.getByRole('alert').filter({ hasText: 'Une table porte déjà ce nom' })).toBeVisible();
   await owner.getByRole('button', { name: 'Annuler' }).click();
 
-  await owner.getByRole('button', { name: 'Actions sur la table 12' }).click();
-  await owner.getByRole('menuitem', { name: 'QR code' }).click();
+  await owner.getByRole('button', { name: /^Table 12,/ }).click();
+  await owner.getByRole('button', { name: 'QR code' }).click();
   await expect(owner.getByRole('img', { name: 'QR code de la table 12' })).toBeVisible();
   qrUrl = (await owner.getByText(/\/t\/[\w-]+$/).textContent()) ?? '';
   expect(qrUrl).toMatch(/^http:\/\/localhost:3004\/t\/[\w-]{20,}$/);
@@ -109,11 +110,11 @@ test('le gérant crée une zone, une table et récupère le QR code', async () =
 
   await owner.getByRole('link', { name: 'Imprimer les QR codes' }).click();
   await expect(owner.getByText('Scannez pour appeler le service')).toBeVisible();
-  await owner.getByRole('link', { name: 'Retour à la salle' }).click();
+  await owner.getByRole('link', { name: 'Retour aux tables' }).click();
 });
 
 test('le gérant ajoute un serveur', async () => {
-  await owner.getByRole('link', { name: 'Équipe' }).click();
+  await owner.getByRole('link', { name: 'Employés' }).click();
   await owner.getByRole('button', { name: 'Ajouter un membre' }).click();
   await owner.getByLabel('Prénom').fill('Koffi');
   await owner.getByLabel('Nom', { exact: true }).fill('Yao');
@@ -141,9 +142,12 @@ test('le serveur se connecte, change son mot de passe et n’accède pas à l’
   await waiter.getByLabel('Nouveau mot de passe').fill(WAITER.password);
   await waiter.getByRole('button', { name: 'Enregistrer' }).click();
 
+  // Premier écran autorisé du menu : « Commandes » pour un serveur.
+  await expect(waiter).toHaveURL(/\/app\/commandes/);
+  await waiter.getByRole('link', { name: 'Service' }).click();
   await expect(waiter).toHaveURL(/\/app\/service/);
   await expect(waiter.getByText('Rien à prendre pour l’instant')).toBeVisible();
-  await expect(waiter.getByRole('link', { name: 'Équipe' })).toHaveCount(0);
+  await expect(waiter.getByRole('link', { name: 'Employés' })).toHaveCount(0);
   await expectNoHorizontalScroll(waiter);
 
   await waiter.goto('/app/equipe');
@@ -238,14 +242,15 @@ test('le gérant supervise : tableau de bord, réaffectation, historique, statis
   await owner.getByLabel('Statut').selectOption({ label: 'Annulée' });
   await expect(owner.getByText('Aucune demande ne correspond à ces filtres.')).toBeVisible();
   await owner.getByLabel('Statut').selectOption({ label: 'Résolue' });
-  await owner.getByRole('button', { name: 'De l\'eau' }).click();
+  // Toute la ligne ouvre le détail (tableaux refaits) : plus de bouton dans la cellule.
+  await owner.getByRole('row', { name: /De l'eau.*Résolue/ }).first().click();
   for (const step of ['Demande créée', 'Affectée', 'Acceptée', 'Traitement commencé', 'Résolue']) {
     await expect(owner.getByRole('listitem').filter({ hasText: step }).first()).toBeVisible();
   }
   await expect(owner.getByRole('dialog').getByText(/De l'eau × 2/)).toBeVisible();
   await owner.keyboard.press('Escape');
 
-  await owner.getByRole('link', { name: 'Statistiques' }).click();
+  await owner.getByRole('link', { name: 'Rapport' }).click();
   await expect(owner.getByText('Prise en charge médiane')).toBeVisible();
   await expect(owner.getByRole('rowheader', { name: /De l'eau/ })).toBeVisible();
   await expect(owner.getByRole('rowheader', { name: /Koffi Yao/ })).toBeVisible();
@@ -282,11 +287,11 @@ test('le gérant configure types de demande et règles d’escalade', async () =
 });
 
 test('la fermeture de session par le personnel coupe le téléphone du client', async () => {
-  await owner.getByRole('link', { name: 'Salle' }).click();
-  await owner.getByRole('button', { name: 'Actions sur la table 12' }).click();
-  await owner.getByRole('menuitem', { name: 'Fermer les sessions' }).click();
+  // Spec 006, R12 : « Salle » est retirée, la fenêtre de la table dans « Tables » ferme les sessions.
+  await owner.getByRole('link', { name: 'Tables' }).click();
+  await owner.getByRole('button', { name: /^Table 12,/ }).click();
   await owner.getByRole('button', { name: 'Fermer les sessions' }).click();
-  await expect(owner.getByText('Sessions fermées')).toBeVisible();
+  await expect(owner.getByText(/sessions? fermées?/)).toBeVisible();
   await expect(guest.getByRole('heading', { name: 'Session terminée' })).toBeVisible();
 
   await guest.getByRole('button', { name: 'Rouvrir une session' }).click();
@@ -312,7 +317,7 @@ test('l’espace de service reste utilisable sur tablette, et la déconnexion fe
 
   await waiter.getByRole('button', { name: 'Mon compte' }).click();
   await waiter.getByRole('menuitem', { name: 'Se déconnecter' }).click();
-  await expect(waiter).toHaveURL(/\/login/);
+  await expect(waiter).toHaveURL((url) => url.pathname === '/');
   await waiter.goto('/app/service');
-  await expect(waiter).toHaveURL(/\/login/);
+  await expect(waiter).toHaveURL(/\/\?next=%2Fapp%2Fservice/);
 });
