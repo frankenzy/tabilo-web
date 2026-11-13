@@ -1,5 +1,5 @@
 import type {
-  AppNotification, Area, AuditEntry, EscalationRule, Establishment, LiveOverview, Me, MenuCategory, MenuItem, Page, QrCode, SalesOverview, SalesPeriod, TablesOverview, Timeline, TimelineQuery, TodayOverview,
+  AppNotification, Area, AuditEntry, EscalationRule, Establishment, LiveOverview, Me, MenuCategory, MenuItem, Page, QrCode, SalesOverview, SalesPeriod, TableOccupation, TablesOverview, Timeline, TimelineQuery, TodayOverview,
   Report, RequestType, Role, ServiceRequest, ServiceRequestDetail, StaffMember, Table,
 } from '@/contracts';
 import { API_BASE, http, httpAuth } from '@/services/http';
@@ -67,6 +67,7 @@ export type RequestAction =
 export const floorApi = {
   overview: (e: string) => data(http.get<Area[]>(`${est(e)}/floor`)),
   tablesOverview: (e: string) => data(http.get<TablesOverview>(`${est(e)}/tables/overview`)),
+  occupation: (e: string, tableId: string) => data(http.get<TableOccupation>(`${est(e)}/tables/${tableId}/occupation`)),
   createArea: (e: string, body: { name: string }) => data(http.post(`${est(e)}/areas`, body)),
   updateArea: (e: string, id: string, body: { name?: string }) => data(http.patch(`${est(e)}/areas/${id}`, body)),
   archiveArea: (e: string, id: string) => data(http.delete(`${est(e)}/areas/${id}`)),

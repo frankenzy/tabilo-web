@@ -91,3 +91,38 @@ export const TONE_LEGEND: { tone: TableTone; label: string; swatch: string }[] =
   { tone: 'progress', label: URGENCY_LABEL.progress, swatch: 'bg-progress-soft ring-1 ring-progress/30' },
   { tone: 'ready', label: URGENCY_LABEL.ready, swatch: 'bg-done' },
 ];
+
+// ------------------------------------------------------------- spec 020 : fiche d'une table
+
+/** Spec 020, R1 : teinte du bandeau de la fiche, même code que la carte et le tableau de bord. */
+export const TONE_TINT: Record<TableTone, string> = {
+  free: 'var(--color-done)',
+  occupied: 'var(--color-brand)',
+  calm: 'var(--color-ink-3)',
+  waiting: '#e9a300',
+  late: 'var(--color-late)',
+  progress: 'var(--color-progress)',
+  ready: 'var(--color-done)',
+  done: 'var(--color-done)',
+};
+
+/** Spec 020, R2 : durée d'occupation lisible d'un coup d'œil — « 8 min », « 1 h 25 ». */
+export function occupiedFor(since: string, now: number): string {
+  const minutes = Math.max(0, Math.floor((now - Date.parse(since)) / 60_000));
+  if (minutes < 1) return 'à l’instant';
+  if (minutes < 60) return `${minutes} min`;
+  return `${Math.floor(minutes / 60)} h ${String(minutes % 60).padStart(2, '0')}`;
+}
+
+/** Spec 020, R4 : une commande en une ligne — plats différents et articles. */
+export function orderSummary(items: { menuItemId: string; quantity: number }[]): { dishes: number; articles: number } {
+  return { dishes: new Set(items.map((item) => item.menuItemId)).size, articles: items.reduce((sum, item) => sum + item.quantity, 0) };
+}
+
+/** Spec 020, R4 : état d'une commande, en mots courts. */
+export function orderStateLabel(status: string): { label: string; tone: 'done' | 'progress' | 'waiting' | 'cancelled' } {
+  if (status === 'resolved') return { label: 'Servie', tone: 'done' };
+  if (status === 'cancelled') return { label: 'Annulée', tone: 'cancelled' };
+  if (status === 'accepted' || status === 'in_progress' || status === 'ready') return { label: status === 'ready' ? 'Prête' : 'En préparation', tone: 'progress' };
+  return { label: 'Envoyée', tone: 'waiting' };
+}

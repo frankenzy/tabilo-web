@@ -205,8 +205,8 @@ export function DashboardPage() {
       {selectedTable && (
         <TableRequestsDialog
           table={selectedTable}
-          description={`${selectedTable.seats} couverts · ${selectedTable.openSessions} téléphone${selectedTable.openSessions > 1 ? 's' : ''} connecté${selectedTable.openSessions > 1 ? 's' : ''}`}
-          occupied={selectedTable.openSessions > 0}
+          areaName={floor.data?.find((area) => area.tables.some((table) => table.id === selectedTable.id))?.name}
+          status={selectedTable.openSessions > 0 || (byTable.get(selectedTable.id)?.length ?? 0) > 0 ? 'occupied' : 'free'}
           requests={byTable.get(selectedTable.id) ?? []}
           canClose={viewer.can('sessions.manage')}
           onClose={() => setTableId(null)}

@@ -5,12 +5,9 @@ import Link from "next/link";
 import {
   ChevronDown,
   Layers,
-  Pencil,
   Plus,
   Printer,
-  QrCode,
   Search,
-  Trash2,
   Utensils,
 } from "lucide-react";
 import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
@@ -310,52 +307,14 @@ export function TablesPage() {
       {selected && data && (
         <TableRequestsDialog
           table={selected}
-          description={`${tableSize(selected.seats)} · ${selected.seats} couverts · ${
-            selected.amountMinor === null
-              ? "libre"
-              : `${formatMoney(selected.amountMinor, data.currency)} commandés`
-          }`}
-          occupied={selected.status === "occupied"}
+          areaName={selected.areaName}
+          status={selected.status}
           requests={byTable.get(selected.id) ?? []}
           canClose={viewer.can("sessions.manage")}
           onClose={() => setTableId(null)}
-          manage={
-            (canQr || canManage) && (
-              <>
-                {canQr && (
-                  <Button
-                    variant="secondary"
-                    onClick={() => openFloor({ kind: "qr", table: selected })}
-                  >
-                    <QrCode className="size-4" aria-hidden />
-                    QR code
-                  </Button>
-                )}
-                {canManage && (
-                  <>
-                    <Button
-                      variant="secondary"
-                      onClick={() =>
-                        openFloor({ kind: "table", table: selected })
-                      }
-                    >
-                      <Pencil className="size-4" aria-hidden />
-                      Modifier
-                    </Button>
-                    <Button
-                      variant="danger"
-                      onClick={() =>
-                        openFloor({ kind: "archive-table", table: selected })
-                      }
-                    >
-                      <Trash2 className="size-4" aria-hidden />
-                      Supprimer
-                    </Button>
-                  </>
-                )}
-              </>
-            )
-          }
+          onQr={canQr ? () => openFloor({ kind: "qr", table: selected }) : undefined}
+          onEdit={canManage ? () => openFloor({ kind: "table", table: selected }) : undefined}
+          onDelete={canManage ? () => openFloor({ kind: "archive-table", table: selected }) : undefined}
         >
           {(request) => (
             <RequestCard

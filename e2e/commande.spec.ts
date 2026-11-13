@@ -432,3 +432,24 @@ test('CA-019-02 à 05 — sur tablette : colonne large à la verticale, commande
   await expect(tablet.getByRole('button', { name: /Voir la commande/ })).toHaveCount(0);
   await tablet.context().close();
 });
+
+test('CA-020-01, 04, 05 — la fiche d’une table occupée : état, chiffres clés, commandes, configuration en retrait', async () => {
+  await owner.getByRole('link', { name: 'Tables' }).click();
+  await owner.getByRole('button', { name: /^Table 7,/ }).click();
+  const sheet = owner.getByRole('dialog', { name: 'Table 7' });
+  await expect(sheet.getByRole('heading', { name: 'Table 7' })).toBeVisible();
+  // R2 : chiffres clés, lus d'un trait.
+  await expect(sheet.getByText('commandés')).toBeVisible();
+  await expect(sheet.getByText(/^depuis \d{2}:\d{2}$/)).toBeVisible();
+  await expect(sheet.getByText(/téléphones? connectés?/)).toBeVisible();
+  // R4 : les commandes de l'occupation, détail au toucher.
+  const orders = sheet.getByRole('region', { name: /Commandes de la table/ });
+  await expect(orders.getByRole('button').first()).toBeVisible();
+  await orders.getByRole('button').first().click();
+  await expect(orders.getByRole('button').first()).toHaveAttribute('aria-expanded', 'true');
+  // R6 : configuration en retrait — « Supprimer… » est un lien discret, plus un bouton plein.
+  await expect(sheet.getByRole('button', { name: 'QR code' })).toBeVisible();
+  await expect(sheet.getByRole('button', { name: 'Supprimer…' })).toBeVisible();
+  await expect(sheet.getByRole('button', { name: 'Supprimer', exact: true })).toHaveCount(0);
+  await owner.keyboard.press('Escape');
+});

@@ -123,6 +123,27 @@ export interface TableStatusView {
   amountMinor: number | null;
 }
 
+/** Spec 020 : une commande de l'occupation en cours. */
+export interface OccupationOrder {
+  id: string;
+  status: RequestStatus;
+  createdAt: string;
+  resolvedAt: string | null;
+  totalMinor: number;
+  items: { menuItemId: string; name: string; quantity: number; unitPriceMinor: number; imageId: string | null }[];
+}
+
+/** Spec 020, R2 et R4 : occupation d'une table pour sa fiche. */
+export interface TableOccupation {
+  tableId: string;
+  currency: string;
+  occupiedSince: string | null;
+  openSessions: number;
+  amountMinor: number | null;
+  lastOccupiedAt: string | null;
+  orders: OccupationOrder[];
+}
+
 export interface TablesOverview {
   currency: string;
   ordersToday: number;
