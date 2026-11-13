@@ -5,14 +5,26 @@ import { Inbox } from 'lucide-react';
 import { useState } from 'react';
 import { RequestDialogs, type RequestDialog } from '@/components/pages/requests/request-dialogs';
 import { useFloor, useRequestTypes, useStaff } from '@/components/pages/requests/use-requests';
-import { Badge, Card, EmptyState, ErrorState, FilterSelect, PageHeader, Pagination, Spinner } from '@/components/ui';
-import { STATUS_LABELS, STATUS_TONE } from '@/constants/requests';
+import { Badge, EmptyState, ErrorState, FilterSelect, PageHeader, Pagination, Spinner } from '@/components/ui';
+import { Avatar, CellStack, ChevronCell, DataTable, TBody, Td, Th, THead, TRow } from '@/components/ui/data-table';
+import { requestIcon, STATUS_LABELS, STATUS_TONE } from '@/constants/requests';
+import { cn } from '@/lib/utils';
 import { REQUEST_STATUSES } from '@/contracts';
 import { estKey, useEstablishmentId, useTimezone } from '@/hooks/use-establishment';
 import { requestsApi, type RequestFilters } from '@/services/api';
 import { errorMessage } from '@/services/http';
 import { useCan } from '@/stores/auth.store';
-import { formatDateTime, formatDuration } from '@/utils/time';
+import { formatDuration } from '@/utils/time';
+
+/** « 14:32 » : l'heure, information principale de la colonne « Créée ». */
+function formatTime(iso: string, timeZone?: string): string {
+  return new Intl.DateTimeFormat('fr-FR', { hour: '2-digit', minute: '2-digit', timeZone }).format(new Date(iso));
+}
+
+/** « jeu. 13 nov. » : le jour, en dessous, plus discret. */
+function formatDay(iso: string, timeZone?: string): string {
+  return new Intl.DateTimeFormat('fr-FR', { weekday: 'short', day: 'numeric', month: 'short', timeZone }).format(new Date(iso));
+}
 
 const PERIODS = [
   { value: 'today', label: 'Aujourd’hui', days: 0 },
@@ -113,51 +125,85 @@ export function HistoryPage() {
         ) : data.items.length === 0 ? (
           <EmptyState icon={<Inbox className="size-6" aria-hidden />} title="Aucune demande" description="Aucune demande ne correspond à ces filtres." />
         ) : (
-          <Card className={isFetching ? 'opacity-70 transition-opacity' : undefined}>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[640px] text-left text-sm">
-                <thead className="text-[13px] text-ink-3">
-                  <tr className="border-b border-line">
-                    {['Table', 'Demande', 'Créée', 'Statut', 'Responsable', 'Prise en charge', 'Résolution'].map((heading) => (
-                      <th key={heading} scope="col" className="px-4 py-2.5 font-medium whitespace-nowrap">
-                        {heading}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-line">
-                  {data.items.map((request) => {
-                    const delta = (iso: string | null) =>
-                      iso ? formatDuration((new Date(iso).getTime() - new Date(request.createdAt).getTime()) / 1000) : '—';
-                    const lateAccept = request.acceptedAt ? request.acceptedAt > request.dueAt : false;
-                    return (
-                      <tr key={request.id} className="cursor-pointer hover:bg-paper" onClick={() => setDialog({ kind: 'detail', request })}>
-                        <td className="tabular px-4 py-3 font-mono font-semibold text-ink">{request.table.label}</td>
-                        <td className="px-4 py-3">
-                          <button type="button" className="text-left font-medium text-ink underline-offset-4 hover:underline" onClick={(e) => { e.stopPropagation(); setDialog({ kind: 'detail', request }); }}>
-                            {request.type.label}
-                          </button>
-                          <span className="block text-[13px] text-ink-3">{request.area.name}</span>
-                        </td>
-                        <td className="tabular px-4 py-3 whitespace-nowrap text-ink-2">{formatDateTime(request.createdAt, timezone)}</td>
-                        <td className="px-4 py-3">
-                          <span className="flex flex-wrap gap-1">
-                            <Badge tone={STATUS_TONE[request.status]}>{STATUS_LABELS[request.status]}</Badge>
-                            {request.escalatedAt && <Badge tone="late">Escaladée</Badge>}
+          <div className={cn('transition-opacity duration-300 ease-apple', isFetching && 'opacity-60')}>
+            <DataTable label="Historique des demandes" minWidth={860}>
+              <THead>
+                <Th className="w-20">Table</Th>
+                <Th>Demande</Th>
+                <Th>Créée</Th>
+                <Th>Statut</Th>
+                <Th>Responsable</Th>
+                <Th align="right">Prise en charge</Th>
+                <Th align="right">Résolution</Th>
+                <th className="w-10 border-b border-line bg-sunken/85" aria-hidden />
+              </THead>
+              <TBody>
+                {data.items.map((request, index) => {
+                  const delta = (iso: string | null) =>
+                    iso ? formatDuration((new Date(iso).getTime() - new Date(request.createdAt).getTime()) / 1000) : '—';
+                  const lateAccept = request.acceptedAt ? request.acceptedAt > request.dueAt : false;
+                  const Icon = requestIcon(request.type.icon);
+                  const open = () => setDialog({ kind: 'detail', request });
+                  return (
+                    <TRow key={request.id} index={index} onOpen={open} label={`Table ${request.table.label}, ${request.type.label}, ${STATUS_LABELS[request.status]}${request.assignee ? `, ${request.assignee.firstName} ${request.assignee.lastName}` : ''}, créée à ${formatTime(request.createdAt, timezone)}`}>
+                      <Td>
+                        <span className="tabular grid h-9 min-w-9 place-items-center rounded-lg bg-sunken px-2 font-mono text-[15px] font-semibold text-ink">
+                          {request.table.label}
+                        </span>
+                      </Td>
+                      <Td>
+                        <span className="flex items-center gap-2.5">
+                          <span className="grid size-8 shrink-0 place-items-center rounded-full bg-brand-soft text-brand-strong">
+                            <Icon className="size-4" aria-hidden />
                           </span>
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-ink-2">
-                          {request.assignee ? `${request.assignee.firstName} ${request.assignee.lastName}` : '—'}
-                        </td>
-                        <td className={`tabular px-4 py-3 whitespace-nowrap ${lateAccept ? 'font-medium text-late' : 'text-ink-2'}`}>{delta(request.acceptedAt)}</td>
-                        <td className="tabular px-4 py-3 whitespace-nowrap text-ink-2">{delta(request.resolvedAt)}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </Card>
+                          <CellStack
+                            primary={
+                              <>
+                                {request.type.label}
+                                {request.quantity !== null && <span className="tabular text-ink-2"> × {request.quantity}</span>}
+                              </>
+                            }
+                            secondary={request.area.name}
+                          />
+                        </span>
+                      </Td>
+                      <Td>
+                        <CellStack primary={<span className="tabular">{formatTime(request.createdAt, timezone)}</span>} secondary={formatDay(request.createdAt, timezone)} />
+                      </Td>
+                      <Td>
+                        <span className="flex flex-wrap gap-1">
+                          <Badge tone={STATUS_TONE[request.status]}>
+                            <span className="size-1.5 rounded-full bg-current" aria-hidden />
+                            {STATUS_LABELS[request.status]}
+                          </Badge>
+                          {request.escalatedAt && <Badge tone="late">Escaladée</Badge>}
+                        </span>
+                      </Td>
+                      <Td>
+                        {request.assignee ? (
+                          <span className="flex items-center gap-2">
+                            <Avatar firstName={request.assignee.firstName} lastName={request.assignee.lastName} className="size-7 text-[11px]" />
+                            <span className="truncate text-ink">
+                              {request.assignee.firstName} {request.assignee.lastName}
+                            </span>
+                          </span>
+                        ) : (
+                          <span className="text-ink-3">—</span>
+                        )}
+                      </Td>
+                      <Td align="right" numeric className={lateAccept ? 'font-semibold text-late' : 'text-ink'}>
+                        {delta(request.acceptedAt)}
+                      </Td>
+                      <Td align="right" numeric className="text-ink-2">
+                        {delta(request.resolvedAt)}
+                      </Td>
+                      <ChevronCell />
+                    </TRow>
+                  );
+                })}
+              </TBody>
+            </DataTable>
+          </div>
         )}
         {data && <Pagination page={data.page} pageSize={data.pageSize} total={data.total} onChange={(page) => set({ page })} />}
       </div>
