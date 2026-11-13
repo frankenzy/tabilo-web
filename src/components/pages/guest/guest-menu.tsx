@@ -164,6 +164,20 @@ export function MenuView({ context, cart, onQuantity, action, banner, leadingTil
     return () => observer.disconnect();
   }, [context.menu, shown]);
 
+  // Spec 019, R9 : avec un clavier, « / » place le curseur dans la recherche.
+  const search = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (event.key !== '/' || event.metaKey || event.ctrlKey || event.altKey) return;
+      if (target && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))) return;
+      event.preventDefault();
+      search.current?.focus();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   useEffect(() => {
     if (active) chips.current.get(active)?.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
   }, [active]);
@@ -171,11 +185,12 @@ export function MenuView({ context, cart, onQuantity, action, banner, leadingTil
   return (
     <>
       {/* En-tête fixe (spec 005) : recherche et cloche, puis les tuiles des rubriques. */}
-      <div className="sticky top-0 z-20 -mx-4 bg-paper/95 px-4 pt-3 pb-1 backdrop-blur">
+      <div className="sticky top-0 z-20 -mx-4 bg-paper/95 px-4 pt-3 pb-1 backdrop-blur md:-mx-6 md:px-6 lg:-mx-8 lg:px-8">
         <div className="flex items-center gap-2">
           <div className="relative min-w-0 flex-1">
             <Search className="pointer-events-none absolute top-1/2 left-4 size-5 -translate-y-1/2 text-ink-3" aria-hidden />
             <input
+              ref={search}
               type="search"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
@@ -305,7 +320,7 @@ export function MenuView({ context, cart, onQuantity, action, banner, leadingTil
               <CategoryImage icon={category.icon} imageId={category.imageId} name="" className="size-9 rounded-xl bg-surface ring-1 ring-line" iconClassName="size-5" />
               {category.name}
             </h2>
-            <ul className="mt-3 grid grid-cols-2 gap-x-3 gap-y-5">
+            <ul className="mt-3 grid grid-cols-2 gap-x-3 gap-y-5 md:grid-cols-3 md:gap-x-4 md:gap-y-6 xl:grid-cols-4">
               {category.items.map((item) => (
                 <MenuCard
                   key={item.id}
@@ -470,10 +485,13 @@ function ItemSheet({
     setQuantity(Math.max(inCart > 0 ? 0 : 1, Math.min(MAX_QUANTITY, next)));
   };
   const photo = useRef<HTMLDivElement>(null);
+  const widePhoto = useRef<HTMLDivElement>(null);
   const save = () => {
     if (quantity > inCart) {
       haptic([10, 40, 14]);
-      flyToCart(photo.current?.getBoundingClientRect() ?? null, item.imageId ? menuImageUrl(item.imageId) : null);
+      // À l'horizontale, la photo visible est celle de gauche (spec 019, R6).
+      const visible = [photo.current, widePhoto.current].find((el) => el && el.getBoundingClientRect().width > 0);
+      flyToCart(visible?.getBoundingClientRect() ?? null, item.imageId ? menuImageUrl(item.imageId) : null);
     }
     onSave(quantity);
   };
@@ -486,11 +504,11 @@ function ItemSheet({
         />
         <DialogPrimitive.Content
           aria-describedby={undefined}
-          className="fixed inset-x-0 bottom-0 z-50 animate-sheet-up outline-none sm:inset-auto sm:top-1/2 sm:left-1/2 sm:w-full sm:max-w-md sm:-translate-x-1/2 sm:-translate-y-1/2 sm:animate-pop-in"
+          className="fixed inset-x-0 bottom-0 z-50 animate-sheet-up outline-none sm:inset-auto sm:top-1/2 sm:left-1/2 sm:w-full sm:max-w-md sm:-translate-x-1/2 sm:-translate-y-1/2 sm:animate-pop-in md:max-w-[560px] lg:max-w-[720px]"
         >
           <div
             ref={sheet}
-            className="flex max-h-[94dvh] flex-col overflow-hidden rounded-t-[28px] bg-surface shadow-pop transition-[background-color] duration-700 ease-apple sm:max-h-[88dvh] sm:rounded-[28px]"
+            className="flex max-h-[94dvh] flex-col overflow-hidden rounded-t-[28px] bg-surface shadow-pop transition-[background-color] duration-700 ease-apple sm:max-h-[88dvh] sm:rounded-[28px] lg:h-[min(560px,86dvh)] lg:flex-row"
             style={{
               // Teinte très douce : 8 % de la couleur de la photo dans le fond de la fiche.
               backgroundColor: tint ? `color-mix(in srgb, ${tint} 8%, var(--color-surface))` : undefined,
@@ -498,11 +516,44 @@ function ItemSheet({
               transition: drag ? 'none' : 'transform 380ms var(--ease-spring)',
             }}
           >
+            {/* Spec 019, R6 : à l'horizontale, la photo occupe la moitié gauche ; on la tire vers le bas pour fermer, comme sur téléphone. */}
+            <div
+              ref={widePhoto}
+              className="relative hidden w-[46%] shrink-0 touch-none overflow-hidden select-none lg:block"
+              onPointerDown={onPointerDown}
+              onPointerMove={onPointerMove}
+              onPointerUp={onPointerUp}
+              onPointerCancel={onPointerUp}
+              onDragStart={(event) => event.preventDefault()}
+              aria-hidden
+            >
+              <ItemPhoto item={item} dimmed={!item.isAvailable} className="size-full text-6xl" />
+              {inCart > 0 && item.isAvailable && (
+                <span className="absolute bottom-4 left-4 inline-flex animate-pop-in items-center gap-1.5 rounded-full bg-done px-3 py-1 text-[13px] font-semibold text-white shadow-md">
+                  <Check className="size-4" strokeWidth={3} />
+                  {inCart} dans votre commande
+                </span>
+              )}
+              {!item.isAvailable && (
+                <span className="absolute inset-0 grid place-items-center">
+                  <span className="grid size-20 place-items-center rounded-full bg-black/45 text-white backdrop-blur-md">
+                    <Ban className="size-10" />
+                  </span>
+                </span>
+              )}
+            </div>
+            <div className="relative flex min-h-0 flex-1 flex-col">
+            <DialogPrimitive.Close
+              className="absolute top-3 right-3 z-10 hidden size-9 place-items-center rounded-full bg-sunken text-ink-2 transition-transform duration-200 ease-apple active:scale-90 lg:grid"
+              aria-label="Fermer"
+            >
+              <X className="size-5" aria-hidden />
+            </DialogPrimitive.Close>
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain" onScroll={(event) => !calm && setScroll(event.currentTarget.scrollTop)}>
               {/* Photo : zone de saisie du geste « tirer pour fermer ». */}
               <div
                 ref={photo}
-                className="relative touch-none overflow-hidden select-none"
+                className="relative touch-none overflow-hidden select-none lg:hidden"
                 onPointerDown={onPointerDown}
                 onPointerMove={onPointerMove}
                 onPointerUp={onPointerUp}
@@ -536,7 +587,7 @@ function ItemSheet({
               </div>
 
               <div
-                className="relative px-5 pt-4 pb-6"
+                className="relative px-5 pt-4 pb-6 lg:pt-6 lg:pr-14"
                 // Dégradé : la couleur de la photo se prolonge sous le titre, puis s'efface.
                 style={{ background: tint ? `linear-gradient(to bottom, color-mix(in srgb, ${tint} 16%, var(--color-surface)), transparent 70%)` : undefined }}
               >
@@ -612,6 +663,7 @@ function ItemSheet({
                 </button>
               ) : null}
             </div>
+            </div>
           </div>
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>
@@ -684,7 +736,7 @@ export function CartBar({ count, totalMinor, currency, onOpen }: { count: number
         type="button"
         onClick={onOpen}
         key={bumps}
-        className={cn('pointer-events-auto mx-auto flex h-14 w-full max-w-md items-center justify-between gap-3 rounded-full bg-ink pr-5 pl-2 text-white shadow-pop active:scale-[0.99]', bumps > 0 && 'animate-cart-bump')}
+        className={cn('pointer-events-auto mx-auto flex h-14 w-full max-w-md items-center md:max-w-[480px] justify-between gap-3 rounded-full bg-ink pr-5 pl-2 text-white shadow-pop active:scale-[0.99]', bumps > 0 && 'animate-cart-bump')}
       >
         <span className="flex items-center gap-3 text-[15px] font-semibold">
           <span className="relative grid size-10 place-items-center rounded-full bg-white/15" {...{ [CART_TARGET_ATTR]: '' }}>
@@ -720,7 +772,23 @@ interface OrderScreenProps {
 }
 
 /** Écran plein écran « Votre commande » (CA-002-07, 08, 09, 12). */
-export function OrderScreen({ token, context, cart, details, onDetails, onQuantity, onClose, onOrdered, onSent, onContextStale, onSessionClosed }: OrderScreenProps) {
+export function OrderScreen(props: OrderScreenProps & { landscape?: boolean }) {
+  return <OrderBody {...props} variant="sheet" />;
+}
+
+/**
+ * Spec 019, R4 : à l'horizontale, le même contenu que la feuille, posé dans le panneau de droite.
+ * `onOrdered` : la confirmation est terminée, le panneau repart sur une commande vide.
+ */
+export function OrderPanel(props: Omit<OrderScreenProps, 'onClose'>) {
+  return <OrderBody {...props} onClose={() => undefined} variant="panel" />;
+}
+
+/** Contenu de « Votre commande » (spec 013), en feuille sur téléphone ou dans le panneau de la tablette (spec 019, R2). */
+function OrderBody({
+  token, context, cart, details, onDetails, onQuantity, onClose, onOrdered, onSent, onContextStale, onSessionClosed, variant, landscape = false,
+}: OrderScreenProps & { variant: 'sheet' | 'panel'; landscape?: boolean }) {
+  const panel = variant === 'panel';
   const queryClient = useQueryClient();
   const currency = context.establishment.currency;
   const { lines, count, totalMinor, hasInvalid } = cartLines(cart, context.menu);
@@ -756,13 +824,179 @@ export function OrderScreen({ token, context, cart, details, onDetails, onQuanti
 
   const close = () => (sent ? onOrdered() : !send.isPending && onClose());
 
+  // Spec 019, R7 : la tablette passe à l'horizontale pendant que la feuille est ouverte → la commande rejoint le panneau.
+  // Jamais pendant un envoi ni sur la confirmation : la commande ne part qu'une fois.
+  const busy = send.isPending;
+  useEffect(() => {
+    if (variant === 'sheet' && landscape && !sent && !busy) onClose();
+  }, [variant, landscape, sent, busy, onClose]);
+
+  const content = sent ? (
+    <OrderSent token={token} context={context} sent={sent} onDone={onOrdered} autoDoneMs={panel ? PANEL_SENT_MS : undefined} />
+  ) : (
+    <>
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        {/* R1 : une carte par plat, la quantité se voit aux vignettes. */}
+        <section aria-label="Articles de la commande" className={cn('px-4', panel && 'pt-1')}>
+          {lines.length === 0 ? (
+            panel ? (
+              <EmptyOrder />
+            ) : (
+              <p className="py-6 text-center text-sm text-ink-2">Votre commande est vide.</p>
+            )
+          ) : (
+            <ul className="flex flex-col gap-2.5" data-order-list="" {...(panel ? { [CART_TARGET_ATTR]: '' } : {})}>
+              {lines.map((line, index) => (
+                <li
+                  key={line.itemId}
+                  className={cn('stagger flex animate-item-in items-center gap-3 rounded-2xl p-2.5 ring-1', line.invalid ? 'bg-sunken/70 ring-late/30' : 'bg-surface ring-line')}
+                  style={{ '--i': Math.min(index, 10) } as React.CSSProperties}
+                >
+                  <span className="relative shrink-0">
+                    <ItemPhoto item={line.item ?? { name: '?', imageId: null }} dimmed={line.invalid} className="size-16 rounded-xl text-base" />
+                    {line.invalid && (
+                      <span className="absolute inset-0 grid place-items-center rounded-xl bg-black/35 text-white" aria-hidden>
+                        <Ban className="size-7" />
+                      </span>
+                    )}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className={cn('truncate text-[15px] font-semibold', line.invalid ? 'text-ink-3 line-through' : 'text-ink')}>{line.item?.name ?? 'Article retiré'}</p>
+                    {line.invalid ? (
+                      <p className="flex items-center gap-1 text-[13px] font-medium text-late">
+                        <Ban className="size-3.5" aria-hidden />
+                        N’est plus disponible
+                      </p>
+                    ) : (
+                      <div className="mt-1 flex items-center gap-2">
+                        <QuantityThumbnails item={line.item ?? { name: '?', imageId: null }} quantity={line.quantity} size="sm" />
+                        <span className="tabular text-[13px] text-ink-2">{formatMoney((line.item?.priceMinor ?? 0) * line.quantity, currency)}</span>
+                      </div>
+                    )}
+                  </div>
+                  {line.invalid ? (
+                    <Button variant="danger" size="sm" onClick={() => onQuantity(line.itemId, 0)}>
+                      <Trash2 className="size-4" aria-hidden />
+                      Retirer
+                    </Button>
+                  ) : (
+                    <Stepper name={line.item?.name ?? ''} quantity={line.quantity} onChange={(quantity) => onQuantity(line.itemId, quantity)} />
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+          {/* Bouton rond secondaire : on le comprend au « + », il ne rivalise pas avec le geste pour commander. */}
+          {/* Dans le panneau (spec 019), la carte est déjà à côté : pas besoin de « + ». */}
+          {!panel && (
+            <div className="flex justify-end pt-3 pb-2">
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label="Ajouter d’autres articles"
+                title="Ajouter d’autres articles"
+                className="grid size-11 place-items-center rounded-full bg-surface text-ink shadow-[0_1px_2px_rgb(27_25_23/0.08),0_6px_16px_-6px_rgb(27_25_23/0.25)] ring-1 ring-line/80 transition-[transform,box-shadow] duration-300 ease-spring hover:shadow-[0_1px_2px_rgb(27_25_23/0.08),0_10px_22px_-8px_rgb(27_25_23/0.3)] active:scale-90"
+              >
+                <Plus className="size-5" strokeWidth={2.5} aria-hidden />
+              </button>
+            </div>
+          )}
+        </section>
+
+        {(!panel || lines.length > 0) && (
+          <>
+            {/* R2 : précisions sans écrire. */}
+            <section aria-labelledby={panel ? 'precisions-title-panel' : 'precisions-title'} className={cn('px-4 pt-1 pb-5', panel && 'pt-5')}>
+              {/* Un panneau « attention » en tête de rangée plutôt qu'un texte : on le reconnaît sans lire. */}
+              <div className="-mr-4 flex items-center gap-2.5">
+                <h2 id={panel ? 'precisions-title-panel' : 'precisions-title'} className="shrink-0 text-[15px] font-semibold text-ink">
+                  <span
+                    aria-hidden
+                    className="grid size-9 animate-pop-in place-items-center rounded-[10px] bg-gradient-to-b from-[#ffb53d] to-[#f08c00] text-white shadow-[inset_0_1px_0_rgb(255_255_255/0.35),0_4px_10px_-4px_rgb(240_140_0/0.6)]"
+                  >
+                    <TriangleAlert className="size-5" strokeWidth={2.4} />
+                  </span>
+                  <span className="sr-only">Pour la cuisine</span>
+                </h2>
+                <div className="min-w-0 flex-1">
+                  <PrecisionChips
+                    className="scroll-pl-1 pr-4 pl-1 [mask-image:linear-gradient(to_right,#000_calc(100%-28px),transparent)]"
+                    selected={precisions}
+                    onToggle={(key) => onDetails((current) => ({ ...current, precisions: current.precisions.includes(key) ? current.precisions.filter((k) => k !== key) : [...current.precisions, key] }))}
+                    freeOpen={freeOpen}
+                    onFreeToggle={() => setFreeOpen((open) => !open)}
+                  />
+                </div>
+              </div>
+              {freeOpen && (
+                <div className="mt-3 animate-fade-in">
+                  <Textarea
+                    label="Une autre précision"
+                    value={note}
+                    onChange={(event) => { const value = event.target.value.slice(0, NOTE_MAX); onDetails((current) => ({ ...current, note: value })); }}
+                    maxLength={NOTE_MAX}
+                    rows={2}
+                    placeholder="Ex. : sauce à part"
+                    autoFocus={!panel}
+                  />
+                </div>
+              )}
+            </section>
+
+            {/* Spec 014, R5 : une idée en plus, tout en bas, juste avant de commander. */}
+            <Suggestions token={token} context={context} cart={cart} onAdd={(id) => onQuantity(id, 1)} />
+          </>
+        )}
+      </div>
+
+      {(!panel || lines.length > 0) && (
+        <footer className="shrink-0 border-t border-line/70 bg-surface/95 px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))] backdrop-blur-md">
+          <div className="mx-auto flex w-full max-w-md flex-col gap-3">
+            {hasInvalid && !send.isError && <FormError message="Retirez les articles qui ne sont plus disponibles pour commander." />}
+            <FormError message={send.isError ? errorMessage(send.error) : null} />
+            <p className="flex items-baseline justify-between">
+              <span className="text-[15px] font-medium text-ink-2">
+                Total · {count} article{count > 1 ? 's' : ''}
+              </span>
+              <span className="tabular overflow-hidden text-2xl font-semibold tracking-tight text-ink">
+                <span key={total} className="inline-block animate-number-in">
+                  {total}
+                </span>
+              </span>
+            </p>
+            {/* R3 : glisser pour commander, jamais un simple toucher. */}
+            <SlideToConfirm
+              label="Glisser pour commander"
+              detail={total}
+              disabled={count === 0 || hasInvalid || !context.orderingEnabled}
+              busy={send.isPending}
+              onConfirm={() => send.mutate()}
+            />
+            <p className="text-center text-xs text-ink-3">Le règlement se fait auprès du personnel.</p>
+          </div>
+        </footer>
+      )}
+    </>
+  );
+
+  if (panel) {
+    return (
+      <section aria-labelledby="order-panel-title" className="flex min-h-0 flex-1 flex-col">
+        <h2 id="order-panel-title" className="shrink-0 px-4 pt-4 pb-3 text-[17px] font-semibold text-ink">
+          {sent ? 'Commande envoyée' : 'Votre commande'}
+        </h2>
+        {content}
+      </section>
+    );
+  }
+
   return (
     <DialogPrimitive.Root open onOpenChange={(open) => !open && close()}>
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay className="fixed inset-0 z-40 animate-fade-in bg-ink/45 backdrop-blur-[2px]" />
         <DialogPrimitive.Content
           aria-describedby={undefined}
-          className="fixed inset-x-0 bottom-0 z-50 animate-sheet-up outline-none sm:inset-auto sm:top-1/2 sm:left-1/2 sm:w-full sm:max-w-md sm:-translate-x-1/2 sm:-translate-y-1/2 sm:animate-pop-in"
+          className="fixed inset-x-0 bottom-0 z-50 animate-sheet-up outline-none sm:inset-auto sm:top-1/2 sm:left-1/2 sm:w-full sm:max-w-md sm:-translate-x-1/2 sm:-translate-y-1/2 sm:animate-pop-in md:max-w-[560px]"
         >
           <div className="flex max-h-[94dvh] flex-col overflow-hidden rounded-t-[28px] bg-surface shadow-pop sm:max-h-[90dvh] sm:rounded-[28px]">
             <header className="relative flex shrink-0 items-center justify-center px-14 pt-5 pb-3">
@@ -773,140 +1007,7 @@ export function OrderScreen({ token, context, cart, details, onDetails, onQuanti
               </DialogPrimitive.Close>
             </header>
 
-            {sent ? (
-              <OrderSent token={token} context={context} sent={sent} onDone={onOrdered} />
-            ) : (
-              <>
-                <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-                  {/* R1 : une carte par plat, la quantité se voit aux vignettes. */}
-                  <section aria-label="Articles de la commande" className="px-4">
-                    {lines.length === 0 ? (
-                      <p className="py-6 text-center text-sm text-ink-2">Votre commande est vide.</p>
-                    ) : (
-                      <ul className="flex flex-col gap-2.5" data-order-list="">
-                        {lines.map((line, index) => (
-                          <li
-                            key={line.itemId}
-                            className={cn('stagger flex animate-item-in items-center gap-3 rounded-2xl p-2.5 ring-1', line.invalid ? 'bg-sunken/70 ring-late/30' : 'bg-surface ring-line')}
-                            style={{ '--i': Math.min(index, 10) } as React.CSSProperties}
-                          >
-                            <span className="relative shrink-0">
-                              <ItemPhoto item={line.item ?? { name: '?', imageId: null }} dimmed={line.invalid} className="size-16 rounded-xl text-base" />
-                              {line.invalid && (
-                                <span className="absolute inset-0 grid place-items-center rounded-xl bg-black/35 text-white" aria-hidden>
-                                  <Ban className="size-7" />
-                                </span>
-                              )}
-                            </span>
-                            <div className="min-w-0 flex-1">
-                              <p className={cn('truncate text-[15px] font-semibold', line.invalid ? 'text-ink-3 line-through' : 'text-ink')}>{line.item?.name ?? 'Article retiré'}</p>
-                              {line.invalid ? (
-                                <p className="flex items-center gap-1 text-[13px] font-medium text-late">
-                                  <Ban className="size-3.5" aria-hidden />
-                                  N’est plus disponible
-                                </p>
-                              ) : (
-                                <div className="mt-1 flex items-center gap-2">
-                                  <QuantityThumbnails item={line.item ?? { name: '?', imageId: null }} quantity={line.quantity} size="sm" />
-                                  <span className="tabular text-[13px] text-ink-2">{formatMoney((line.item?.priceMinor ?? 0) * line.quantity, currency)}</span>
-                                </div>
-                              )}
-                            </div>
-                            {line.invalid ? (
-                              <Button variant="danger" size="sm" onClick={() => onQuantity(line.itemId, 0)}>
-                                <Trash2 className="size-4" aria-hidden />
-                                Retirer
-                              </Button>
-                            ) : (
-                              <Stepper name={line.item?.name ?? ''} quantity={line.quantity} onChange={(quantity) => onQuantity(line.itemId, quantity)} />
-                            )}
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                    {/* Bouton rond secondaire : on le comprend au « + », il ne rivalise pas avec le geste pour commander. */}
-                    <div className="flex justify-end pt-3 pb-2">
-                      <button
-                        type="button"
-                        onClick={onClose}
-                        aria-label="Ajouter d’autres articles"
-                        title="Ajouter d’autres articles"
-                        className="grid size-11 place-items-center rounded-full bg-surface text-ink shadow-[0_1px_2px_rgb(27_25_23/0.08),0_6px_16px_-6px_rgb(27_25_23/0.25)] ring-1 ring-line/80 transition-[transform,box-shadow] duration-300 ease-spring hover:shadow-[0_1px_2px_rgb(27_25_23/0.08),0_10px_22px_-8px_rgb(27_25_23/0.3)] active:scale-90"
-                      >
-                        <Plus className="size-5" strokeWidth={2.5} aria-hidden />
-                      </button>
-                    </div>
-                  </section>
-
-                  {/* R2 : précisions sans écrire. */}
-                  <section aria-labelledby="precisions-title" className="px-4 pt-1 pb-5">
-                    {/* Un panneau « attention » en tête de rangée plutôt qu'un texte : on le reconnaît sans lire. */}
-                    <div className="-mr-4 flex items-center gap-2.5">
-                      <h2 id="precisions-title" className="shrink-0 text-[15px] font-semibold text-ink">
-                        <span
-                          aria-hidden
-                          className="grid size-9 animate-pop-in place-items-center rounded-[10px] bg-gradient-to-b from-[#ffb53d] to-[#f08c00] text-white shadow-[inset_0_1px_0_rgb(255_255_255/0.35),0_4px_10px_-4px_rgb(240_140_0/0.6)]"
-                        >
-                          <TriangleAlert className="size-5" strokeWidth={2.4} />
-                        </span>
-                        <span className="sr-only">Pour la cuisine</span>
-                      </h2>
-                      <div className="min-w-0 flex-1">
-                        <PrecisionChips
-                          className="scroll-pl-1 pr-4 pl-1 [mask-image:linear-gradient(to_right,#000_calc(100%-28px),transparent)]"
-                          selected={precisions}
-                          onToggle={(key) => onDetails((current) => ({ ...current, precisions: current.precisions.includes(key) ? current.precisions.filter((k) => k !== key) : [...current.precisions, key] }))}
-                          freeOpen={freeOpen}
-                          onFreeToggle={() => setFreeOpen((open) => !open)}
-                        />
-                      </div>
-                    </div>
-                    {freeOpen && (
-                      <div className="mt-3 animate-fade-in">
-                        <Textarea
-                          label="Une autre précision"
-                          value={note}
-                          onChange={(event) => { const value = event.target.value.slice(0, NOTE_MAX); onDetails((current) => ({ ...current, note: value })); }}
-                          maxLength={NOTE_MAX}
-                          rows={2}
-                          placeholder="Ex. : sauce à part"
-                          autoFocus
-                        />
-                      </div>
-                    )}
-                  </section>
-
-                  {/* Spec 014, R5 : une idée en plus, tout en bas, juste avant de commander. */}
-                  <Suggestions token={token} context={context} cart={cart} onAdd={(id) => onQuantity(id, 1)} />
-                </div>
-
-                <footer className="shrink-0 border-t border-line/70 bg-surface/95 px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))] backdrop-blur-md">
-                  <div className="mx-auto flex w-full max-w-md flex-col gap-3">
-                    {hasInvalid && !send.isError && <FormError message="Retirez les articles qui ne sont plus disponibles pour commander." />}
-                    <FormError message={send.isError ? errorMessage(send.error) : null} />
-                    <p className="flex items-baseline justify-between">
-                      <span className="text-[15px] font-medium text-ink-2">
-                        Total · {count} article{count > 1 ? 's' : ''}
-                      </span>
-                      <span className="tabular overflow-hidden text-2xl font-semibold tracking-tight text-ink">
-                        <span key={total} className="inline-block animate-number-in">
-                          {total}
-                        </span>
-                      </span>
-                    </p>
-                    {/* R3 : glisser pour commander, jamais un simple toucher. */}
-                    <SlideToConfirm
-                      label="Glisser pour commander"
-                      detail={total}
-                      disabled={count === 0 || hasInvalid || !context.orderingEnabled}
-                      busy={send.isPending}
-                      onConfirm={() => send.mutate()}
-                    />
-                    <p className="text-center text-xs text-ink-3">Le règlement se fait auprès du personnel.</p>
-                  </div>
-                </footer>
-              </>
-            )}
+            {content}
           </div>
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>
@@ -914,12 +1015,40 @@ export function OrderScreen({ token, context, cart, details, onDetails, onQuanti
   );
 }
 
+/** Spec 019, R4 : durée de « C'est parti ! » dans le panneau avant de revenir à une commande vide. */
+const PANEL_SENT_MS = 6000;
+
+/** Spec 019, R4 : panier vide du panneau, compris sans lire — un sac et un « + ». */
+function EmptyOrder() {
+  return (
+    <div className="flex flex-col items-center gap-3 py-10 text-center" {...{ [CART_TARGET_ATTR]: '' }}>
+      <span className="relative grid size-24 place-items-center rounded-full bg-sunken text-ink-3">
+        <ShoppingBag className="size-10" strokeWidth={1.75} aria-hidden />
+        <span className="absolute -right-1 -bottom-1 grid size-10 place-items-center rounded-full bg-ink text-white shadow-pop ring-4 ring-surface" aria-hidden>
+          <Plus className="size-5" strokeWidth={2.5} />
+        </span>
+      </span>
+      <p className="text-[13px] text-ink-3">Touchez + sur un plat pour l’ajouter.</p>
+    </div>
+  );
+}
+
 /**
  * Spec 013, R5 à R7 : confirmation après l'envoi. La coche se dessine, la table et les plats sont rappelés,
  * la frise suit la commande en temps réel, et l'annulation reste possible tant que personne ne l'a prise.
  */
-function OrderSent({ token, context, sent, onDone }: { token: string; context: GuestContext; sent: GuestRequest; onDone: () => void }) {
+function OrderSent({ token, context, sent, onDone, autoDoneMs }: { token: string; context: GuestContext; sent: GuestRequest; onDone: () => void; autoDoneMs?: number }) {
   const { data } = useQuery({ queryKey: guestRequestsKey(token), queryFn: () => guestApi.requests(token) });
+  // Spec 019, R4 : dans le panneau, la confirmation laisse d'elle-même la place au suivi.
+  const done = useRef(onDone);
+  useEffect(() => {
+    done.current = onDone;
+  });
+  useEffect(() => {
+    if (autoDoneMs === undefined) return;
+    const timer = window.setTimeout(() => done.current(), autoDoneMs);
+    return () => window.clearTimeout(timer);
+  }, [autoDoneMs]);
   const live = data?.find((request) => request.id === sent.id) ?? sent;
   const menuItems = new Map(context.menu.flatMap((category) => category.items).map((item) => [item.id, item]));
   const cancelled = live.status === 'cancelled';
@@ -960,7 +1089,7 @@ function OrderSent({ token, context, sent, onDone }: { token: string; context: G
       <div className="mt-5 flex flex-col items-center gap-3">
         <CancelOrderButton request={live} token={token} tone="light" />
         <Button size="lg" className="h-14 w-full rounded-full text-base" onClick={onDone}>
-          Retour à la carte
+          {autoDoneMs === undefined ? 'Retour à la carte' : 'Continuer'}
         </Button>
       </div>
     </div>

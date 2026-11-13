@@ -210,7 +210,8 @@ test('le serveur saisit une demande pour un client sans smartphone', async () =>
   const card = waiter.getByRole('article', { name: /Table 12, L'addition, Acceptée/ });
   await expect(card).toBeVisible();
   // Le client voit aussi la demande faite pour sa table.
-  await expect(guest.getByRole('region', { name: 'Vos demandes en cours' }).getByText('L\'addition')).toBeVisible();
+  // Spec 017 : la carte repliée porte le nom de la demande (« L'addition, Envoyée »), pas son texte.
+  await expect(guest.getByRole('region', { name: 'Vos demandes en cours' }).getByRole('article', { name: /^L'addition,/ })).toBeVisible();
 
   await card.getByRole('button', { name: 'Détail' }).click();
   await expect(waiter.getByText('Par le personnel')).toBeVisible();

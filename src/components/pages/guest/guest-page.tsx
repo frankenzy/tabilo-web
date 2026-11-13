@@ -14,10 +14,12 @@ import { guestApi } from '@/services/api/guest';
 import { errorMessage, toHttpError } from '@/services/http';
 import { cartLines, useCart, useOrderDetails } from './cart';
 import { flyToCart, haptic } from './fly-to-cart';
-import { CartBar, MenuView, OrderScreen } from './guest-menu';
+import { CartBar, MenuView, OrderPanel, OrderScreen } from './guest-menu';
 import { HistoryButton, useServedSpotlight } from './note';
+import { TableBadge } from './order-flow';
 import { mergeIntoCart, reorderLines } from './order-logic';
 import { TrackingPager } from './tracking-card';
+import { useLandscape } from './use-layout';
 import { guestRequestsKey, upsert, useGuestRequests } from './use-guest-requests';
 import { useGuestSession } from './use-guest-session';
 
@@ -93,7 +95,10 @@ function GuestTable({ token, context, onSessionClosed, onContextStale }: GuestTa
   const hasMenu = context.menu.length > 0;
   const currency = context.establishment.currency;
   const summary = cartLines(cart, context.menu);
-  const showBar = context.orderingEnabled && (summary.count > 0 || summary.hasInvalid);
+  // Spec 019, R4 : à l'horizontale, la commande est dans le panneau de droite ; ni barre ni feuille.
+  const landscape = useLandscape() && hasMenu;
+  const [round, setRound] = useState(0);
+  const showBar = context.orderingEnabled && (summary.count > 0 || summary.hasInvalid) && !landscape;
 
   const active = useMemo(() => requests.filter((r) => ACTIVE.includes(r.status)), [requests]);
   // Spec 018, R6 : les commandes terminées de ce téléphone vont dans l'historique « Ma note ».
@@ -116,15 +121,22 @@ function GuestTable({ token, context, onSessionClosed, onContextStale }: GuestTa
     window.setTimeout(() => flyToCart(from, first?.imageId ? menuImageUrl(first.imageId) : null), 60);
   };
 
-  const banner =
-    tracked.length > 0 ? (
-      <TrackingPager active={tracked} token={token} currency={currency} menu={context.menu} spotlight={spotlight} onDismiss={dismiss} onReorder={reorder} />
-    ) : undefined;
+  const pager = (stacked: boolean) => (
+    <TrackingPager active={tracked} token={token} currency={currency} menu={context.menu} spotlight={spotlight} onDismiss={dismiss} onReorder={reorder} stacked={stacked} />
+  );
+  // À l'horizontale, le suivi passe dans le panneau (R4).
+  const banner = tracked.length > 0 && !landscape ? pager(false) : undefined;
   // Demande d'eau : le type de service à l'icône « goutte » (spec 005, R6).
   const waterType = context.requestTypes.find((type) => type.icon === 'droplet');
 
   return (
-    <main className={cn('mx-auto flex min-h-dvh w-full max-w-md flex-col px-4 pt-6', showBar ? 'pb-24' : 'pb-10')}>
+    // Spec 019 : colonne de 720 px à la verticale (R3) ; à l'horizontale, la carte laisse 380 px au panneau « Ma table » (R4).
+    <main
+      className={cn(
+        'mx-auto flex min-h-dvh w-full max-w-md flex-col px-4 pt-6 md:max-w-[720px] md:px-6 lg:mr-[380px] lg:ml-0 lg:w-auto lg:max-w-none lg:px-8',
+        showBar ? 'pb-24' : 'pb-10',
+      )}
+    >
       <header>
         {hasMenu ? (
           // Repères discrets : l'en-tête de la carte (recherche, tuiles, cloche) prend le haut de l'écran (spec 005).
@@ -190,7 +202,12 @@ function GuestTable({ token, context, onSessionClosed, onContextStale }: GuestTa
 
       {pastOrders.length > 0 && !cartOpen && (
         // Spec 018, R5 : le bouton historique prend la place du bouton flottant « Serveur » ; le serveur reste à la cloche et à la tuile.
-        <div className={cn('pointer-events-none fixed inset-x-0 z-30 mx-auto flex max-w-md justify-end px-4', showBar ? 'bottom-[5.5rem]' : 'bottom-[max(1rem,env(safe-area-inset-bottom))]')}>
+        <div
+          className={cn(
+            'pointer-events-none fixed inset-x-0 z-30 mx-auto flex max-w-md justify-end px-4 md:max-w-[720px] md:px-6 lg:right-[380px] lg:mx-0 lg:max-w-none lg:px-8',
+            showBar ? 'bottom-[5.5rem]' : 'bottom-[max(1rem,env(safe-area-inset-bottom))]',
+          )}
+        >
           <HistoryButton
             orders={pastOrders}
             currency={currency}
@@ -203,8 +220,39 @@ function GuestTable({ token, context, onSessionClosed, onContextStale }: GuestTa
         </div>
       )}
       {showBar && !cartOpen && <CartBar count={summary.count} totalMinor={summary.totalMinor} currency={currency} onOpen={() => setCartOpen(true)} />}
+      {landscape && (
+        // Spec 019, R4 : panneau « Ma table » — le suivi, puis la commande en cours et le geste pour commander.
+        <aside aria-label="Ma table" className="fixed inset-y-0 right-0 z-30 flex w-[380px] flex-col border-l border-line bg-surface">
+          <div className="shrink-0 px-4 pt-5">
+            <TableBadge label={context.table.label} area={context.table.area} />
+          </div>
+          {tracked.length > 0 && <div className="max-h-[45%] shrink-0 overflow-y-auto overscroll-contain px-4 pt-4 pb-1">{pager(true)}</div>}
+          {context.orderingEnabled ? (
+            <OrderPanel
+              key={round}
+              token={token}
+              context={context}
+              cart={cart}
+              onQuantity={setQuantity}
+              details={details}
+              onDetails={updateDetails}
+              onSent={() => {
+                clear();
+                clearDetails();
+              }}
+              // Confirmation terminée : une commande neuve, avec une nouvelle clé d'envoi.
+              onOrdered={() => setRound((n) => n + 1)}
+              onContextStale={onContextStale}
+              onSessionClosed={onSessionClosed}
+            />
+          ) : (
+            <p className="m-4 rounded-xl bg-sunken px-3 py-2.5 text-[13px] text-ink-2">La commande en ligne est suspendue.</p>
+          )}
+        </aside>
+      )}
       {cartOpen && (
         <OrderScreen
+          landscape={landscape}
           token={token}
           context={context}
           cart={cart}

@@ -31,16 +31,20 @@ interface PagerProps {
   onDismiss?: (id: string) => void;
   /** « Recommander » (R4) : `from` est l'endroit touché, point de départ de la vignette qui vole. */
   onReorder?: (request: GuestRequest, from: DOMRect | null) => void;
+  /** Spec 019, R4 : dans le panneau de la tablette, les cartes s'empilent, sans pagination. */
+  stacked?: boolean;
 }
 
 /**
  * Spec 017 : demandes en cours, au-dessus de la carte.
  * Une seule demande : une carte. Plusieurs : une rangée qui défile, une demande par page, avec des points (R5).
  */
-export function TrackingPager({ active, token, currency, menu, spotlight, onDismiss, onReorder }: PagerProps) {
+export function TrackingPager({ active, token, currency, menu, spotlight, onDismiss, onReorder, stacked = false }: PagerProps) {
   const scroller = useRef<HTMLDivElement>(null);
   const [page, setPage] = useState(0);
-  const several = active.length > 1;
+  const several = active.length > 1 && !stacked;
+  // Spec 019, R3 : à la verticale sur tablette, deux demandes tiennent côte à côte ; les points ne servent qu'au-delà.
+  const pairFits = active.length === 2;
 
   useEffect(() => {
     const el = scroller.current;
@@ -61,12 +65,13 @@ export function TrackingPager({ active, token, currency, menu, spotlight, onDism
   };
 
   return (
-    <section aria-label="Vos demandes en cours" className="mt-4">
+    <section aria-label="Vos demandes en cours" className={stacked ? undefined : 'mt-4'}>
       <div
         ref={scroller}
         className={cn(
           several &&
-            '-mx-4 flex snap-x snap-mandatory scroll-px-4 items-start gap-3 overflow-x-auto overscroll-x-contain px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&>*]:w-full [&>*]:shrink-0 [&>*]:snap-start',
+            '-mx-4 flex snap-x snap-mandatory scroll-px-4 items-start gap-3 overflow-x-auto overscroll-x-contain px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&>*]:w-full [&>*]:shrink-0 [&>*]:snap-start md:-mx-6 md:scroll-px-6 md:px-6 md:[&>*]:w-[calc(50%-6px)]',
+          stacked && 'flex flex-col gap-3',
         )}
       >
         {active.map((request) => (
@@ -83,7 +88,7 @@ export function TrackingPager({ active, token, currency, menu, spotlight, onDism
         ))}
       </div>
       {several && (
-        <div className="mt-1 flex justify-center">
+        <div className={cn('mt-1 flex justify-center', pairFits && 'md:hidden')}>
           {active.map((request, index) => (
             <button
               key={request.id}
@@ -240,7 +245,8 @@ function TrackingCard({ request, token, currency, menu, spotlightAt, onDismiss, 
           <div
             id={panelId}
             inert={!open}
-            className={cn('grid transition-[grid-template-rows,opacity] duration-300 ease-apple', open ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0')}
+            // Replié : invisible une fois le repli fini (visibility bascule en fin de transition), comme hors de l'écran.
+            className={cn('grid transition-[grid-template-rows,opacity,visibility] duration-300 ease-apple', open ? 'visible grid-rows-[1fr] opacity-100' : 'invisible grid-rows-[0fr] opacity-0')}
           >
             <div className="min-h-0 overflow-hidden">
               <div className="px-3.5 pb-3.5">

@@ -385,3 +385,50 @@ test('CA-001-29, 30 — le montant servi apparaît dans les statistiques', async
   await expect(owner.getByRole('columnheader', { name: 'Montant' }).first()).toBeVisible();
   await shot(owner, '06-statistiques');
 });
+
+test('CA-019-02 à 05 — sur tablette : colonne large à la verticale, commande dans le panneau à l’horizontale', async ({ browser }) => {
+  const tablet = await newPage(browser, { width: 820, height: 1180 });
+  await tablet.goto(qrUrl);
+  const main = tablet.getByRole('main');
+  await expect(main.getByRole('button', { name: 'Ajouter Garba' })).toBeVisible();
+
+  // CA-019-02 : 3 photos par rangée, « Votre commande » au centre en 560 px, pas de défilement horizontal.
+  const columns = await tablet.evaluate(() => getComputedStyle(document.querySelector('section[id^=cat-] ul')!).gridTemplateColumns.split(' ').length);
+  expect(columns).toBe(3);
+  await expectNoHorizontalScroll(tablet);
+  await main.getByRole('button', { name: 'Ajouter Garba' }).click();
+  await tablet.getByRole('button', { name: /Voir la commande/ }).click();
+  const sheet = tablet.getByRole('dialog', { name: 'Votre commande' });
+  await sheet.getByRole('button', { name: 'Sans glaçons' }).click();
+  const width = (await sheet.boundingBox())!.width;
+  expect(width).toBeGreaterThan(520);
+  expect(width).toBeLessThanOrEqual(560);
+
+  // CA-019-05 : pivoter vers l'horizontale — la feuille se ferme, la commande et sa précision passent dans le panneau.
+  await tablet.setViewportSize({ width: 1180, height: 820 });
+  const panel = tablet.getByRole('complementary', { name: 'Ma table' });
+  await expect(sheet).toHaveCount(0);
+  await expect(panel.locator('[data-order-list]').getByText('Garba')).toBeVisible();
+  await expect(panel.getByRole('button', { name: 'Sans glaçons' })).toHaveAttribute('aria-pressed', 'true');
+  await expectNoHorizontalScroll(tablet);
+
+  // CA-019-03 : « + » sur la carte → la ligne arrive dans le panneau, sans barre ni fenêtre.
+  await main.getByRole('button', { name: 'Ajouter Bissap' }).first().click();
+  await expect(panel.locator('[data-order-list] > li')).toHaveCount(2);
+  await expect(tablet.getByRole('button', { name: /Voir la commande/ })).toHaveCount(0);
+  await expect(tablet.getByRole('dialog')).toHaveCount(0);
+
+  // CA-019-04 : glisser depuis le panneau → une seule commande, « C'est parti ! », puis le suivi en haut du panneau.
+  const sent = tablet.waitForResponse((response) => /guest\/orders$/.test(response.url()) && response.request().method() === 'POST');
+  await panel.getByRole('button', { name: /^Commander pour / }).dblclick();
+  expect((await sent).request().postDataJSON().note).toBe('Sans glaçons');
+  await expect(panel.getByText('C’est parti !')).toBeVisible();
+  await panel.getByRole('button', { name: 'Continuer' }).click();
+  await expect(panel.getByRole('region', { name: 'Vos demandes en cours' }).getByRole('article', { name: /^Commande, Envoyée/ }).first()).toBeVisible();
+  await expect(panel.getByText('Touchez + sur un plat pour l’ajouter.')).toBeVisible();
+
+  // Retour à la verticale : panier vide, pas de barre.
+  await tablet.setViewportSize({ width: 820, height: 1180 });
+  await expect(tablet.getByRole('button', { name: /Voir la commande/ })).toHaveCount(0);
+  await tablet.context().close();
+});
