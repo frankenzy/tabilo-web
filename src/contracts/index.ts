@@ -408,7 +408,7 @@ export const guestRequestSchema = z.object({
   id: z.string(),
   status: z.enum(REQUEST_STATUSES),
   type: z.object({ id: z.string(), label: z.string(), icon: z.string(), kind: z.enum(['service', 'order']) }),
-  items: z.array(z.object({ name: z.string(), quantity: z.number().int(), unitPriceMinor: z.number().int() })),
+  items: z.array(z.object({ menuItemId: z.string().optional(), name: z.string(), quantity: z.number().int(), unitPriceMinor: z.number().int() })),
   totalMinor: z.number().int().nullable(),
   quantity: z.number().int().nullable(),
   handledBy: z.string().nullable(),

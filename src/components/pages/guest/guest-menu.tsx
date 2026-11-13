@@ -2,7 +2,7 @@
 
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Ban, Check, ChevronLeft, ChevronRight, Minus, PauseCircle, Plus, Search, SearchX, ShoppingBag, Sparkles, Trash2, X } from 'lucide-react';
+import { Ban, Check, ChevronLeft, ChevronRight, Minus, PauseCircle, Plus, Search, SearchX, ShoppingBag, Sparkles, Trash2, TriangleAlert, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Button, FormError, Textarea } from '@/components/ui';
 import type { GuestContext, GuestRequest, MenuItem, OrderLine } from '@/contracts';
@@ -14,6 +14,7 @@ import { errorMessage, toHttpError } from '@/services/http';
 import { formatMoney } from '@/utils/money';
 import { cartLines, MAX_QUANTITY, type Cart } from './cart';
 import { CART_BUMP, CART_TARGET_ATTR, flyToCart, haptic } from './fly-to-cart';
+import { CancelOrderButton, composeNote, OrderTracker, PrecisionChips, SlideToConfirm, SuccessCheck, TableBadge } from './order-flow';
 import { prefersReducedMotion, usePhotoTint } from './photo-tint';
 import { guestRequestsKey, upsert } from './use-guest-requests';
 
@@ -622,7 +623,8 @@ function ItemSheet({
  * Spec 012, R4 : une ou deux vignettes du plat côte à côte ; à partir de 3, elles s'empilent
  * en petite pile (comme des cartes) avec le nombre « ×n » posé dessus.
  */
-function QuantityThumbnails({ item, quantity }: { item: Pick<MenuItem, 'name' | 'imageId'>; quantity: number }) {
+function QuantityThumbnails({ item, quantity, size = 'md' }: { item: Pick<MenuItem, 'name' | 'imageId'>; quantity: number; size?: 'sm' | 'md' }) {
+  const dot = size === 'sm' ? 'size-7' : 'size-10';
   const label = `${quantity} ${item.name} choisi${quantity > 1 ? 's' : ''}`;
   if (quantity <= 0) {
     return (
@@ -636,7 +638,7 @@ function QuantityThumbnails({ item, quantity }: { item: Pick<MenuItem, 'name' | 
       <div role="img" aria-label={label} className="flex items-center gap-1.5">
         {Array.from({ length: quantity }, (_, index) => (
           <span key={index} className="animate-pop-in rounded-full ring-2 ring-surface">
-            <ItemPhoto item={item} className="size-10 rounded-full text-xs" />
+            <ItemPhoto item={item} className={cn(dot, 'rounded-full text-xs')} />
           </span>
         ))}
       </div>
@@ -644,14 +646,14 @@ function QuantityThumbnails({ item, quantity }: { item: Pick<MenuItem, 'name' | 
   }
   // Pile : trois vignettes décalées et légèrement tournées ; la clé relance le rebond à chaque ajout.
   return (
-    <div role="img" aria-label={label} className="relative h-11 w-14">
+    <div role="img" aria-label={label} className={cn('relative', size === 'sm' ? 'h-8 w-11' : 'h-11 w-14')}>
       {[2, 1, 0].map((layer) => (
         <span
           key={layer}
           className="absolute top-0.5 left-0 rounded-full shadow-sm ring-2 ring-surface transition-transform duration-300 ease-spring"
           style={{ transform: `translateX(${layer * 5}px) rotate(${(layer - 1) * 7}deg)`, zIndex: 3 - layer }}
         >
-          <ItemPhoto item={item} className="size-10 rounded-full text-xs" />
+          <ItemPhoto item={item} className={cn(dot, 'rounded-full text-xs')} />
         </span>
       ))}
       <span
@@ -710,27 +712,37 @@ interface OrderScreenProps {
   onOrdered: () => void;
   onContextStale: () => void;
   onSessionClosed: () => void;
+  /** Spec 013 : commande enregistrée (le panier peut être vidé) ; l'écran reste ouvert sur la confirmation. */
+  onSent: () => void;
 }
 
 /** Écran plein écran « Votre commande » (CA-002-07, 08, 09, 12). */
-export function OrderScreen({ token, context, cart, onQuantity, onClose, onOrdered, onContextStale, onSessionClosed }: OrderScreenProps) {
+export function OrderScreen({ token, context, cart, onQuantity, onClose, onOrdered, onSent, onContextStale, onSessionClosed }: OrderScreenProps) {
   const queryClient = useQueryClient();
   const currency = context.establishment.currency;
   const { lines, count, totalMinor, hasInvalid } = cartLines(cart, context.menu);
+  // Spec 013, R2 : précisions à toucher, et texte libre replié derrière « Autre ».
+  const [precisions, setPrecisions] = useState<string[]>([]);
+  const [freeOpen, setFreeOpen] = useState(false);
   const [note, setNote] = useState('');
   // Une clé par intention de commander : un double appui ou une reprise réseau ne crée qu'une commande.
   const [idempotencyKey] = useState(() => crypto.randomUUID());
+  // R5 : après l'envoi, la même feuille montre la confirmation et le suivi.
+  const [sent, setSent] = useState<GuestRequest | null>(null);
+  const total = formatMoney(totalMinor, currency);
 
   const send = useMutation({
     mutationFn: () =>
       guestApi.order(
         token,
-        { items: lines.filter((line) => !line.invalid).map((line) => ({ menuItemId: line.itemId, quantity: line.quantity })), note: note.trim() || undefined },
+        { items: lines.filter((line) => !line.invalid).map((line) => ({ menuItemId: line.itemId, quantity: line.quantity })), note: composeNote(precisions, note, NOTE_MAX) },
         idempotencyKey,
       ),
     onSuccess: ({ request }) => {
       queryClient.setQueryData<GuestRequest[]>(guestRequestsKey(token), (list = []) => upsert(list, request));
-      onOrdered();
+      haptic([18, 60, 18, 60, 30]);
+      setSent(request);
+      onSent();
     },
     onError: (error) => {
       const http = toHttpError(error);
@@ -740,89 +752,216 @@ export function OrderScreen({ token, context, cart, onQuantity, onClose, onOrder
     },
   });
 
+  const close = () => (sent ? onOrdered() : !send.isPending && onClose());
+
   return (
-    <DialogPrimitive.Root open onOpenChange={(open) => !open && !send.isPending && onClose()}>
+    <DialogPrimitive.Root open onOpenChange={(open) => !open && close()}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Content className="fixed inset-0 z-50 flex flex-col bg-surface animate-rise focus:outline-none" aria-describedby={undefined}>
-          <header className="relative flex h-14 shrink-0 items-center justify-center border-b border-line px-14">
-            <DialogPrimitive.Close className="absolute left-2 grid size-11 place-items-center rounded-full text-ink hover:bg-sunken" aria-label="Fermer">
-              <X className="size-5" aria-hidden />
-            </DialogPrimitive.Close>
-            <DialogPrimitive.Title className="text-base font-semibold text-ink">Votre commande</DialogPrimitive.Title>
-          </header>
+        <DialogPrimitive.Overlay className="fixed inset-0 z-40 animate-fade-in bg-ink/45 backdrop-blur-[2px]" />
+        <DialogPrimitive.Content
+          aria-describedby={undefined}
+          className="fixed inset-x-0 bottom-0 z-50 animate-sheet-up outline-none sm:inset-auto sm:top-1/2 sm:left-1/2 sm:w-full sm:max-w-md sm:-translate-x-1/2 sm:-translate-y-1/2 sm:animate-pop-in"
+        >
+          <div className="flex max-h-[94dvh] flex-col overflow-hidden rounded-t-[28px] bg-surface shadow-pop sm:max-h-[90dvh] sm:rounded-[28px]">
+            <header className="relative flex shrink-0 items-center justify-center px-14 pt-5 pb-3">
+              <span className="absolute top-2 left-1/2 h-1.5 w-10 -translate-x-1/2 rounded-full bg-line" aria-hidden />
+              <DialogPrimitive.Title className="text-[17px] font-semibold text-ink">{sent ? 'Commande envoyée' : 'Votre commande'}</DialogPrimitive.Title>
+              <DialogPrimitive.Close className="absolute top-3 right-3 grid size-9 place-items-center rounded-full bg-sunken text-ink-2 transition-transform duration-200 ease-apple active:scale-90" aria-label="Fermer">
+                <X className="size-5" aria-hidden />
+              </DialogPrimitive.Close>
+            </header>
 
-          <div className="mx-auto w-full max-w-md flex-1 overflow-y-auto">
-            <section aria-label="Articles de la commande" className="px-4 pt-2">
-              {lines.length === 0 ? (
-                <p className="py-6 text-center text-sm text-ink-2">Votre commande est vide.</p>
-              ) : (
-                <ul className="divide-y divide-line">
-                  {lines.map((line) => (
-                    <li key={line.itemId} className="flex items-center gap-3 py-3">
-                      <ItemPhoto item={line.item ?? { name: '?', imageId: null }} dimmed={line.invalid} className="size-14 shrink-0 rounded-xl text-base" />
+            {sent ? (
+              <OrderSent token={token} context={context} sent={sent} onDone={onOrdered} />
+            ) : (
+              <>
+                <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+                  {/* R1 : une carte par plat, la quantité se voit aux vignettes. */}
+                  <section aria-label="Articles de la commande" className="px-4">
+                    {lines.length === 0 ? (
+                      <p className="py-6 text-center text-sm text-ink-2">Votre commande est vide.</p>
+                    ) : (
+                      <ul className="flex flex-col gap-2.5" data-order-list="">
+                        {lines.map((line, index) => (
+                          <li
+                            key={line.itemId}
+                            className={cn('stagger flex animate-item-in items-center gap-3 rounded-2xl p-2.5 ring-1', line.invalid ? 'bg-sunken/70 ring-late/30' : 'bg-surface ring-line')}
+                            style={{ '--i': Math.min(index, 10) } as React.CSSProperties}
+                          >
+                            <span className="relative shrink-0">
+                              <ItemPhoto item={line.item ?? { name: '?', imageId: null }} dimmed={line.invalid} className="size-16 rounded-xl text-base" />
+                              {line.invalid && (
+                                <span className="absolute inset-0 grid place-items-center rounded-xl bg-black/35 text-white" aria-hidden>
+                                  <Ban className="size-7" />
+                                </span>
+                              )}
+                            </span>
+                            <div className="min-w-0 flex-1">
+                              <p className={cn('truncate text-[15px] font-semibold', line.invalid ? 'text-ink-3 line-through' : 'text-ink')}>{line.item?.name ?? 'Article retiré'}</p>
+                              {line.invalid ? (
+                                <p className="flex items-center gap-1 text-[13px] font-medium text-late">
+                                  <Ban className="size-3.5" aria-hidden />
+                                  N’est plus disponible
+                                </p>
+                              ) : (
+                                <div className="mt-1 flex items-center gap-2">
+                                  <QuantityThumbnails item={line.item ?? { name: '?', imageId: null }} quantity={line.quantity} size="sm" />
+                                  <span className="tabular text-[13px] text-ink-2">{formatMoney((line.item?.priceMinor ?? 0) * line.quantity, currency)}</span>
+                                </div>
+                              )}
+                            </div>
+                            {line.invalid ? (
+                              <Button variant="danger" size="sm" onClick={() => onQuantity(line.itemId, 0)}>
+                                <Trash2 className="size-4" aria-hidden />
+                                Retirer
+                              </Button>
+                            ) : (
+                              <Stepper name={line.item?.name ?? ''} quantity={line.quantity} onChange={(quantity) => onQuantity(line.itemId, quantity)} />
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    {/* Bouton rond secondaire : on le comprend au « + », il ne rivalise pas avec le geste pour commander. */}
+                    <div className="flex justify-end pt-3 pb-2">
+                      <button
+                        type="button"
+                        onClick={onClose}
+                        aria-label="Ajouter d’autres articles"
+                        title="Ajouter d’autres articles"
+                        className="grid size-11 place-items-center rounded-full bg-surface text-ink shadow-[0_1px_2px_rgb(27_25_23/0.08),0_6px_16px_-6px_rgb(27_25_23/0.25)] ring-1 ring-line/80 transition-[transform,box-shadow] duration-300 ease-spring hover:shadow-[0_1px_2px_rgb(27_25_23/0.08),0_10px_22px_-8px_rgb(27_25_23/0.3)] active:scale-90"
+                      >
+                        <Plus className="size-5" strokeWidth={2.5} aria-hidden />
+                      </button>
+                    </div>
+                  </section>
+
+                  {/* R2 : précisions sans écrire. */}
+                  <section aria-labelledby="precisions-title" className="px-4 pt-1 pb-5">
+                    {/* Un panneau « attention » en tête de rangée plutôt qu'un texte : on le reconnaît sans lire. */}
+                    <div className="-mr-4 flex items-center gap-2.5">
+                      <h2 id="precisions-title" className="shrink-0 text-[15px] font-semibold text-ink">
+                        <span
+                          aria-hidden
+                          className="grid size-9 animate-pop-in place-items-center rounded-[10px] bg-gradient-to-b from-[#ffb53d] to-[#f08c00] text-white shadow-[inset_0_1px_0_rgb(255_255_255/0.35),0_4px_10px_-4px_rgb(240_140_0/0.6)]"
+                        >
+                          <TriangleAlert className="size-5" strokeWidth={2.4} />
+                        </span>
+                        <span className="sr-only">Pour la cuisine</span>
+                      </h2>
                       <div className="min-w-0 flex-1">
-                        <p className={cn('truncate text-[15px] font-medium', line.invalid ? 'text-ink-3 line-through' : 'text-ink')}>{line.item?.name ?? 'Article retiré'}</p>
-                        {line.invalid ? (
-                          <p className="flex items-center gap-1 text-[13px] text-late">
-                            <Ban className="size-3.5" aria-hidden />
-                            N’est plus disponible
-                          </p>
-                        ) : (
-                          <p className="tabular text-[13px] text-ink-2">{formatMoney(line.item?.priceMinor ?? 0, currency)}</p>
-                        )}
+                        <PrecisionChips
+                          className="scroll-pl-1 pr-4 pl-1 [mask-image:linear-gradient(to_right,#000_calc(100%-28px),transparent)]"
+                          selected={precisions}
+                          onToggle={(key) => setPrecisions((current) => (current.includes(key) ? current.filter((k) => k !== key) : [...current, key]))}
+                          freeOpen={freeOpen}
+                          onFreeToggle={() => setFreeOpen((open) => !open)}
+                        />
                       </div>
-                      {line.invalid ? (
-                        <Button variant="ghost" size="sm" onClick={() => onQuantity(line.itemId, 0)}>
-                          <Trash2 className="size-4" aria-hidden />
-                          Retirer
-                        </Button>
-                      ) : (
-                        <Stepper name={line.item?.name ?? ''} quantity={line.quantity} onChange={(quantity) => onQuantity(line.itemId, quantity)} />
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              )}
-              <div className="flex justify-end pb-4">
-                <button type="button" onClick={onClose} className="inline-flex h-10 items-center gap-1.5 rounded-full bg-sunken px-4 text-[13px] font-medium text-ink hover:bg-line">
-                  <Plus className="size-4" aria-hidden />
-                  Ajouter d’autres articles
-                </button>
-              </div>
-            </section>
+                    </div>
+                    {freeOpen && (
+                      <div className="mt-3 animate-fade-in">
+                        <Textarea
+                          label="Une autre précision"
+                          value={note}
+                          onChange={(event) => setNote(event.target.value.slice(0, NOTE_MAX))}
+                          maxLength={NOTE_MAX}
+                          rows={2}
+                          placeholder="Ex. : sauce à part"
+                          autoFocus
+                        />
+                      </div>
+                    )}
+                  </section>
 
-            <Suggestions token={token} context={context} cart={cart} onAdd={(id) => onQuantity(id, 1)} />
+                  {/* Spec 014, R5 : une idée en plus, tout en bas, juste avant de commander. */}
+                  <Suggestions token={token} context={context} cart={cart} onAdd={(id) => onQuantity(id, 1)} />
+                </div>
 
-            <section className="px-4 pt-5 pb-6">
-              <Textarea
-                label="Une précision ? (facultatif)"
-                value={note}
-                onChange={(event) => setNote(event.target.value.slice(0, NOTE_MAX))}
-                maxLength={NOTE_MAX}
-                rows={2}
-                placeholder="Ex. : sans piment, bien frais"
-              />
-            </section>
+                <footer className="shrink-0 border-t border-line/70 bg-surface/95 px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))] backdrop-blur-md">
+                  <div className="mx-auto flex w-full max-w-md flex-col gap-3">
+                    {hasInvalid && !send.isError && <FormError message="Retirez les articles qui ne sont plus disponibles pour commander." />}
+                    <FormError message={send.isError ? errorMessage(send.error) : null} />
+                    <p className="flex items-baseline justify-between">
+                      <span className="text-[15px] font-medium text-ink-2">
+                        Total · {count} article{count > 1 ? 's' : ''}
+                      </span>
+                      <span className="tabular overflow-hidden text-2xl font-semibold tracking-tight text-ink">
+                        <span key={total} className="inline-block animate-number-in">
+                          {total}
+                        </span>
+                      </span>
+                    </p>
+                    {/* R3 : glisser pour commander, jamais un simple toucher. */}
+                    <SlideToConfirm
+                      label="Glisser pour commander"
+                      detail={total}
+                      disabled={count === 0 || hasInvalid || !context.orderingEnabled}
+                      busy={send.isPending}
+                      onConfirm={() => send.mutate()}
+                    />
+                    <p className="text-center text-xs text-ink-3">Le règlement se fait auprès du personnel.</p>
+                  </div>
+                </footer>
+              </>
+            )}
           </div>
-
-          <footer className="shrink-0 border-t border-line bg-surface px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))]">
-            <div className="mx-auto flex w-full max-w-md flex-col gap-3">
-              {hasInvalid && !send.isError && <FormError message="Retirez les articles qui ne sont plus disponibles pour commander." />}
-              <FormError message={send.isError ? errorMessage(send.error) : null} />
-              <p className="flex items-baseline justify-between">
-                <span className="text-[15px] font-medium text-ink">Total de la commande</span>
-                <span className="tabular text-lg font-semibold text-ink">{formatMoney(totalMinor, currency)}</span>
-              </p>
-              <Button size="lg" className="h-14 rounded-full text-base" loading={send.isPending} disabled={count === 0 || hasInvalid || !context.orderingEnabled} onClick={() => send.mutate()}>
-                {!send.isPending && <Check className="size-5" strokeWidth={2.5} aria-hidden />}
-                Commander
-              </Button>
-              <p className="text-center text-xs text-ink-3">Le règlement se fait auprès du personnel.</p>
-            </div>
-          </footer>
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>
+  );
+}
+
+/**
+ * Spec 013, R5 à R7 : confirmation après l'envoi. La coche se dessine, la table et les plats sont rappelés,
+ * la frise suit la commande en temps réel, et l'annulation reste possible tant que personne ne l'a prise.
+ */
+function OrderSent({ token, context, sent, onDone }: { token: string; context: GuestContext; sent: GuestRequest; onDone: () => void }) {
+  const { data } = useQuery({ queryKey: guestRequestsKey(token), queryFn: () => guestApi.requests(token) });
+  const live = data?.find((request) => request.id === sent.id) ?? sent;
+  const menuItems = new Map(context.menu.flatMap((category) => category.items).map((item) => [item.id, item]));
+  const cancelled = live.status === 'cancelled';
+  return (
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+      <div className="flex flex-col items-center gap-3 pt-2 text-center">
+        {cancelled ? (
+          <span className="grid size-24 animate-pop-in place-items-center rounded-full bg-sunken text-ink-3">
+            <Ban className="size-12" aria-hidden />
+          </span>
+        ) : (
+          <SuccessCheck />
+        )}
+        <p role="status" className="text-[22px] font-semibold tracking-tight text-ink">
+          {cancelled ? 'Commande annulée' : 'C’est parti !'}
+        </p>
+        <TableBadge label={context.table.label} area={context.table.area} />
+      </div>
+
+      <ul className="mt-5 flex flex-wrap justify-center gap-3" aria-label="Plats commandés">
+        {live.items.map((line, index) => {
+          const item = line.menuItemId ? menuItems.get(line.menuItemId) : undefined;
+          return (
+            <li key={`${line.menuItemId ?? ''}-${line.name}`} className="stagger flex w-20 animate-item-in flex-col items-center gap-1 text-center" style={{ '--i': index } as React.CSSProperties}>
+              <QuantityThumbnails item={item ?? { name: line.name, imageId: null }} quantity={line.quantity} size="sm" />
+              <span className="line-clamp-2 text-[12px] leading-tight text-ink-2">{line.name}</span>
+            </li>
+          );
+        })}
+      </ul>
+
+      {!cancelled && (
+        <div className="mt-6 rounded-2xl bg-sunken/60 p-4">
+          <OrderTracker request={live} tone="light" />
+        </div>
+      )}
+
+      <div className="mt-5 flex flex-col items-center gap-3">
+        <CancelOrderButton request={live} token={token} tone="light" />
+        <Button size="lg" className="h-14 w-full rounded-full text-base" onClick={onDone}>
+          Retour à la carte
+        </Button>
+      </div>
+    </div>
   );
 }
 
@@ -890,8 +1029,16 @@ function PairedItems({ token, item, context, cart, onAdd }: { token: string; ite
 }
 
 /** Rangée « Souvent commandés avec » (CA-002-09, 10). Un échec masque simplement la rangée. */
+/**
+ * Spec 014 : « Souvent commandés avec », en accompagnement discret tout en bas de la feuille.
+ * Vignettes rondes de 64 px (les plats choisis restent dans des cartes plus imposantes),
+ * un toucher ajoute le plat, qui vole vers la liste de la commande.
+ */
+const ORDER_LIST_ATTR = 'data-order-list';
+
 function Suggestions({ token, context, cart, onAdd }: { token: string; context: GuestContext; cart: Cart; onAdd: (itemId: string) => void }) {
   const ids = Object.keys(cart).sort();
+  const [leaving, setLeaving] = useState<string | null>(null);
   const { data } = useQuery({
     queryKey: ['guest', token, 'suggestions', ids],
     queryFn: () => guestApi.suggestions(token, ids),
@@ -902,26 +1049,53 @@ function Suggestions({ token, context, cart, onAdd }: { token: string; context: 
   const items = new Map(context.menu.flatMap((category) => category.items).map((item) => [item.id, item]));
   const suggested = (data ?? []).map((id) => items.get(id)).filter((item): item is MenuItem => !!item && item.isAvailable && !cart[item.id]);
   if (suggested.length === 0) return null;
+
+  const add = (item: MenuItem, from: DOMRect) => {
+    if (leaving) return;
+    haptic(10);
+    flyToCart(from, item.imageId ? menuImageUrl(item.imageId) : null, document.querySelector(`[${ORDER_LIST_ATTR}]`));
+    // R7 : la vignette rétrécit puis quitte la rangée ; sans animation, l'ajout est immédiat.
+    if (prefersReducedMotion()) return onAdd(item.id);
+    setLeaving(item.id);
+    window.setTimeout(() => {
+      onAdd(item.id);
+      setLeaving(null);
+    }, 220);
+  };
+
   return (
-    <section aria-labelledby="suggestions-title" className="border-t-8 border-paper pt-5">
-      <h2 id="suggestions-title" className="flex items-center gap-2 px-4 text-[17px] font-semibold tracking-tight text-ink">
-        <Sparkles className="size-5 text-brand" aria-hidden />
+    <section aria-labelledby="suggestions-title" className="border-t border-line/70 px-4 pt-4 pb-5">
+      <h2 id="suggestions-title" className="mb-3 text-[15px] font-semibold text-ink-2">
         Souvent commandés avec
       </h2>
-      <ul className="mt-3 flex snap-x gap-3 overflow-x-auto px-4 pb-1 [scrollbar-width:none]">
-        {suggested.map((item) => (
-          <li key={item.id} className="relative w-36 shrink-0 snap-start">
-            <ItemPhoto item={item} className="aspect-square w-full rounded-2xl text-2xl" />
+      <ul
+        aria-label="Plats suggérés"
+        className="-mx-4 flex snap-x snap-proximity scroll-px-4 gap-2.5 overflow-x-auto overscroll-x-contain px-4 py-1 [scrollbar-width:none] [mask-image:linear-gradient(to_right,transparent,#000_16px,#000_calc(100%-28px),transparent)] [&::-webkit-scrollbar]:hidden"
+      >
+        {suggested.map((item, index) => (
+          <li
+            key={item.id}
+            className={cn(
+              'stagger w-[72px] shrink-0 animate-item-in snap-start transition-[transform,opacity] duration-200 ease-apple',
+              leaving === item.id && 'scale-50 opacity-0',
+            )}
+            style={{ '--i': Math.min(index, 8) } as React.CSSProperties}
+          >
             <button
               type="button"
-              onClick={() => onAdd(item.id)}
+              onClick={(event) => add(item, event.currentTarget.getBoundingClientRect())}
               aria-label={`Ajouter ${item.name}`}
-              className="absolute top-2 right-2 grid size-9 place-items-center rounded-full bg-ink text-white shadow-pop active:scale-95"
+              className="flex w-full flex-col items-center gap-1 rounded-xl text-center transition-transform duration-200 ease-apple active:scale-95"
             >
-              <Plus className="size-4" aria-hidden />
+              <span className="relative">
+                <ItemPhoto item={item} className="size-16 rounded-full text-base" />
+                <span aria-hidden className="absolute -right-0.5 -bottom-0.5 grid size-6 place-items-center rounded-full bg-ink text-white ring-2 ring-surface">
+                  <Plus className="size-3.5" strokeWidth={2.75} />
+                </span>
+              </span>
+              <span className="w-full truncate text-[12px] leading-tight font-medium text-ink">{item.name}</span>
+              <span className="tabular -mt-0.5 text-[11px] text-ink-3">{formatMoney(item.priceMinor, context.establishment.currency)}</span>
             </button>
-            <p className="mt-2 line-clamp-2 text-sm leading-snug font-medium text-ink">{item.name}</p>
-            <p className="tabular text-[13px] text-ink-2">{formatMoney(item.priceMinor, context.establishment.currency)}</p>
           </li>
         ))}
       </ul>

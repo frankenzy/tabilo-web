@@ -25,9 +25,9 @@ function bump(): void {
   window.dispatchEvent(new Event(CART_BUMP));
 }
 
-/** Point d'arrivée : l'icône de la barre « Voir la commande », sinon le bas de l'écran. */
-function targetPoint(): { x: number; y: number } {
-  const target = document.querySelector(`[${CART_TARGET_ATTR}]`);
+/** Point d'arrivée : l'élément donné, sinon l'icône de la barre « Voir la commande », sinon le bas de l'écran. */
+function targetPoint(to?: Element | null): { x: number; y: number } {
+  const target = to ?? document.querySelector(`[${CART_TARGET_ATTR}]`);
   if (target) {
     const rect = target.getBoundingClientRect();
     return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
@@ -35,7 +35,8 @@ function targetPoint(): { x: number; y: number } {
   return { x: window.innerWidth / 2, y: window.innerHeight - 40 };
 }
 
-export function flyToCart(from: DOMRect | null, imageSrc: string | null): void {
+/** `to` : point d'arrivée (spec 014 : la liste de la commande, dans la feuille). */
+export function flyToCart(from: DOMRect | null, imageSrc: string | null, to?: Element | null): void {
   if (typeof window === 'undefined') return;
   if (!from || reducedMotion() || typeof document.body.animate !== 'function') {
     window.setTimeout(bump, 120);
@@ -63,7 +64,7 @@ export function flyToCart(from: DOMRect | null, imageSrc: string | null): void {
   // Deux images d'affichage : la barre « Voir la commande » peut apparaître avec ce premier ajout.
   requestAnimationFrame(() =>
     requestAnimationFrame(() => {
-      const end = targetPoint();
+      const end = targetPoint(to);
       const dx = end.x - start.x;
       const dy = end.y - start.y;
       const lift = Math.min(160, Math.abs(dy) * 0.35 + 60); // trajectoire en arc, comme un objet lancé

@@ -54,6 +54,9 @@
   --animate-item-in: item-in 460ms var(--ease-apple) both;
   --animate-grow: grow 700ms var(--ease-apple) both;
   --animate-cart-bump: cart-bump 520ms var(--ease-spring);
+  --animate-slide-hint: slide-hint 700ms var(--ease-spring);
+  --animate-draw: draw 600ms var(--ease-apple) 250ms forwards;
+  --animate-pulse-step: pulse-step 1.8s ease-in-out infinite;
 }
 
 @keyframes page-in {
@@ -109,6 +112,23 @@
 @keyframes grow {
   from { transform: scaleX(0); }
   to { transform: scaleX(1); }
+}
+
+/* Spec 013 : un simple toucher sur « Glisser pour commander » montre le geste attendu. */
+@keyframes slide-hint {
+  0%, 100% { transform: translateX(0); }
+  40% { transform: translateX(44px); }
+}
+
+/* Spec 013 : la coche de confirmation se dessine. */
+@keyframes draw {
+  to { stroke-dashoffset: 0; }
+}
+
+/* Spec 013 : l'étape en cours de la frise respire. */
+@keyframes pulse-step {
+  0%, 100% { box-shadow: 0 0 0 0 rgb(23 178 106 / 0.45); }
+  50% { box-shadow: 0 0 0 8px rgb(23 178 106 / 0); }
 }
 
 /* Indicateur d'activité façon iOS : 8 rayons qui s'estompent tour à tour. */

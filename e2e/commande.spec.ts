@@ -209,12 +209,24 @@ test('CA-001-12, 05, 14 et CA-002-01 à 09, 12, 13 — le client choisit par l�
   await guest.reload();
   await guest.getByRole('button', { name: /Voir la commande/ }).click();
   const screen = guest.getByRole('dialog', { name: 'Votre commande' });
-  await expect(screen.getByText('Total de la commande')).toBeVisible();
-  await expect(screen.getByRole('button', { name: 'Commander' }).locator('svg')).toBeVisible();
-  await expect(screen.getByText(money('3 500 F CFA'))).toBeVisible();
+  await expect(screen.getByText(/Total · 3 articles/)).toBeVisible();
+  await expect(screen.getByText(money('3 500 F CFA')).first()).toBeVisible();
   // Suggestion : sans historique, un article d'une rubrique absente de la commande.
   await expect(screen.getByRole('region', { name: 'Souvent commandés avec' }).getByRole('button', { name: 'Ajouter Dêguê' })).toBeVisible();
-  await screen.getByLabel('Une précision ? (facultatif)').fill('Sans piment');
+  // CA-014-01, 02, 04 : suggestions discrètes, sous les précisions, la commande reste dominante.
+  const layout = await screen.evaluate((root) => {
+    const card = root.querySelector('[data-order-list] li')!.getBoundingClientRect();
+    const tiles = [...root.querySelectorAll('ul[aria-label="Plats suggérés"] > li')];
+    const tile = tiles[0].getBoundingClientRect();
+    const size = (id: string) => parseFloat(getComputedStyle(root.querySelector(id)!).fontSize);
+    return {
+      narrower: tile.width < card.width,
+      titles: size('#suggestions-title') <= size('#precisions-title'),
+      below: !!(root.querySelector('#precisions-title')!.compareDocumentPosition(root.querySelector('#suggestions-title')!) & Node.DOCUMENT_POSITION_FOLLOWING),
+      labelled: tiles.every((li) => /^Ajouter /.test(li.querySelector('button')!.getAttribute('aria-label') ?? '')),
+    };
+  });
+  expect(layout).toEqual({ narrower: true, titles: true, below: true, labelled: true });
   await guest.waitForTimeout(400); // fin de l'animation d'ouverture
   await shot(guest, '03-votre-commande', false);
 
@@ -222,8 +234,36 @@ test('CA-001-12, 05, 14 et CA-002-01 à 09, 12, 13 — le client choisit par l�
   await screen.getByRole('button', { name: 'Ajouter d’autres articles' }).click();
   await expect(guest.getByRole('button', { name: /Voir la commande/ })).toContainText(money('3 500 F CFA'));
   await guest.getByRole('button', { name: /Voir la commande/ }).click();
-  await guest.getByRole('dialog', { name: 'Votre commande' }).getByLabel('Une précision ? (facultatif)').fill('Sans piment');
-  await guest.getByRole('dialog', { name: 'Votre commande' }).getByRole('button', { name: 'Commander' }).click();
+  const order = guest.getByRole('dialog', { name: 'Votre commande' });
+  const slider = order.getByRole('button', { name: /^Commander pour / });
+
+  // CA-013-01 : un simple toucher n'envoie rien.
+  let sent = 0;
+  guest.on('request', (request) => {
+    if (request.method() === 'POST' && request.url().includes('/guest/orders')) sent += 1;
+  });
+  await slider.click();
+  await guest.waitForTimeout(500);
+  expect(sent).toBe(0);
+  await expect(order).toBeVisible();
+
+  // CA-013-03 : la précision se touche, sans écrire.
+  await order.getByRole('button', { name: 'Sans piment' }).click();
+  await expect(order.getByRole('button', { name: 'Sans piment' })).toHaveAttribute('aria-pressed', 'true');
+
+  // CA-013-02 : glisser jusqu'au bout envoie la commande, une seule fois.
+  const knob = (await slider.boundingBox())!;
+  const track = await slider.evaluate((el) => el.parentElement!.getBoundingClientRect().width);
+  await guest.mouse.move(knob.x + knob.width / 2, knob.y + knob.height / 2);
+  await guest.mouse.down();
+  await guest.mouse.move(knob.x + track, knob.y + knob.height / 2, { steps: 12 });
+  await guest.mouse.up();
+  const confirmation = guest.getByRole('dialog', { name: 'Commande envoyée' });
+  await expect(confirmation.getByText('C’est parti !')).toBeVisible();
+  await expect(confirmation.getByRole('list', { name: 'Avancement' }).locator('[aria-current="step"]')).toContainText('Envoyée');
+  expect(sent).toBe(1);
+  await shot(guest, '04-commande-envoyee', false);
+  await confirmation.getByRole('button', { name: 'Retour à la carte' }).click();
 
   const tracking = guest.getByRole('region', { name: 'Vos demandes en cours' });
   await expect(tracking.getByText('Votre commande est bien reçue')).toBeVisible();
@@ -234,7 +274,7 @@ test('CA-001-12, 05, 14 et CA-002-01 à 09, 12, 13 — le client choisit par l�
   await expect(guest.getByRole('button', { name: /Voir la commande/ })).toHaveCount(0);
   // CA-004-04 : le suivi est au-dessus de la carte, en haut de page.
   await expect(tracking).toBeInViewport();
-  await shot(guest, '04-suivi-client', false);
+  await shot(guest, '05-suivi-client', false);
 
   // CA-005-05 : la tuile bleue « Eau » appelle directement la demande d'eau.
   await guest.getByRole('button', { name: 'De l’eau, appeler le serveur' }).click();

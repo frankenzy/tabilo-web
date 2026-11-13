@@ -2,8 +2,7 @@
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  BellRing, Check, Droplet, Minus, Plus, CheckCircle2, Clock, CookingPot, Loader2, QrCode, RotateCw, Send, UserRound, WifiOff, X, XCircle,
-  type LucideIcon,
+  BellRing, Check, Droplet, Minus, Plus, CheckCircle2, Clock, Loader2, QrCode, RotateCw, WifiOff, XCircle,
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Button, Dialog, FormError, Textarea } from '@/components/ui';
@@ -16,6 +15,7 @@ import { formatMoney } from '@/utils/money';
 import { formatTime } from '@/utils/time';
 import { cartLines, useCart } from './cart';
 import { CartBar, GuestOrderLines, MenuView, OrderScreen } from './guest-menu';
+import { CancelOrderButton, OrderTracker, stepOf } from './order-flow';
 import { guestRequestsKey, upsert, useGuestRequests } from './use-guest-requests';
 import { useGuestSession } from './use-guest-session';
 
@@ -209,8 +209,8 @@ function GuestTable({ token, context, onSessionClosed, onContextStale }: GuestTa
           cart={cart}
           onQuantity={setQuantity}
           onClose={() => setCartOpen(false)}
+          onSent={clear}
           onOrdered={() => {
-            clear();
             setCartOpen(false);
             // Retour en haut, sur le suivi de la commande (R4).
             window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -332,32 +332,10 @@ function RequestTiles({ types, activeTypeIds, onSelect }: { types: GuestRequestT
   );
 }
 
-/** Étapes du suivi en pictogrammes (spec 003, R4) : le même dessin partout pour le même état. */
-const STEPS: { label: string; icon: LucideIcon }[] = [
-  { label: 'Envoyée', icon: Send },
-  { label: 'Prise en charge', icon: UserRound },
-  { label: 'En cours', icon: CookingPot },
-  { label: 'Terminée', icon: CheckCircle2 },
-];
-
-function stepOf(request: GuestRequest): number {
-  if (request.status === 'resolved') return 3;
-  if (request.status === 'in_progress') return 2;
-  if (request.status === 'accepted') return 1;
-  return 0;
-}
-
+/** Suivi d'une demande ou d'une commande (spec 003, R4 ; spec 013, R6 et R7) : la même frise que sur la confirmation. */
 function Tracking({ request, token, currency }: { request: GuestRequest; token: string; currency: string }) {
-  const queryClient = useQueryClient();
   const Icon = requestIcon(request.type.icon);
   const step = stepOf(request);
-  const cancel = useMutation({
-    mutationFn: () => guestApi.cancel(token, request.id),
-    onSuccess: (updated) => queryClient.setQueryData<GuestRequest[]>(guestRequestsKey(token), (list = []) => upsert(list, updated)),
-    // Trop tard pour annuler (déjà prise en charge) : on réaffiche l'état réel.
-    onError: () => queryClient.invalidateQueries({ queryKey: guestRequestsKey(token) }),
-  });
-
   const message =
     step === 0
       ? request.type.kind === 'order'
@@ -381,36 +359,12 @@ function Tracking({ request, token, currency }: { request: GuestRequest; token: 
         {message}
       </p>
       {request.type.kind === 'order' && <GuestOrderLines items={request.items} totalMinor={request.totalMinor} currency={currency} />}
-      <ol className="mt-4 grid grid-cols-4" aria-label="Avancement">
-        {STEPS.map(({ label, icon: StepIcon }, index) => (
-          <li key={label} aria-current={index === step ? 'step' : undefined} className="relative flex flex-col items-center text-center">
-            {index > 0 && (
-              <span aria-hidden className={cn('absolute top-[1.125rem] right-1/2 h-0.5 w-full -translate-y-1/2', index <= step ? 'bg-brand' : 'bg-white/20')} />
-            )}
-            <span
-              className={cn(
-                'relative grid size-9 place-items-center rounded-full',
-                index < step ? 'bg-brand text-white' : index === step ? 'bg-brand text-white ring-4 ring-brand/30' : 'bg-[#3a3632] text-white/45',
-              )}
-            >
-              <StepIcon className="size-[18px]" aria-hidden />
-            </span>
-            <span className={cn('mt-1.5 block text-[11px] leading-tight', index <= step ? 'text-white' : 'text-white/45')}>{label}</span>
-          </li>
-        ))}
-      </ol>
-      {request.status === 'pending' && (
-        <button
-          type="button"
-          onClick={() => cancel.mutate()}
-          disabled={cancel.isPending}
-          className="mt-4 inline-flex h-10 items-center gap-1.5 rounded-full bg-white/10 px-4 text-[13px] font-medium text-white/85 disabled:opacity-50"
-        >
-          <X className="size-4" aria-hidden />
-          {cancel.isPending ? 'Annulation…' : 'Annuler cette demande'}
-        </button>
-      )}
-      {cancel.isError && <p className="mt-2 text-[13px] text-white/80">{errorMessage(cancel.error)}</p>}
+      <div className="mt-4">
+        <OrderTracker request={request} tone="dark" />
+      </div>
+      <div className="mt-4 empty:hidden">
+        <CancelOrderButton request={request} token={token} tone="dark" />
+      </div>
     </article>
   );
 }
