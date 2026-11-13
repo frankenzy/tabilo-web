@@ -31,6 +31,7 @@ import {
   type RequestDialog,
 } from "@/components/pages/requests/request-dialogs";
 import { TableRequestsDialog } from "@/components/pages/requests/table-requests-dialog";
+import { PrecisionFlags, precisionLabel } from "@/components/pages/requests/precisions";
 import {
   useActiveRequests,
   useFloor,
@@ -445,10 +446,14 @@ function TableCard({
         )}
         data-testid={`table-${table.label}`}
         data-tone={look.tone}
-        aria-label={`Table ${table.label}, ${look.label.toLowerCase()}${requests.length ? `, ${requests.length} demande${requests.length > 1 ? "s" : ""} en cours` : ""}`}
+        aria-label={`Table ${table.label}, ${look.label.toLowerCase()}${requests.length ? `, ${requests.length} demande${requests.length > 1 ? "s" : ""} en cours` : ""}${precisionLabel(requests.map((request) => request.note).filter(Boolean).join(" · ") || null)}`}
       >
         <div className="flex items-start justify-between gap-2">
-          <TableDrawing label={table.label} plate={TONE_PLATE[look.tone]} />
+          <span className="flex items-center gap-2">
+            <TableDrawing label={table.label} plate={TONE_PLATE[look.tone]} />
+            {/* Spec 022, R5 : une demande en cours porte une précision (à emporter, piment). */}
+            <PrecisionFlags notes={requests.map((request) => request.note)} />
+          </span>
           <span
             className={cn(
               "flex shrink-0 flex-col items-end rounded-2xl px-3 py-1 text-[13px] font-medium",

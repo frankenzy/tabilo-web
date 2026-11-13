@@ -11,6 +11,7 @@ import { formatClock, secondsSince } from '@/utils/time';
 import { URGENCY_TILE, urgencyOf } from '@/utils/urgency';
 import { capabilitiesOf, type Viewer } from './capabilities';
 import { OrderLines } from './order-lines';
+import { PrecisionBanner, PrecisionFlags, precisionLabel } from './precisions';
 import type { RequestDialog } from './request-dialogs';
 
 export { capabilitiesOf, type Viewer };
@@ -34,7 +35,7 @@ export function RequestCard({ request, now, viewer, busy, onAction, onDialog }: 
 
   return (
     <article
-      aria-label={`Table ${request.table.label}, ${request.type.label}, ${STATUS_LABELS[request.status]}`}
+      aria-label={`Table ${request.table.label}, ${request.type.label}, ${STATUS_LABELS[request.status]}${precisionLabel(request.note)}`}
       className="flex gap-3 rounded-(--radius-card) bg-surface p-3 ring-1 ring-line"
     >
       <div
@@ -59,6 +60,8 @@ export function RequestCard({ request, now, viewer, busy, onAction, onDialog }: 
                 {request.type.label}
                 {request.quantity !== null && <span className="tabular"> × {request.quantity}</span>}
               </span>
+              {/* Spec 022, R4 : repérable sans ouvrir. */}
+              <PrecisionFlags notes={[request.note]} />
             </h3>
             <p className="mt-0.5 truncate text-[13px] text-ink-2">
               {request.area.name}
@@ -75,8 +78,9 @@ export function RequestCard({ request, now, viewer, busy, onAction, onDialog }: 
           </button>
         </div>
 
+        {/* Spec 022, R2 : les précisions avant les plats. */}
+        <PrecisionBanner note={request.note} className="mt-2" />
         {request.type.kind === 'order' && <OrderLines items={request.items} totalMinor={request.totalMinor} compact />}
-        {request.note && <p className="mt-1.5 line-clamp-2 text-sm text-ink">« {request.note} »</p>}
 
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-ink-2">
           {escalated && (

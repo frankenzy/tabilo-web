@@ -10,6 +10,7 @@ import type { OccupationOrder, ServiceRequest, TableStatus } from '@/contracts';
 import { estKey, useEstablishmentId } from '@/hooks/use-establishment';
 import { useNow } from '@/hooks/use-now';
 import { cn } from '@/lib/utils';
+import { PrecisionBanner, PrecisionFlags } from './precisions';
 import { floorApi, menuImageUrl } from '@/services/api';
 import { errorMessage } from '@/services/http';
 import { toast } from '@/stores/toast.store';
@@ -341,8 +342,12 @@ function OrderRow({ order, currency }: { order: OccupationOrder; currency: strin
           ))}
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-[14px] font-medium text-ink">
-            {dishes} plat{dishes > 1 ? 's' : ''} <span className="font-normal text-ink-3">· ×{articles}</span>
+          <span className="flex items-center gap-1.5 text-[14px] font-medium text-ink">
+            <span className="truncate">
+              {dishes} plat{dishes > 1 ? 's' : ''} <span className="font-normal text-ink-3">· ×{articles}</span>
+            </span>
+            {/* Spec 022, R5 : la commande porte une précision. */}
+            <PrecisionFlags notes={[order.note]} size="sm" />
           </span>
           <span className="mt-0.5 flex items-center gap-2">
             <span className="tabular text-[12px] text-ink-3">{formatTime(order.createdAt)}</span>
@@ -356,6 +361,7 @@ function OrderRow({ order, currency }: { order: OccupationOrder; currency: strin
       </button>
       <div inert={!open} className={cn('grid transition-[grid-template-rows,opacity] duration-300 ease-apple', open ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0')}>
         <div className="min-h-0 overflow-hidden">
+          <PrecisionBanner note={order.note} className="mb-2" />
           <ul className="mb-3 flex flex-col rounded-xl bg-sunken/60 px-3">
             {order.items.map((item) => (
               <li key={item.menuItemId} className="flex h-11 items-center gap-3 border-b border-line last:border-0">

@@ -324,7 +324,9 @@ test('CA-001-22, 23 — le service reçoit la commande avec son contenu et la tr
   await expect(card).toBeVisible();
   await expect(card.getByText('Garba')).toBeVisible();
   await expect(card.getByText(money('3 500 F CFA'))).toBeVisible();
-  await expect(card.getByText('« Sans piment »')).toBeVisible();
+  // CA-022-01, 02 : la précision du client en pastille, en tête de la carte, et repérable dans son nom.
+  await expect(card.getByRole('region', { name: 'Précisions du client' }).getByText('Sans piment')).toBeVisible();
+  await expect(card).toHaveAccessibleName(/avec précisions, piment/);
   await shot(owner, '05-service');
 
   await card.getByRole('button', { name: 'Accepter' }).click();

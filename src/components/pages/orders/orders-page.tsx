@@ -19,6 +19,7 @@ import { errorMessage } from '@/services/http';
 import { useAuthStore, useMembership } from '@/stores/auth.store';
 import { formatClock, secondsSince } from '@/utils/time';
 import { URGENCY_LABEL, URGENCY_TILE, urgencyOf } from '@/utils/urgency';
+import { PrecisionBanner, PrecisionFlags, precisionLabel } from '@/components/pages/requests/precisions';
 import {
   COLUMN_LABELS, COLUMN_TONE, columnOf, columnsFor, dishImages, filterOrders, groupOrders, hasFilters, liveGrid, nextStep, NO_FILTERS, startOfToday, STATUS_PILL,
   type DishImage, type OrderFilters, type WhoFilter, type OrderColumn, type OrderStep, type StepTone,
@@ -194,7 +195,7 @@ function OrderCard({ request, now, viewer, images, step, busy, onStep, onAcknowl
 
   return (
     <article
-      aria-label={`Table ${request.table.label}, commande, ${STATUS_PILL[column].toLowerCase()}`}
+      aria-label={`Table ${request.table.label}, commande, ${STATUS_PILL[column].toLowerCase()}${precisionLabel(request.note)}`}
       className="flex flex-col overflow-hidden rounded-(--radius-card) bg-surface ring-1 ring-line transition-[transform,box-shadow] duration-300 ease-apple hover:-translate-y-0.5 hover:shadow-lg"
       data-testid={`order-${request.id}`}
       data-column={column}
@@ -214,6 +215,8 @@ function OrderCard({ request, now, viewer, images, step, busy, onStep, onAcknowl
             <span className="sm:hidden">{STATUS_PILL_SHORT[column]}</span>
             <span className="hidden sm:inline">{STATUS_PILL[column]}</span>
           </span>
+          {/* Spec 022, R4 : précision, à emporter, piment — visibles avant d'ouvrir. */}
+          <PrecisionFlags notes={[request.note]} className="ml-1.5 align-middle" />
           <span className="mt-1 flex items-center gap-1 truncate text-[11px] text-ink-3 sm:text-[12px]">
             <span className="font-medium text-ink-2">{new Date(request.createdAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</span>
             <span aria-hidden>·</span>
@@ -250,6 +253,9 @@ function OrderCard({ request, now, viewer, images, step, busy, onStep, onAcknowl
         )}
       </header>
 
+      {/* Spec 022, R2 : les précisions en tête, avant les plats. */}
+      <PrecisionBanner note={request.note} className="mx-2 mt-2 sm:mx-3" />
+
       {/* Une ligne par plat (R4) : image, nom, quantité à droite. */}
       <ul className="flex flex-1 flex-col px-2 py-1 sm:px-3">
         {request.items.map((line) => {
@@ -263,8 +269,6 @@ function OrderCard({ request, now, viewer, images, step, busy, onStep, onAcknowl
           );
         })}
       </ul>
-
-      {request.note && <p className="mx-2 mb-2 rounded-lg bg-wait/50 px-2 py-1.5 text-[13px] font-medium text-wait-ink sm:mx-3 sm:px-3 sm:py-2 sm:text-sm">« {request.note} »</p>}
 
       {/* Deux boutons côte à côte (R4) : Détail, puis l'étape suivante colorée selon l'état (R5). */}
       <div className="flex gap-1.5 border-t border-line p-2 sm:gap-2 sm:p-3">

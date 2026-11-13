@@ -130,6 +130,7 @@ export interface OccupationOrder {
   createdAt: string;
   resolvedAt: string | null;
   totalMinor: number;
+  note: string | null;
   items: { menuItemId: string; name: string; quantity: number; unitPriceMinor: number; imageId: string | null }[];
 }
 

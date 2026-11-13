@@ -7,6 +7,7 @@ import { useMemo, useState, type CSSProperties } from 'react';
 import { RequestCard, type Viewer } from '@/components/pages/requests/request-card';
 import { RequestDialogs, type RequestDialog } from '@/components/pages/requests/request-dialogs';
 import { TableRequestsDialog } from '@/components/pages/requests/table-requests-dialog';
+import { PrecisionFlags, precisionLabel } from '@/components/pages/requests/precisions';
 import { SalesRow } from './sales-row';
 import { TodaySection } from './today-charts';
 import { useActiveRequests, useFloor, useRequestAction } from '@/components/pages/requests/use-requests';
@@ -267,13 +268,15 @@ function TableTile({ table, requests, now, onOpen }: { table: Table; requests: S
     <button
       type="button"
       onClick={onOpen}
-      aria-label={`Table ${table.label}, ${requests.length} demande${requests.length > 1 ? 's' : ''} en cours`}
+      aria-label={`Table ${table.label}, ${requests.length} demande${requests.length > 1 ? 's' : ''} en cours${precisionLabel(requests.map((request) => request.note).filter(Boolean).join(' · ') || null)}`}
       className={cn(
-        'flex aspect-square w-full flex-col items-center justify-center rounded-lg p-0.5 text-center transition-transform duration-200 ease-apple hover:scale-[1.04] active:scale-95',
+        'relative flex aspect-square w-full flex-col items-center justify-center rounded-lg p-0.5 text-center transition-transform duration-200 ease-apple hover:scale-[1.04] active:scale-95',
         urgency ? URGENCY_TILE[urgency] : 'bg-surface text-ink-2 ring-1 ring-line ring-inset',
         escalated && 'animate-attention',
       )}
     >
+      {/* Spec 022, R5 : une demande en cours porte une précision (à emporter, piment). */}
+      <PrecisionFlags notes={requests.map((request) => request.note)} size="sm" className="absolute -top-1.5 -right-1.5 drop-shadow-sm" />
       <span className="tabular max-w-full truncate font-mono text-base leading-none font-semibold">{table.label}</span>
       {oldest ? (
         <>
