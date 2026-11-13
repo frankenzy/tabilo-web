@@ -3,9 +3,10 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { BarChart3 } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { ChartKindPicker, SeriesChart, useChartKind } from '@/components/ui/charts/series-chart';
 import { useFloor, useStaff } from '@/components/pages/requests/use-requests';
 import { Card, EmptyState, ErrorState, FilterSelect, PageHeader, Spinner } from '@/components/ui';
+import { DataTable, TBody, Td, Th, THead, TRow } from '@/components/ui/data-table';
 import type { Breakdown, Report } from '@/contracts';
 import { estKey, useEstablishmentId } from '@/hooks/use-establishment';
 import { analyticsApi } from '@/services/api';
@@ -61,7 +62,7 @@ export function AnalyticsPage() {
 
   return (
     <>
-      <PageHeader title="Statistiques" description="Indicateurs calculés à partir des demandes réelles de l’établissement." />
+      <PageHeader title="Rapport" description="Indicateurs calculés à partir des demandes réelles de l’établissement." />
       <div className="flex flex-wrap gap-2">
         <FilterSelect label="Période" value={period} onChange={(e) => setPeriod(e.target.value)}>
           {PERIODS.map((p) => (
@@ -109,6 +110,7 @@ function ReportView({ report }: { report: Report }) {
   const lateShare = totals.total > 0 ? Math.round((totals.late / totals.total) * 100) : 0;
   // Colonne « Montant » seulement s'il y a eu des commandes servies.
   const amountCurrency = report.sales.orders > 0 ? report.sales.currency : null;
+  const [requestsKind, setRequestsKind] = useChartKind('rapport-demandes');
   const series = report.series.map((point) => ({
     label: bucketLabel(point.bucket, report.period.bucket),
     onTime: point.total - point.late,
@@ -152,7 +154,10 @@ function ReportView({ report }: { report: Report }) {
           <h2 id="series-title" className="text-[15px] font-semibold text-ink">
             Demandes par {report.period.bucket === 'hour' ? 'heure' : 'jour'}
           </h2>
-          <ul className="flex gap-4 text-xs text-ink-2" aria-label="Légende">
+          <ul className="flex flex-wrap items-center gap-4 text-xs text-ink-2" aria-label="Légende">
+            <li>
+              <ChartKindPicker value={requestsKind} onChange={setRequestsKind} label="Type du graphique des demandes" />
+            </li>
             <li className="flex items-center gap-1.5">
               <span className="size-2.5 rounded-sm" style={{ background: ON_TIME }} aria-hidden />
               Dans les délais
@@ -164,45 +169,37 @@ function ReportView({ report }: { report: Report }) {
           </ul>
         </div>
         <Card className="mt-3 p-4">
-          <div className="h-64" role="img" aria-label={`Histogramme des demandes par ${report.period.bucket === 'hour' ? 'heure' : 'jour'} ; le détail figure dans le tableau ci-dessous.`}>
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={series} margin={{ top: 8, right: 8, left: -16, bottom: 0 }} barCategoryGap="28%">
-                <CartesianGrid vertical={false} stroke="#e4dfd6" strokeDasharray="2 4" />
-                <XAxis dataKey="label" tickLine={false} axisLine={{ stroke: '#e4dfd6' }} tick={{ fontSize: 12, fill: '#57524c' }} interval="preserveStartEnd" minTickGap={16} />
-                <YAxis allowDecimals={false} tickLine={false} axisLine={false} tick={{ fontSize: 12, fill: '#8c867e' }} width={44} />
-                <Tooltip
-                  cursor={{ fill: '#efece6' }}
-                  contentStyle={{ borderRadius: 10, border: '1px solid #e4dfd6', fontSize: 13, boxShadow: '0 12px 40px -12px rgb(27 25 23 / 0.25)' }}
-                  labelStyle={{ color: '#1b1917', fontWeight: 600 }}
-                  itemStyle={{ color: '#57524c' }}
-                />
-                <Bar dataKey="onTime" name="Dans les délais" stackId="requests" fill={ON_TIME} stroke="#ffffff" strokeWidth={2} maxBarSize={36} isAnimationActive={false} />
-                <Bar dataKey="late" name="En retard" stackId="requests" fill={LATE} stroke="#ffffff" strokeWidth={2} radius={[4, 4, 0, 0]} maxBarSize={36} isAnimationActive={false} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
+          <SeriesChart
+            kind={requestsKind}
+            rows={series}
+            series={[
+              { key: 'onTime', label: 'Dans les délais', color: ON_TIME },
+              { key: 'late', label: 'En retard', color: LATE },
+            ]}
+            ariaLabel={`Demandes par ${report.period.bucket === 'hour' ? 'heure' : 'jour'} ; le détail figure dans le tableau ci-dessous`}
+          />
           <details className="mt-3 text-sm">
             <summary className="cursor-pointer text-[13px] font-medium text-ink-2 hover:text-ink">Voir les données</summary>
-            <div className="mt-2 max-h-64 overflow-auto">
-              <table className="w-full text-left text-[13px]">
-                <thead className="text-ink-3">
-                  <tr>
-                    <th scope="col" className="py-1.5 font-medium">{report.period.bucket === 'hour' ? 'Heure' : 'Jour'}</th>
-                    <th scope="col" className="py-1.5 text-right font-medium">Demandes</th>
-                    <th scope="col" className="py-1.5 text-right font-medium">En retard</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-line">
-                  {series.map((point) => (
-                    <tr key={point.label}>
-                      <td className="py-1.5 text-ink">{point.label}</td>
-                      <td className="tabular py-1.5 text-right text-ink">{point.total}</td>
-                      <td className="tabular py-1.5 text-right text-ink-2">{point.late}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <DataTable label="Données du graphique" minWidth={280} className="mt-2">
+              <THead>
+                <Th>{report.period.bucket === 'hour' ? 'Heure' : 'Jour'}</Th>
+                <Th align="right">Demandes</Th>
+                <Th align="right">En retard</Th>
+              </THead>
+              <TBody>
+                {series.map((point, index) => (
+                  <TRow key={point.label} index={index}>
+                    <Td className="text-ink">{point.label}</Td>
+                    <Td align="right" numeric className="text-ink">
+                      {point.total}
+                    </Td>
+                    <Td align="right" numeric className={point.late > 0 ? 'text-late' : 'text-ink-3'}>
+                      {point.late}
+                    </Td>
+                  </TRow>
+                ))}
+              </TBody>
+            </DataTable>
           </details>
         </Card>
       </section>
@@ -235,35 +232,42 @@ function BreakdownTable({ title, heading, rows, empty, currency }: { title: stri
       {rows.length === 0 ? (
         <p className="mt-3 text-sm text-ink-2">{empty ?? 'Aucune donnée sur la période.'}</p>
       ) : (
-        <Card className="mt-3 overflow-x-auto">
-          <table className="w-full min-w-[420px] text-left text-sm">
-            <thead className="text-[13px] text-ink-3">
-              <tr className="border-b border-line">
-                <th scope="col" className="px-4 py-2.5 font-medium">{heading}</th>
-                <th scope="col" className="px-3 py-2.5 text-right font-medium">Demandes</th>
-                <th scope="col" className="px-3 py-2.5 text-right font-medium">En retard</th>
-                <th scope="col" className="px-4 py-2.5 text-right font-medium whitespace-nowrap">Prise en charge (méd.)</th>
-                {currency && <th scope="col" className="px-4 py-2.5 text-right font-medium">Montant</th>}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-line">
-              {rows.map((row) => (
-                <tr key={row.id}>
-                  <th scope="row" className="px-4 py-2.5 font-normal text-ink">
-                    {row.label}
-                    <span className="mt-1.5 block h-1 rounded-full bg-sunken" aria-hidden>
-                      <span className="block h-1 rounded-full bg-ink" style={{ width: `${(row.total / max) * 100}%` }} />
-                    </span>
-                  </th>
-                  <td className="tabular px-3 py-2.5 text-right text-ink">{row.total}</td>
-                  <td className={`tabular px-3 py-2.5 text-right ${row.late > 0 ? 'font-medium text-late' : 'text-ink-3'}`}>{row.late}</td>
-                  <td className="tabular px-4 py-2.5 text-right text-ink-2">{formatDuration(row.medianAcceptSeconds)}</td>
-                  {currency && <td className="tabular px-4 py-2.5 text-right whitespace-nowrap text-ink">{row.amountMinor > 0 ? formatMoney(row.amountMinor, currency) : '—'}</td>}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Card>
+        <DataTable label={title} minWidth={currency ? 500 : 400} className="mt-3">
+          <THead>
+            <Th>{heading}</Th>
+            <Th align="right">Demandes</Th>
+            <Th align="right">En retard</Th>
+            <Th align="right">Prise en ch.</Th>
+            {currency && <Th align="right">Montant</Th>}
+          </THead>
+          <TBody>
+            {rows.map((row, index) => (
+              <TRow key={row.id} index={index}>
+                <Td header>
+                  <span className="font-medium text-ink">{row.label}</span>
+                  {/* Barre de proportion : se remplit à l'apparition. */}
+                  <span className="mt-1.5 block h-1.5 rounded-full bg-sunken" aria-hidden>
+                    <span className="block h-1.5 origin-left animate-grow rounded-full bg-ink" style={{ width: `${(row.total / max) * 100}%` }} />
+                  </span>
+                </Td>
+                <Td align="right" numeric className="font-semibold text-ink">
+                  {row.total}
+                </Td>
+                <Td align="right" numeric className={row.late > 0 ? 'font-semibold text-late' : 'text-ink-3'}>
+                  {row.late}
+                </Td>
+                <Td align="right" numeric className="text-ink-2">
+                  {formatDuration(row.medianAcceptSeconds)}
+                </Td>
+                {currency && (
+                  <Td align="right" numeric className="text-ink">
+                    {row.amountMinor > 0 ? formatMoney(row.amountMinor, currency) : '—'}
+                  </Td>
+                )}
+              </TRow>
+            ))}
+          </TBody>
+        </DataTable>
       )}
     </section>
   );
@@ -271,6 +275,7 @@ function BreakdownTable({ title, heading, rows, empty, currency }: { title: stri
 
 /** Ventes (spec 001, R15) : montant des commandes servies, jamais un encaissement. */
 function SalesSection({ report }: { report: Report }) {
+  const [salesKind, setSalesKind] = useChartKind('rapport-ventes');
   const { sales } = report;
   const unit = report.period.bucket === 'hour' ? 'heure' : 'jour';
   if (sales.orders === 0) {
@@ -301,77 +306,70 @@ function SalesSection({ report }: { report: Report }) {
 
       <div className="grid gap-8 lg:grid-cols-2">
         <div>
-          <h3 className="text-sm font-semibold text-ink">Montant servi par {unit}</h3>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-sm font-semibold text-ink">Montant servi par {unit}</h3>
+            <ChartKindPicker value={salesKind} onChange={setSalesKind} label="Type du graphique des ventes" />
+          </div>
           <Card className="mt-3 p-4">
-            <div className="h-56" role="img" aria-label={`Histogramme du montant servi par ${unit} ; le détail figure dans le tableau ci-dessous.`}>
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={points} margin={{ top: 8, right: 8, left: 8, bottom: 0 }} barCategoryGap="28%">
-                  <CartesianGrid vertical={false} stroke="#e4dfd6" strokeDasharray="2 4" />
-                  <XAxis dataKey="label" tickLine={false} axisLine={{ stroke: '#e4dfd6' }} tick={{ fontSize: 12, fill: '#57524c' }} interval="preserveStartEnd" minTickGap={16} />
-                  <YAxis
-                    tickLine={false}
-                    axisLine={false}
-                    tick={{ fontSize: 12, fill: '#8c867e' }}
-                    width={72}
-                    tickFormatter={(value: number) => new Intl.NumberFormat('fr-FR', { notation: 'compact' }).format(value / 10 ** currencyDigits(sales.currency))}
-                  />
-                  <Tooltip
-                    cursor={{ fill: '#efece6' }}
-                    formatter={(value) => [money(Number(value)), 'Montant servi']}
-                    contentStyle={{ borderRadius: 10, border: '1px solid #e4dfd6', fontSize: 13, boxShadow: '0 12px 40px -12px rgb(27 25 23 / 0.25)' }}
-                    labelStyle={{ color: '#1b1917', fontWeight: 600 }}
-                    itemStyle={{ color: '#57524c' }}
-                  />
-                  <Bar dataKey="amountMinor" name="Montant servi" fill={AMOUNT} radius={[4, 4, 0, 0]} maxBarSize={36} isAnimationActive={false} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
+            <SeriesChart
+              kind={salesKind}
+              rows={points}
+              series={[{ key: 'amountMinor', label: 'Montant servi', color: AMOUNT }]}
+              height={224}
+              format={money}
+              axisFormat={(value) => new Intl.NumberFormat('fr-FR', { notation: 'compact' }).format(value / 10 ** currencyDigits(sales.currency))}
+              ariaLabel={`Montant servi par ${unit} ; le détail figure dans le tableau ci-dessous`}
+            />
             <details className="mt-3 text-sm">
               <summary className="cursor-pointer text-[13px] font-medium text-ink-2 hover:text-ink">Voir les données</summary>
-              <div className="mt-2 max-h-64 overflow-auto">
-                <table className="w-full text-left text-[13px]">
-                  <thead className="text-ink-3">
-                    <tr>
-                      <th scope="col" className="py-1.5 font-medium">{unit === 'heure' ? 'Heure' : 'Jour'}</th>
-                      <th scope="col" className="py-1.5 text-right font-medium">Montant servi</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-line">
-                    {points.map((point) => (
-                      <tr key={point.label}>
-                        <td className="py-1.5 text-ink">{point.label}</td>
-                        <td className="tabular py-1.5 text-right text-ink">{money(point.amountMinor)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <DataTable label="Données des ventes" minWidth={240} className="mt-2">
+                <THead>
+                  <Th>{unit === 'heure' ? 'Heure' : 'Jour'}</Th>
+                  <Th align="right">Montant servi</Th>
+                </THead>
+                <TBody>
+                  {points.map((point, index) => (
+                    <TRow key={point.label} index={index}>
+                      <Td className="text-ink">{point.label}</Td>
+                      <Td align="right" numeric className="text-ink">
+                        {money(point.amountMinor)}
+                      </Td>
+                    </TRow>
+                  ))}
+                </TBody>
+              </DataTable>
             </details>
           </Card>
         </div>
 
         <div>
           <h3 className="text-sm font-semibold text-ink">Articles les plus vendus</h3>
-          <Card className="mt-3 overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="text-[13px] text-ink-3">
-                <tr className="border-b border-line">
-                  <th scope="col" className="px-4 py-2.5 font-medium">Article</th>
-                  <th scope="col" className="px-3 py-2.5 text-right font-medium">Quantité</th>
-                  <th scope="col" className="px-4 py-2.5 text-right font-medium">Montant</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-line">
-                {sales.topItems.map((item) => (
-                  <tr key={item.menuItemId}>
-                    <th scope="row" className="px-4 py-2.5 font-normal text-ink">{item.name}</th>
-                    <td className="tabular px-3 py-2.5 text-right text-ink">{item.quantity}</td>
-                    <td className="tabular px-4 py-2.5 text-right whitespace-nowrap text-ink">{money(item.amountMinor)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </Card>
+          <DataTable label="Articles les plus vendus" minWidth={360} className="mt-3">
+            <THead>
+              <Th className="w-12">#</Th>
+              <Th>Article</Th>
+              <Th align="right">Quantité</Th>
+              <Th align="right">Montant</Th>
+            </THead>
+            <TBody>
+              {sales.topItems.map((item, index) => (
+                <TRow key={item.menuItemId} index={index}>
+                  <Td numeric className="text-ink-3">
+                    {index + 1}
+                  </Td>
+                  <Td header className="font-medium text-ink">
+                    {item.name}
+                  </Td>
+                  <Td align="right" numeric className="text-ink">
+                    ×{item.quantity}
+                  </Td>
+                  <Td align="right" numeric className="font-semibold text-ink">
+                    {money(item.amountMinor)}
+                  </Td>
+                </TRow>
+              ))}
+            </TBody>
+          </DataTable>
         </div>
       </div>
     </section>

@@ -1,22 +1,24 @@
 'use client';
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ShieldCheck, Smartphone } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { ChevronDown, ShieldCheck, Smartphone } from 'lucide-react';
 import Link from 'next/link';
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type CSSProperties } from 'react';
 import { RequestCard, type Viewer } from '@/components/pages/requests/request-card';
 import { RequestDialogs, type RequestDialog } from '@/components/pages/requests/request-dialogs';
+import { TableRequestsDialog } from '@/components/pages/requests/table-requests-dialog';
+import { SalesRow } from './sales-row';
+import { TodaySection } from './today-charts';
 import { useActiveRequests, useFloor, useRequestAction } from '@/components/pages/requests/use-requests';
-import { Button, Card, Dialog, EmptyState, ErrorState, PageHeader, Spinner } from '@/components/ui';
+import { Card, EmptyState, ErrorState, PageHeader, Spinner } from '@/components/ui';
 import { requestIcon } from '@/constants/requests';
 import type { ServiceRequest, Table } from '@/contracts';
 import { estKey, useEstablishmentId, useLiveRefetchInterval } from '@/hooks/use-establishment';
 import { useNow } from '@/hooks/use-now';
 import { cn } from '@/lib/utils';
-import { analyticsApi, floorApi } from '@/services/api';
+import { analyticsApi } from '@/services/api';
 import { errorMessage } from '@/services/http';
 import { useAuthStore, useMembership } from '@/stores/auth.store';
-import { toast } from '@/stores/toast.store';
 import { formatClock, formatDuration, secondsSince } from '@/utils/time';
 import { URGENCY_TILE, urgencyOf, worstUrgency } from '@/utils/urgency';
 
@@ -36,6 +38,12 @@ export function DashboardPage() {
   const action = useRequestAction();
   const [dialog, setDialog] = useState<RequestDialog>(null);
   const [tableId, setTableId] = useState<string | null>(null);
+  // Filtre de zone du plan de salle (« Toutes les zones » par défaut).
+  const [areaId, setAreaId] = useState<string>('all');
+  const planTables = useMemo(
+    () => (floor.data ?? []).filter((area) => areaId === 'all' || area.id === areaId).flatMap((area) => area.tables),
+    [floor.data, areaId],
+  );
 
   const viewer: Viewer = useMemo(
     () => ({ id: me?.id ?? '', can: (permission) => membership?.permissions.includes(permission) ?? false }),
@@ -80,53 +88,73 @@ export function DashboardPage() {
     <>
       <PageHeader title="Tableau de bord" description="La salle, en ce moment." />
 
-      <dl className="grid grid-cols-2 gap-x-6 gap-y-5 sm:grid-cols-3 lg:grid-cols-5">
-        <Stat label="En attente" value={stats.pending + stats.assigned} hint={stats.oldestPendingSeconds ? `plus ancienne : ${formatDuration(stats.oldestPendingSeconds)}` : 'aucune attente'} />
-        <Stat label="Prises en charge" value={stats.accepted + stats.inProgress} hint={`${stats.inProgress} en cours de traitement`} />
-        <Stat label="En retard" value={stats.late} tone={stats.late > 0 ? 'late' : undefined} hint="délai cible dépassé" />
-        <Stat label="Escaladées" value={stats.escalated} tone={stats.escalated > 0 ? 'late' : undefined} hint="à acquitter" />
-        <Stat label="Prise en charge médiane" value={formatDuration(stats.today.medianAcceptSeconds)} hint={`aujourd’hui · ${stats.today.total} demandes`} />
+      <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        <Stat index={0} label="En attente" value={stats.pending + stats.assigned} hint={stats.oldestPendingSeconds ? `plus ancienne : ${formatDuration(stats.oldestPendingSeconds)}` : 'aucune attente'} />
+        <Stat index={1} label="Prises en charge" value={stats.accepted + stats.inProgress} hint={`${stats.inProgress} en cours de traitement`} />
+        <Stat index={2} label="En retard" value={stats.late} tone={stats.late > 0 ? 'late' : undefined} hint="délai cible dépassé" />
+        <Stat index={3} label="Escaladées" value={stats.escalated} tone={stats.escalated > 0 ? 'late' : undefined} hint="à acquitter" />
+        <Stat index={4} className="col-span-2 sm:col-span-1" label="Prise en charge médiane" value={formatDuration(stats.today.medianAcceptSeconds)} hint={`aujourd’hui · ${stats.today.total} demandes`} />
       </dl>
 
-      <div className="mt-8 grid gap-8 lg:grid-cols-[minmax(0,1fr)_340px]">
-        <section aria-labelledby="floor-title">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 id="floor-title" className="text-[15px] font-semibold text-ink">
-              Plan de salle
-            </h2>
-            <Legend />
-          </div>
-          {floor.data.length === 0 ? (
-            <div className="mt-3">
-              <EmptyState
-                title="Aucune table configurée"
-                description="Créez vos zones et vos tables pour générer les QR codes."
-                action={
-                  <Link href="/app/salle" className="text-sm font-medium text-ink underline underline-offset-4">
-                    Configurer la salle
-                  </Link>
-                }
-              />
-            </div>
-          ) : (
-            floor.data.map((area) => (
-              <div key={area.id} className="mt-4">
-                <h3 className="text-[13px] font-medium text-ink-3">{area.name}</h3>
-                {area.tables.length === 0 ? (
-                  <p className="mt-2 text-sm text-ink-3">Aucune table dans cette zone.</p>
-                ) : (
-                  <ul className="mt-2 grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-5 xl:grid-cols-6">
-                    {area.tables.map((table) => (
-                      <li key={table.id}>
-                        <TableTile table={table} requests={byTable.get(table.id) ?? []} now={now} onOpen={() => setTableId(table.id)} />
-                      </li>
+      <SalesRow />
+      <TodaySection />
+
+      {/* Plan de salle sur deux tiers de la ligne, priorités et équipe sur le tiers restant. */}
+      <div className="mt-6 grid gap-4 lg:grid-cols-3">
+        <Card className="p-4 sm:p-5 lg:col-span-2">
+          <section aria-labelledby="floor-title">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 id="floor-title" className="text-[15px] font-semibold text-ink">
+                Plan de salle
+              </h2>
+              {floor.data.length > 1 && (
+                <label className="relative">
+                  <span className="sr-only">Zone</span>
+                  <select
+                    value={areaId}
+                    onChange={(event) => setAreaId(event.target.value)}
+                    className="h-9 appearance-none rounded-lg bg-surface pr-8 pl-3 text-[13px] font-medium text-ink ring-1 ring-line outline-none focus:ring-2 focus:ring-brand"
+                  >
+                    <option value="all">Toutes les zones</option>
+                    {floor.data.map((area) => (
+                      <option key={area.id} value={area.id}>
+                        {area.name}
+                      </option>
                     ))}
-                  </ul>
-                )}
+                  </select>
+                  <ChevronDown className="pointer-events-none absolute top-1/2 right-2.5 size-3.5 -translate-y-1/2 text-ink-2" aria-hidden />
+                </label>
+              )}
+            </div>
+            <div className="mt-2">
+              <Legend />
+            </div>
+            {floor.data.length === 0 ? (
+              <div className="mt-3">
+                <EmptyState
+                  title="Aucune table configurée"
+                  description="Créez vos zones et vos tables pour générer les QR codes."
+                  action={
+                    <Link href="/app/tables" className="text-sm font-medium text-ink underline underline-offset-4">
+                      Configurer la salle
+                    </Link>
+                  }
+                />
               </div>
-            ))
-          )}
-        </section>
+            ) : planTables.length === 0 ? (
+              <p className="mt-4 text-sm text-ink-3">Aucune table dans cette zone.</p>
+            ) : (
+              // Toutes les zones ensemble, dans l'ordre des zones puis des tables ; carrés compacts.
+              <ul className="mt-4 grid grid-cols-4 gap-2 sm:grid-cols-6 md:grid-cols-8 xl:grid-cols-10">
+                {planTables.map((table, index) => (
+                  <li key={table.id} className="stagger animate-item-in" style={{ '--i': Math.min(index, 20) } as CSSProperties}>
+                    <TableTile table={table} requests={byTable.get(table.id) ?? []} now={now} onOpen={() => setTableId(table.id)} />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </Card>
 
         <div className="flex flex-col gap-8">
           <section aria-labelledby="attention-title">
@@ -175,21 +203,38 @@ export function DashboardPage() {
       </div>
 
       {selectedTable && (
-        <TableDialog table={selectedTable} requests={byTable.get(selectedTable.id) ?? []} canClose={viewer.can('sessions.manage')} onClose={() => setTableId(null)}>
+        <TableRequestsDialog
+          table={selectedTable}
+          description={`${selectedTable.seats} couverts · ${selectedTable.openSessions} téléphone${selectedTable.openSessions > 1 ? 's' : ''} connecté${selectedTable.openSessions > 1 ? 's' : ''}`}
+          occupied={selectedTable.openSessions > 0}
+          requests={byTable.get(selectedTable.id) ?? []}
+          canClose={viewer.can('sessions.manage')}
+          onClose={() => setTableId(null)}
+        >
           {(request) => card(request)}
-        </TableDialog>
+        </TableRequestsDialog>
       )}
       <RequestDialogs dialog={dialog} onClose={() => setDialog(null)} />
     </>
   );
 }
 
-function Stat({ label, value, hint, tone }: { label: string; value: number | string; hint: string; tone?: 'late' }) {
+function Stat({ label, value, hint, tone, className, index = 0 }: { label: string; value: number | string; hint: string; tone?: 'late'; className?: string; index?: number }) {
   return (
-    <div>
-      <dt className="text-[13px] text-ink-2">{label}</dt>
-      <dd className={cn('tabular mt-1 text-3xl leading-none font-semibold tracking-tight', tone === 'late' ? 'text-late' : 'text-ink')}>{value}</dd>
-      <dd className="mt-1.5 text-xs text-ink-3">{hint}</dd>
+    <div
+      className={cn('stagger flex animate-item-in flex-col justify-between gap-3 rounded-(--radius-card) bg-surface p-4 ring-1 ring-line sm:p-5', className)}
+      style={{ '--i': index } as CSSProperties}
+    >
+      <dt className="text-[15px] font-medium text-ink">{label}</dt>
+      <div>
+        <dd className={cn('tabular overflow-hidden text-3xl leading-none font-semibold tracking-tight', tone === 'late' ? 'text-late' : 'text-ink')}>
+          {/* Nouvelle valeur : elle monte en fondu (la clé relance l'animation). */}
+          <span key={String(value)} className="inline-block animate-number-in">
+            {value}
+          </span>
+        </dd>
+        <dd className="mt-1.5 text-xs text-ink-3">{hint}</dd>
+      </div>
     </div>
   );
 }
@@ -200,6 +245,7 @@ function Legend() {
     { label: 'En attente', className: 'bg-wait' },
     { label: 'En retard', className: 'bg-late' },
     { label: 'Prise en charge', className: 'bg-progress-soft ring-1 ring-progress/30' },
+    { label: 'Prête', className: 'bg-done' },
   ];
   return (
     <ul className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-ink-2" aria-label="Légende">
@@ -223,61 +269,25 @@ function TableTile({ table, requests, now, onOpen }: { table: Table; requests: S
       onClick={onOpen}
       aria-label={`Table ${table.label}, ${requests.length} demande${requests.length > 1 ? 's' : ''} en cours`}
       className={cn(
-        'flex aspect-square w-full flex-col items-center justify-center rounded-xl p-1 text-center transition-transform active:scale-95',
+        'flex aspect-square w-full flex-col items-center justify-center rounded-lg p-0.5 text-center transition-transform duration-200 ease-apple hover:scale-[1.04] active:scale-95',
         urgency ? URGENCY_TILE[urgency] : 'bg-surface text-ink-2 ring-1 ring-line ring-inset',
         escalated && 'animate-attention',
       )}
     >
-      <span className="tabular max-w-full truncate font-mono text-xl leading-none font-semibold">{table.label}</span>
+      <span className="tabular max-w-full truncate font-mono text-base leading-none font-semibold">{table.label}</span>
       {oldest ? (
         <>
-          <span className="mt-1.5 flex gap-1" aria-hidden>
+          <span className="mt-1 flex gap-0.5" aria-hidden>
             {requests.slice(0, 3).map((request) => {
               const Icon = requestIcon(request.type.icon);
-              return <Icon key={request.id} className="size-3.5" />;
+              return <Icon key={request.id} className="size-3" />;
             })}
           </span>
-          <span className="tabular mt-1 font-mono text-[11px] opacity-80">{formatClock(secondsSince(oldest.createdAt, now))}</span>
+          <span className="tabular mt-0.5 font-mono text-[10px] leading-none opacity-80">{formatClock(secondsSince(oldest.createdAt, now))}</span>
         </>
       ) : (
-        table.openSessions > 0 && <Smartphone className="mt-1.5 size-3.5 text-ink-3" aria-label="Client connecté" />
+        table.openSessions > 0 && <Smartphone className="mt-1 size-3 text-ink-3" aria-label="Client connecté" />
       )}
     </button>
-  );
-}
-
-function TableDialog({
-  table, requests, canClose, onClose, children,
-}: { table: Table; requests: ServiceRequest[]; canClose: boolean; onClose: () => void; children: (request: ServiceRequest) => React.ReactNode }) {
-  const establishmentId = useEstablishmentId();
-  const queryClient = useQueryClient();
-  const close = useMutation({
-    mutationFn: () => floorApi.closeSessions(establishmentId, table.id),
-    onSuccess: ({ closed }) => {
-      toast.success(closed > 0 ? `${closed} session${closed > 1 ? 's' : ''} fermée${closed > 1 ? 's' : ''}` : 'Aucune session ouverte');
-      void queryClient.invalidateQueries({ queryKey: estKey(establishmentId, 'floor') });
-    },
-    onError: (error) => toast.error('Fermeture impossible', errorMessage(error)),
-  });
-  return (
-    <Dialog open onOpenChange={(open) => !open && onClose()} title={`Table ${table.label}`} description={`${table.seats} couverts · ${table.openSessions} téléphone${table.openSessions > 1 ? 's' : ''} connecté${table.openSessions > 1 ? 's' : ''}`} variant="sheet">
-      {requests.length === 0 ? (
-        <p className="text-sm text-ink-2">Aucune demande en cours sur cette table.</p>
-      ) : (
-        <ul className="flex flex-col gap-3">
-          {requests.map((request) => (
-            <li key={request.id}>{children(request)}</li>
-          ))}
-        </ul>
-      )}
-      {canClose && table.openSessions > 0 && (
-        <div className="mt-6 border-t border-line pt-4">
-          <p className="text-[13px] text-ink-2">Les clients sont partis ? Fermez leurs sessions : leurs téléphones ne pourront plus envoyer de demande pour cette table.</p>
-          <Button variant="secondary" className="mt-3" loading={close.isPending} onClick={() => close.mutate()}>
-            Fermer les sessions
-          </Button>
-        </div>
-      )}
-    </Dialog>
   );
 }
