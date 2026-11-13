@@ -22,9 +22,9 @@ export function QrSheetPage() {
   return (
     <>
       <div className="no-print mb-6 flex flex-wrap items-center justify-between gap-3">
-        <Link href="/app/salle" className="inline-flex items-center gap-1.5 text-sm font-medium text-ink-2 hover:text-ink">
+        <Link href="/app/tables" className="inline-flex items-center gap-1.5 text-sm font-medium text-ink-2 hover:text-ink">
           <ArrowLeft className="size-4" aria-hidden />
-          Retour à la salle
+          Retour aux tables
         </Link>
         <Button onClick={() => window.print()} disabled={!data || data.length === 0}>
           <Printer className="size-4" aria-hidden />

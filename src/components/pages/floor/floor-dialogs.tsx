@@ -1,32 +1,38 @@
 'use client';
 
-import * as Menu from '@radix-ui/react-dropdown-menu';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Copy, Download, MoreHorizontal, Plus, Printer, QrCode as QrIcon, Smartphone, Users } from 'lucide-react';
-import Link from 'next/link';
+import { Copy, Download, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
-import { useFloor } from '@/components/pages/requests/use-requests';
-import { Button, ConfirmDialog, Dialog, DialogActions, EmptyState, ErrorState, FormError, Input, PageHeader, Select, Spinner } from '@/components/ui';
-import { areaSchema, fieldErrors, tableSchema, type Area, type Table } from '@/contracts';
+import { Button, ConfirmDialog, Dialog, DialogActions, ErrorState, FormError, Input, Select, Spinner } from '@/components/ui';
+import { areaSchema, fieldErrors, tableSchema, type Area } from '@/contracts';
 import { estKey, useEstablishmentId } from '@/hooks/use-establishment';
-import { cn } from '@/lib/utils';
 import { floorApi } from '@/services/api';
 import { errorMessage } from '@/services/http';
-import { useCan } from '@/stores/auth.store';
 import { toast } from '@/stores/toast.store';
 import { downloadPng, downloadSvg, svgDataUrl } from '@/utils/qr';
 
-type FloorDialog =
-  | { kind: 'area'; area?: Area }
-  | { kind: 'table'; table?: Table; areaId?: string }
-  | { kind: 'qr'; table: Table }
-  | { kind: 'archive-area'; area: Area }
-  | { kind: 'archive-table'; table: Table }
-  | { kind: 'close-sessions'; table: Table }
-  | null;
+/**
+ * Fenêtres de configuration de la salle : zones, tables, QR codes.
+ * Ouvertes depuis la vue « Tables » (spec 006, R12), qui remplace l'ancienne page « Salle ».
+ */
 
-const MENU = 'z-50 min-w-48 rounded-xl bg-surface p-1 shadow-pop ring-1 ring-line animate-rise';
-const ITEM = 'cursor-pointer rounded-lg px-3 py-2 text-sm text-ink outline-none data-[highlighted]:bg-sunken';
+/** Ce qu'il faut d'une table pour la modifier ou voir son QR code. */
+export interface FloorTable {
+  id: string;
+  label: string;
+  seats: number;
+  areaId: string;
+}
+
+export type FloorDialog =
+  | { kind: 'zones' }
+  /** `fromZones` : revenir à la liste des zones à la fermeture. */
+  | { kind: 'area'; area?: Area; fromZones?: boolean }
+  | { kind: 'table'; table?: FloorTable; areaId?: string }
+  | { kind: 'qr'; table: FloorTable }
+  | { kind: 'archive-area'; area: Area }
+  | { kind: 'archive-table'; table: FloorTable }
+  | null;
 
 function useInvalidateFloor() {
   const establishmentId = useEstablishmentId();
@@ -34,183 +40,96 @@ function useInvalidateFloor() {
   return () => {
     void queryClient.invalidateQueries({ queryKey: estKey(establishmentId, 'floor') });
     void queryClient.invalidateQueries({ queryKey: estKey(establishmentId, 'qr-codes') });
+    void queryClient.invalidateQueries({ queryKey: estKey(establishmentId, 'tables-overview') });
   };
 }
 
-export function FloorPage() {
-  const { data: areas, isPending, isError, error, refetch } = useFloor();
-  const canManage = useCan('floor.manage');
-  const canQr = useCan('qr.manage');
-  const canSessions = useCan('sessions.manage');
-  const [dialog, setDialog] = useState<FloorDialog>(null);
-  const close = () => setDialog(null);
-  const hasTables = (areas ?? []).some((area) => area.tables.length > 0);
-
-  return (
-    <>
-      <PageHeader
-        title="Salle"
-        description="Zones, tables et QR codes de l’établissement."
-        actions={
-          <>
-            {canQr && hasTables && (
-              <Link href="/app/salle/qr" className="inline-flex h-10 items-center gap-2 rounded-lg bg-surface px-4 text-sm font-medium text-ink ring-1 ring-line ring-inset hover:bg-sunken">
-                <Printer className="size-4" aria-hidden />
-                Imprimer les QR codes
-              </Link>
-            )}
-            {canManage && (
-              <>
-                <Button variant="secondary" onClick={() => setDialog({ kind: 'area' })}>
-                  Nouvelle zone
-                </Button>
-                <Button onClick={() => setDialog({ kind: 'table' })} disabled={!areas || areas.length === 0}>
-                  <Plus className="size-4" aria-hidden />
-                  Nouvelle table
-                </Button>
-              </>
-            )}
-          </>
-        }
-      />
-
-      {isPending ? (
-        <Spinner />
-      ) : isError ? (
-        <ErrorState message={errorMessage(error)} onRetry={() => void refetch()} />
-      ) : areas.length === 0 ? (
-        <EmptyState
-          icon={<QrIcon className="size-6" aria-hidden />}
-          title="Commencez par créer une zone"
-          description="Une zone regroupe des tables : salle, terrasse, étage… Chaque table reçoit ensuite son QR code."
-          action={canManage && <Button onClick={() => setDialog({ kind: 'area' })}>Créer une zone</Button>}
-        />
-      ) : (
-        <div className="flex flex-col gap-8">
-          {areas.map((area) => (
-            <section key={area.id} aria-labelledby={`area-${area.id}`}>
-              <div className="flex items-center justify-between gap-2">
-                <h2 id={`area-${area.id}`} className="text-[15px] font-semibold text-ink">
-                  {area.name}
-                  <span className="ml-2 text-[13px] font-normal text-ink-3">
-                    {area.tables.length} table{area.tables.length > 1 ? 's' : ''}
-                  </span>
-                </h2>
-                {canManage && (
-                  <Menu.Root>
-                    <Menu.Trigger className="rounded-lg p-2 text-ink-3 hover:bg-sunken hover:text-ink" aria-label={`Actions sur la zone ${area.name}`}>
-                      <MoreHorizontal className="size-4" aria-hidden />
-                    </Menu.Trigger>
-                    <Menu.Portal>
-                      <Menu.Content align="end" sideOffset={4} className={MENU}>
-                        <Menu.Item className={ITEM} onSelect={() => setDialog({ kind: 'table', areaId: area.id })}>
-                          Ajouter une table
-                        </Menu.Item>
-                        <Menu.Item className={ITEM} onSelect={() => setDialog({ kind: 'area', area })}>
-                          Renommer
-                        </Menu.Item>
-                        <Menu.Item className={cn(ITEM, 'text-late')} onSelect={() => setDialog({ kind: 'archive-area', area })}>
-                          Supprimer la zone…
-                        </Menu.Item>
-                      </Menu.Content>
-                    </Menu.Portal>
-                  </Menu.Root>
-                )}
-              </div>
-              {area.tables.length === 0 ? (
-                <p className="mt-2 text-sm text-ink-3">Aucune table dans cette zone.</p>
-              ) : (
-                <ul className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-                  {area.tables.map((table) => (
-                    <li key={table.id} className="flex items-start justify-between rounded-(--radius-card) bg-surface p-3 ring-1 ring-line">
-                      <div className="min-w-0">
-                        <p className="tabular truncate font-mono text-xl leading-none font-semibold text-ink">{table.label}</p>
-                        <p className="mt-2 flex items-center gap-1 text-[13px] text-ink-2">
-                          <Users className="size-3.5" aria-hidden />
-                          {table.seats} couverts
-                        </p>
-                        {table.openSessions > 0 && (
-                          <p className="mt-1 flex items-center gap-1 text-[13px] text-progress">
-                            <Smartphone className="size-3.5" aria-hidden />
-                            {table.openSessions} connecté{table.openSessions > 1 ? 's' : ''}
-                          </p>
-                        )}
-                      </div>
-                      {(canManage || canQr || canSessions) && (
-                        <Menu.Root>
-                          <Menu.Trigger className="-mt-1 -mr-1 rounded-lg p-2 text-ink-3 hover:bg-sunken hover:text-ink" aria-label={`Actions sur la table ${table.label}`}>
-                            <MoreHorizontal className="size-4" aria-hidden />
-                          </Menu.Trigger>
-                          <Menu.Portal>
-                            <Menu.Content align="end" sideOffset={4} className={MENU}>
-                              {canQr && (
-                                <Menu.Item className={ITEM} onSelect={() => setDialog({ kind: 'qr', table })}>
-                                  QR code
-                                </Menu.Item>
-                              )}
-                              {canSessions && (
-                                <Menu.Item className={ITEM} onSelect={() => setDialog({ kind: 'close-sessions', table })}>
-                                  Fermer les sessions
-                                </Menu.Item>
-                              )}
-                              {canManage && (
-                                <>
-                                  <Menu.Item className={ITEM} onSelect={() => setDialog({ kind: 'table', table })}>
-                                    Modifier
-                                  </Menu.Item>
-                                  <Menu.Item className={cn(ITEM, 'text-late')} onSelect={() => setDialog({ kind: 'archive-table', table })}>
-                                    Supprimer la table…
-                                  </Menu.Item>
-                                </>
-                              )}
-                            </Menu.Content>
-                          </Menu.Portal>
-                        </Menu.Root>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-          ))}
-        </div>
-      )}
-
-      {dialog?.kind === 'area' && <AreaDialog area={dialog.area} onClose={close} />}
-      {dialog?.kind === 'table' && <TableDialog table={dialog.table} areaId={dialog.areaId} areas={areas ?? []} onClose={close} />}
-      {dialog?.kind === 'qr' && <QrDialog table={dialog.table} onClose={close} />}
-      {dialog?.kind === 'archive-area' && (
+export function FloorDialogs({
+  dialog, areas, onChange, onClose,
+}: { dialog: FloorDialog; areas: Area[]; onChange: (dialog: FloorDialog) => void; onClose: () => void }) {
+  if (!dialog) return null;
+  switch (dialog.kind) {
+    case 'zones':
+      return <ZonesDialog areas={areas} onChange={onChange} onClose={onClose} />;
+    case 'area':
+      return <AreaDialog area={dialog.area} onClose={() => (dialog.fromZones ? onChange({ kind: 'zones' }) : onClose())} />;
+    case 'table':
+      return <TableDialog table={dialog.table} areaId={dialog.areaId} areas={areas} onClose={onClose} />;
+    case 'qr':
+      return <QrDialog table={dialog.table} onClose={onClose} />;
+    case 'archive-area':
+      return (
         <Confirm
           title={`Supprimer la zone « ${dialog.area.name} » ?`}
           description="La zone doit être vide. L’historique des demandes est conservé."
           confirmLabel="Supprimer"
           success="Zone supprimée"
           run={(e) => floorApi.archiveArea(e, dialog.area.id)}
-          onClose={close}
+          onClose={() => onChange({ kind: 'zones' })}
         />
-      )}
-      {dialog?.kind === 'archive-table' && (
+      );
+    case 'archive-table':
+      return (
         <Confirm
           title={`Supprimer la table ${dialog.table.label} ?`}
           description="Son QR code cessera de fonctionner. L’historique des demandes est conservé."
           confirmLabel="Supprimer"
           success="Table supprimée"
           run={(e) => floorApi.archiveTable(e, dialog.table.id)}
-          onClose={close}
+          onClose={onClose}
         />
+      );
+  }
+}
+
+/** Liste des zones : créer, renommer, supprimer (une zone doit être vide pour être supprimée). */
+function ZonesDialog({ areas, onChange, onClose }: { areas: Area[]; onChange: (dialog: FloorDialog) => void; onClose: () => void }) {
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()} title="Zones" description="Une zone regroupe des tables : salle, terrasse, étage…">
+      {areas.length === 0 ? (
+        <p className="text-sm text-ink-2">Aucune zone pour l’instant.</p>
+      ) : (
+        <ul className="flex flex-col divide-y divide-line rounded-(--radius-card) ring-1 ring-line">
+          {areas.map((area) => (
+            <li key={area.id} className="flex items-center gap-2 px-3 py-2">
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-medium text-ink">{area.name}</span>
+                <span className="text-[13px] text-ink-3">
+                  {area.tables.length} table{area.tables.length > 1 ? 's' : ''}
+                </span>
+              </span>
+              <button
+                type="button"
+                onClick={() => onChange({ kind: 'area', area, fromZones: true })}
+                className="grid size-9 place-items-center rounded-lg text-ink-2 hover:bg-sunken hover:text-ink"
+                aria-label={`Renommer la zone ${area.name}`}
+              >
+                <Pencil className="size-4" aria-hidden />
+              </button>
+              <button
+                type="button"
+                onClick={() => onChange({ kind: 'archive-area', area })}
+                disabled={area.tables.length > 0}
+                title={area.tables.length > 0 ? 'Déplacez ou supprimez d’abord ses tables' : undefined}
+                className="grid size-9 place-items-center rounded-lg text-late hover:bg-late-soft disabled:cursor-not-allowed disabled:text-ink-3 disabled:hover:bg-transparent"
+                aria-label={`Supprimer la zone ${area.name}`}
+              >
+                <Trash2 className="size-4" aria-hidden />
+              </button>
+            </li>
+          ))}
+        </ul>
       )}
-      {dialog?.kind === 'close-sessions' && (
-        <Confirm
-          title={`Fermer les sessions de la table ${dialog.table.label} ?`}
-          description="Les téléphones connectés ne pourront plus envoyer de demande sans scanner à nouveau le QR code."
-          confirmLabel="Fermer les sessions"
-          success="Sessions fermées"
-          danger={false}
-          run={(e) => floorApi.closeSessions(e, dialog.table.id)}
-          onClose={close}
-        />
-      )}
-    </>
+      <DialogActions>
+        <Button variant="secondary" onClick={onClose}>
+          Fermer
+        </Button>
+        <Button onClick={() => onChange({ kind: 'area', fromZones: true })}>
+          <Plus className="size-4" aria-hidden />
+          Nouvelle zone
+        </Button>
+      </DialogActions>
+    </Dialog>
   );
 }
 
@@ -275,7 +194,7 @@ function AreaDialog({ area, onClose }: { area?: Area; onClose: () => void }) {
   );
 }
 
-function TableDialog({ table, areaId, areas, onClose }: { table?: Table; areaId?: string; areas: Area[]; onClose: () => void }) {
+function TableDialog({ table, areaId, areas, onClose }: { table?: FloorTable; areaId?: string; areas: Area[]; onClose: () => void }) {
   const establishmentId = useEstablishmentId();
   const invalidate = useInvalidateFloor();
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -325,7 +244,7 @@ function TableDialog({ table, areaId, areas, onClose }: { table?: Table; areaId?
   );
 }
 
-function QrDialog({ table, onClose }: { table: Table; onClose: () => void }) {
+function QrDialog({ table, onClose }: { table: FloorTable; onClose: () => void }) {
   const establishmentId = useEstablishmentId();
   const queryClient = useQueryClient();
   const key = estKey(establishmentId, 'qr-codes');
@@ -338,6 +257,7 @@ function QrDialog({ table, onClose }: { table: Table; onClose: () => void }) {
       setConfirming(false);
       void queryClient.invalidateQueries({ queryKey: key });
       void queryClient.invalidateQueries({ queryKey: estKey(establishmentId, 'floor') });
+      void queryClient.invalidateQueries({ queryKey: estKey(establishmentId, 'tables-overview') });
     },
     onError: (error) => toast.error('Régénération impossible', errorMessage(error)),
   });
