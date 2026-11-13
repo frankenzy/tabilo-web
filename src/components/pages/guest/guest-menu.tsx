@@ -2,7 +2,7 @@
 
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Ban, Check, ChevronDown, ChevronLeft, ChevronRight, Minus, PauseCircle, Plus, Search, SearchX, ShoppingBag, Sparkles, Trash2, TriangleAlert, X } from 'lucide-react';
+import { Ban, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Minus, PauseCircle, Plus, Search, SearchX, ShoppingBag, Sparkles, Trash2, TriangleAlert, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Button, FormError, Textarea } from '@/components/ui';
 import type { GuestContext, GuestRequest, MenuCategory, MenuItem, OrderLine } from '@/contracts';
@@ -328,7 +328,7 @@ export function MenuView({ context, cart, onQuantity, action, banner, leadingTil
                   currency={currency}
                   quantity={cart[item.id] ?? 0}
                   orderable={context.orderingEnabled}
-                  onAdd={() => onQuantity(item.id, 1)}
+                  onQuantity={(next) => onQuantity(item.id, next)}
                   onOpen={() => setOpened(item)}
                 />
               ))}
@@ -364,11 +364,12 @@ interface MenuCardProps {
   currency: string;
   quantity: number;
   orderable: boolean;
-  onAdd: () => void;
+  /** Nouvelle quantité du plat dans la commande (0 = retiré). */
+  onQuantity: (quantity: number) => void;
   onOpen: () => void;
 }
 
-function MenuCard({ item, currency, quantity, orderable, onAdd, onOpen }: MenuCardProps) {
+function MenuCard({ item, currency, quantity, orderable, onQuantity, onOpen }: MenuCardProps) {
   const canAdd = orderable && item.isAvailable;
   const price = formatMoney(item.priceMinor, currency);
   return (
@@ -389,20 +390,57 @@ function MenuCard({ item, currency, quantity, orderable, onAdd, onOpen }: MenuCa
             </span>
           )}
         </button>
-        {canAdd && (
+        {canAdd && quantity === 0 && (
           <button
             type="button"
             onClick={(event) => {
-              if (quantity > 0) return onOpen();
               haptic();
               flyToCart(event.currentTarget.parentElement?.getBoundingClientRect() ?? null, item.imageId ? menuImageUrl(item.imageId) : null);
-              onAdd();
+              onQuantity(1);
             }}
-            aria-label={quantity === 0 ? `Ajouter ${item.name}` : `${quantity} ${item.name} dans la commande, modifier`}
-            className="tabular absolute right-2 bottom-2 grid size-10 place-items-center rounded-full bg-ink text-[15px] font-semibold text-white shadow-pop ring-2 ring-surface active:scale-95"
+            aria-label={`Ajouter ${item.name}`}
+            className="absolute right-2 bottom-2 grid size-10 place-items-center rounded-full bg-ink text-white shadow-pop ring-2 ring-surface active:scale-95"
           >
-            {quantity === 0 ? <Plus className="size-5" aria-hidden /> : quantity}
+            <Plus className="size-5" aria-hidden />
           </button>
+        )}
+        {/* Spec 021, R4 : dès la quantité 1, la quantité se règle sur la photo, sans ouvrir la fiche. */}
+        {canAdd && quantity > 0 && (
+          <div
+            role="group"
+            aria-label={`${quantity} ${item.name}`}
+            className="absolute right-2 bottom-2 flex h-10 origin-right animate-pop-in items-center rounded-full bg-ink text-white shadow-pop ring-2 ring-surface"
+          >
+            <button
+              type="button"
+              onClick={() => {
+                haptic(8);
+                onQuantity(quantity - 1);
+              }}
+              aria-label={`Retirer un ${item.name}`}
+              className="grid size-10 place-items-center rounded-full transition-transform duration-200 ease-apple active:scale-90"
+            >
+              {quantity === 1 ? <Trash2 className="size-4" aria-hidden /> : <Minus className="size-4" aria-hidden />}
+            </button>
+            <span className="tabular grid w-5 place-items-center overflow-hidden text-[15px] font-semibold" aria-hidden>
+              <span key={quantity} className="animate-number-in">
+                {quantity}
+              </span>
+            </span>
+            <button
+              type="button"
+              disabled={quantity >= MAX_QUANTITY}
+              onClick={(event) => {
+                haptic();
+                flyToCart(event.currentTarget.closest('.relative')?.getBoundingClientRect() ?? null, item.imageId ? menuImageUrl(item.imageId) : null);
+                onQuantity(quantity + 1);
+              }}
+              aria-label={`Ajouter un ${item.name}`}
+              className="grid size-10 place-items-center rounded-full transition-transform duration-200 ease-apple active:scale-90 disabled:opacity-35"
+            >
+              <Plus className="size-4" aria-hidden />
+            </button>
+          </div>
         )}
       </div>
       {/* Le nom et le prix ouvrent aussi la fiche ; le bouton de la photo porte déjà le libellé accessible. */}
@@ -720,33 +758,152 @@ function QuantityThumbnails({ item, quantity, size = 'md' }: { item: Pick<MenuIt
 
 // ------------------------------------------------------- barre de commande
 
-/** Barre flottante « Voir la commande » (CA-002-06). */
-export function CartBar({ count, totalMinor, currency, onOpen }: { count: number; totalMinor: number; currency: string; onOpen: () => void }) {
-  // Spec 012, R5 : un rebond quand un plat arrive dans la commande.
-  const [bumps, setBumps] = useState(0);
+interface CartBarProps {
+  token: string;
+  context: GuestContext;
+  cart: Cart;
+  /** Précisions choisies (pastilles et texte libre), comptées sur le panneau « attention ». */
+  precisionCount: number;
+  /** Ouvre la feuille « Votre commande ». */
+  onOpen: () => void;
+  onAdd: (itemId: string) => void;
+  /** Spec 021, R2 : envoi partagé avec la feuille (useSendOrder). */
+  sending: boolean;
+  error: string | null;
+  onConfirm: () => void;
+}
+
+/**
+ * Barre de commande (CA-002-06 ; spec 021, R1) à deux étages :
+ * en haut, les vignettes, les précisions, le total — un toucher ouvre la feuille ;
+ * en bas, « Glisser pour commander », pour commander sans ouvrir la feuille.
+ */
+export function CartBar({ token, context, cart, precisionCount, onOpen, onAdd, sending, error, onConfirm }: CartBarProps) {
+  const currency = context.establishment.currency;
+  const { lines, count, totalMinor, hasInvalid } = cartLines(cart, context.menu);
+  // Spec 012, R5 : un rebond quand un plat arrive dans la commande — relancé sans recréer la barre (le geste garde son état).
+  const card = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    const onBump = () => setBumps((n) => n + 1);
+    const onBump = () => {
+      const el = card.current;
+      if (!el) return;
+      el.classList.remove('animate-cart-bump');
+      void el.offsetWidth;
+      el.classList.add('animate-cart-bump');
+    };
     window.addEventListener(CART_BUMP, onBump);
     return () => window.removeEventListener(CART_BUMP, onBump);
   }, []);
-  if (count === 0) return null;
+  // R5 : une seule assiette dans la commande → la première suggestion, à ajouter d'un toucher.
+  const ids = Object.keys(cart).sort();
+  const single = lines.length === 1;
+  const { data: suggestions } = useQuery({
+    queryKey: ['guest', token, 'suggestions', ids],
+    queryFn: () => guestApi.suggestions(token, ids),
+    staleTime: 60_000,
+    enabled: single && context.orderingEnabled,
+  });
+  const items = new Map(context.menu.flatMap((category) => category.items).map((item) => [item.id, item]));
+  const suggestion = single ? (suggestions ?? []).map((id) => items.get(id)).find((item): item is MenuItem => !!item && item.isAvailable && !cart[item.id]) : undefined;
+
+  if (lines.length === 0) return null;
+  const total = formatMoney(totalMinor, currency);
+  const shown = lines.slice(0, 3);
+  const extra = lines.length - shown.length;
+  const blocked = hasInvalid || !context.orderingEnabled;
+
   return (
     <div className="pointer-events-none fixed inset-x-0 bottom-0 z-30 px-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
-      <button
-        type="button"
-        onClick={onOpen}
-        key={bumps}
-        className={cn('pointer-events-auto mx-auto flex h-14 w-full max-w-md items-center md:max-w-[480px] justify-between gap-3 rounded-full bg-ink pr-5 pl-2 text-white shadow-pop active:scale-[0.99]', bumps > 0 && 'animate-cart-bump')}
-      >
-        <span className="flex items-center gap-3 text-[15px] font-semibold">
-          <span className="relative grid size-10 place-items-center rounded-full bg-white/15" {...{ [CART_TARGET_ATTR]: '' }}>
-            <ShoppingBag className="size-5" aria-hidden />
-            <span className="tabular absolute -top-1 -right-1 grid size-5 place-items-center rounded-full bg-brand text-[11px] font-bold text-white">{count}</span>
-          </span>
-          Voir la commande
-        </span>
-        <span className="tabular text-[15px] font-semibold">{formatMoney(totalMinor, currency)}</span>
-      </button>
+      <div className="pointer-events-auto mx-auto w-full max-w-md animate-sheet-up md:max-w-[480px]">
+      <div ref={card} onAnimationEnd={(event) => event.currentTarget.classList.remove('animate-cart-bump')} className="rounded-[28px] bg-ink p-2 text-white shadow-pop">
+        {error && (
+          <p role="alert" className="px-3 pt-1 pb-2 text-[13px] text-[#ffb4ab]">
+            {error}
+          </p>
+        )}
+        {/* Premier étage : vignettes, précisions, total — tout ouvre la feuille. */}
+        <div className="flex h-12 items-center gap-1.5 pr-1 pl-1">
+          <button type="button" onClick={onOpen} tabIndex={-1} aria-hidden className="relative flex shrink-0 items-center" {...{ [CART_TARGET_ATTR]: '' }}>
+            {shown.map((line, index) => (
+              <span key={line.itemId} className={cn('relative animate-pop-in rounded-full ring-2 ring-ink', index > 0 && '-ml-3')} style={{ zIndex: 4 - index }}>
+                <ItemPhoto item={line.item ?? { name: '?', imageId: null }} dimmed={line.invalid} className="size-9 rounded-full text-[11px]" />
+                {line.invalid && (
+                  <span className="absolute inset-0 grid place-items-center rounded-full bg-black/45">
+                    <Ban className="size-4" />
+                  </span>
+                )}
+              </span>
+            ))}
+            {extra > 0 && (
+              <span className="tabular relative z-10 -ml-2 grid h-6 min-w-6 place-items-center rounded-full bg-white/15 px-1.5 text-[11px] font-semibold ring-2 ring-ink">+{extra}</span>
+            )}
+            {/* Nombre d'articles : une pastille, comme le sac de l'ancienne barre — compris sans lire. */}
+            <span key={count} className="tabular absolute -top-1.5 -left-1 z-20 grid h-5 min-w-5 animate-pop-in place-items-center rounded-full bg-brand px-1 text-[11px] font-bold text-white ring-2 ring-ink">
+              {count}
+            </span>
+          </button>
+          {suggestion && (
+            <button
+              type="button"
+              onClick={(event) => {
+                haptic(10);
+                flyToCart(event.currentTarget.getBoundingClientRect(), suggestion.imageId ? menuImageUrl(suggestion.imageId) : null);
+                onAdd(suggestion.id);
+              }}
+              aria-label={`Ajouter ${suggestion.name}`}
+              title={`Souvent pris avec : ${suggestion.name}`}
+              className="relative ml-1 shrink-0 animate-pop-in rounded-full p-0.5 ring-1 ring-dashed ring-white/30"
+            >
+              <ItemPhoto item={suggestion} className="size-8 rounded-full text-[10px] opacity-90" />
+              <span className="absolute -right-1 -bottom-1 grid size-4 place-items-center rounded-full bg-brand ring-2 ring-ink" aria-hidden>
+                <Plus className="size-3" strokeWidth={3} />
+              </span>
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onOpen}
+            aria-label={precisionCount > 0 ? `Précisions pour la cuisine, ${precisionCount} choisie${precisionCount > 1 ? 's' : ''}` : 'Précisions pour la cuisine'}
+            className="relative ml-1 grid size-9 shrink-0 place-items-center rounded-[10px] bg-gradient-to-b from-[#ffb53d] to-[#f08c00] text-white shadow-[inset_0_1px_0_rgb(255_255_255/0.35)] active:scale-95"
+          >
+            <TriangleAlert className="size-[18px]" strokeWidth={2.4} aria-hidden />
+            {precisionCount > 0 && (
+              <span key={precisionCount} className="tabular absolute -top-1.5 -right-1.5 grid size-5 animate-pop-in place-items-center rounded-full bg-white text-[11px] font-bold text-ink ring-2 ring-ink">
+                {precisionCount}
+              </span>
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={onOpen}
+            aria-label={`Voir la commande, ${count} article${count > 1 ? 's' : ''}, ${total}`}
+            className="flex h-12 min-w-0 flex-1 items-center justify-end gap-2 rounded-2xl pl-2 text-right active:bg-white/[0.06]"
+          >
+            <span className="tabular overflow-hidden text-[16px] font-semibold tracking-tight whitespace-nowrap">
+              <span key={total} className="inline-block animate-number-in">
+                {total}
+              </span>
+            </span>
+            <ChevronUp className="size-4 shrink-0 text-white/60" aria-hidden />
+          </button>
+        </div>
+        {/* Second étage : glisser pour commander, sans ouvrir la feuille (R2) ; bloqué → un toucher sur l'étage du haut explique (R3). */}
+        <div className="mt-1.5">
+          {blocked ? (
+            <button
+              type="button"
+              onClick={onOpen}
+              className="flex h-14 w-full items-center justify-center gap-2 rounded-full bg-white/[0.08] text-[15px] font-semibold text-white/80 active:bg-white/[0.12]"
+            >
+              <Ban className="size-5" aria-hidden />
+              {context.orderingEnabled ? 'Un plat est épuisé : ouvrir la commande' : 'Commande en ligne suspendue'}
+            </button>
+          ) : (
+            <SlideToConfirm label="Glisser pour commander" detail={total} disabled={false} busy={sending} onConfirm={onConfirm} variant="bar" />
+          )}
+        </div>
+      </div>
+      </div>
     </div>
   );
 }
@@ -771,8 +928,51 @@ interface OrderScreenProps {
   onSent: () => void;
 }
 
+/**
+ * Envoi d'une commande (spec 013), partagé par la feuille, le panneau de la tablette et la barre (spec 021, R2) :
+ * même contenu, même note, même clé d'idempotence par intention, mêmes erreurs.
+ */
+export function useSendOrder({
+  token, context, cart, details, onSuccess, onContextStale, onSessionClosed,
+}: {
+  token: string;
+  context: GuestContext;
+  cart: Cart;
+  details: OrderDetails;
+  onSuccess: (request: GuestRequest) => void;
+  onContextStale: () => void;
+  onSessionClosed: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const { lines } = cartLines(cart, context.menu);
+  // Une clé par intention de commander : un double appui ou une reprise réseau ne crée qu'une commande.
+  const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
+  const send = useMutation({
+    mutationFn: () =>
+      guestApi.order(
+        token,
+        { items: lines.filter((line) => !line.invalid).map((line) => ({ menuItemId: line.itemId, quantity: line.quantity })), note: composeNote(details.precisions, details.note, NOTE_MAX) },
+        idempotencyKey,
+      ),
+    onSuccess: ({ request }) => {
+      queryClient.setQueryData<GuestRequest[]>(guestRequestsKey(token), (list = []) => upsert(list, request));
+      haptic([18, 60, 18, 60, 30]);
+      onSuccess(request);
+    },
+    onError: (error) => {
+      const http = toHttpError(error);
+      if (http.status === 401 || http.code === 'TABLE_SESSION_CLOSED') return onSessionClosed();
+      // La carte a changé (rupture, retrait, commande suspendue) : on la relit pour signaler les lignes concernées.
+      if (ORDER_ERRORS.has(http.code)) onContextStale();
+    },
+  });
+  /** Nouvelle intention (la barre reste affichée après un envoi) : la commande suivante aura sa propre clé. */
+  const renew = () => setIdempotencyKey(crypto.randomUUID());
+  return { send, renew };
+}
+
 /** Écran plein écran « Votre commande » (CA-002-07, 08, 09, 12). */
-export function OrderScreen(props: OrderScreenProps & { landscape?: boolean }) {
+export function OrderScreen(props: OrderScreenProps & { landscape?: boolean; initialSent?: GuestRequest | null }) {
   return <OrderBody {...props} variant="sheet" />;
 }
 
@@ -786,39 +986,24 @@ export function OrderPanel(props: Omit<OrderScreenProps, 'onClose'>) {
 
 /** Contenu de « Votre commande » (spec 013), en feuille sur téléphone ou dans le panneau de la tablette (spec 019, R2). */
 function OrderBody({
-  token, context, cart, details, onDetails, onQuantity, onClose, onOrdered, onSent, onContextStale, onSessionClosed, variant, landscape = false,
-}: OrderScreenProps & { variant: 'sheet' | 'panel'; landscape?: boolean }) {
+  token, context, cart, details, onDetails, onQuantity, onClose, onOrdered, onSent, onContextStale, onSessionClosed, variant, landscape = false, initialSent,
+}: OrderScreenProps & { variant: 'sheet' | 'panel'; landscape?: boolean; initialSent?: GuestRequest | null }) {
   const panel = variant === 'panel';
-  const queryClient = useQueryClient();
   const currency = context.establishment.currency;
   const { lines, count, totalMinor, hasInvalid } = cartLines(cart, context.menu);
   // Spec 013, R2 : précisions à toucher, et texte libre replié derrière « Autre ».
   const { precisions, note } = details;
   const [freeOpen, setFreeOpen] = useState(() => details.note.trim() !== '');
-  // Une clé par intention de commander : un double appui ou une reprise réseau ne crée qu'une commande.
-  const [idempotencyKey] = useState(() => crypto.randomUUID());
   // R5 : après l'envoi, la même feuille montre la confirmation et le suivi.
-  const [sent, setSent] = useState<GuestRequest | null>(null);
+  // Spec 021, R2 : commande envoyée depuis la barre → la feuille s'ouvre directement sur la confirmation.
+  const [sent, setSent] = useState<GuestRequest | null>(initialSent ?? null);
   const total = formatMoney(totalMinor, currency);
 
-  const send = useMutation({
-    mutationFn: () =>
-      guestApi.order(
-        token,
-        { items: lines.filter((line) => !line.invalid).map((line) => ({ menuItemId: line.itemId, quantity: line.quantity })), note: composeNote(precisions, note, NOTE_MAX) },
-        idempotencyKey,
-      ),
-    onSuccess: ({ request }) => {
-      queryClient.setQueryData<GuestRequest[]>(guestRequestsKey(token), (list = []) => upsert(list, request));
-      haptic([18, 60, 18, 60, 30]);
+  const { send } = useSendOrder({
+    token, context, cart, details, onContextStale, onSessionClosed,
+    onSuccess: (request) => {
       setSent(request);
       onSent();
-    },
-    onError: (error) => {
-      const http = toHttpError(error);
-      if (http.status === 401 || http.code === 'TABLE_SESSION_CLOSED') return onSessionClosed();
-      // La carte a changé (rupture, retrait, commande suspendue) : on la relit pour signaler les lignes concernées.
-      if (ORDER_ERRORS.has(http.code)) onContextStale();
     },
   });
 

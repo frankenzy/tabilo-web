@@ -14,7 +14,7 @@ import { guestApi } from '@/services/api/guest';
 import { errorMessage, toHttpError } from '@/services/http';
 import { cartLines, useCart, useOrderDetails } from './cart';
 import { flyToCart, haptic } from './fly-to-cart';
-import { CartBar, MenuView, OrderPanel, OrderScreen } from './guest-menu';
+import { CartBar, MenuView, OrderPanel, OrderScreen, useSendOrder } from './guest-menu';
 import { HistoryButton, useServedSpotlight } from './note';
 import { TableBadge } from './order-flow';
 import { mergeIntoCart, reorderLines } from './order-logic';
@@ -98,6 +98,24 @@ function GuestTable({ token, context, onSessionClosed, onContextStale }: GuestTa
   // Spec 019, R4 : à l'horizontale, la commande est dans le panneau de droite ; ni barre ni feuille.
   const landscape = useLandscape() && hasMenu;
   const [round, setRound] = useState(0);
+  // Spec 021, R2 : commande envoyée depuis la barre → la feuille s'ouvre directement sur « C'est parti ! ».
+  const [barSent, setBarSent] = useState<GuestRequest | null>(null);
+  const { send: barSend, renew: renewBarKey } = useSendOrder({
+    token,
+    context,
+    cart,
+    details,
+    onContextStale,
+    onSessionClosed,
+    onSuccess: (request) => {
+      clear();
+      clearDetails();
+      renewBarKey();
+      setBarSent(request);
+      setCartOpen(true);
+    },
+  });
+  const precisionCount = details.precisions.length + (details.note.trim() ? 1 : 0);
   const showBar = context.orderingEnabled && (summary.count > 0 || summary.hasInvalid) && !landscape;
 
   const active = useMemo(() => requests.filter((r) => ACTIVE.includes(r.status)), [requests]);
@@ -134,7 +152,7 @@ function GuestTable({ token, context, onSessionClosed, onContextStale }: GuestTa
     <main
       className={cn(
         'mx-auto flex min-h-dvh w-full max-w-md flex-col px-4 pt-6 md:max-w-[720px] md:px-6 lg:mr-[380px] lg:ml-0 lg:w-auto lg:max-w-none lg:px-8',
-        showBar ? 'pb-24' : 'pb-10',
+        showBar ? 'pb-44' : 'pb-10',
       )}
     >
       <header>
@@ -205,7 +223,7 @@ function GuestTable({ token, context, onSessionClosed, onContextStale }: GuestTa
         <div
           className={cn(
             'pointer-events-none fixed inset-x-0 z-30 mx-auto flex max-w-md justify-end px-4 md:max-w-[720px] md:px-6 lg:right-[380px] lg:mx-0 lg:max-w-none lg:px-8',
-            showBar ? 'bottom-[5.5rem]' : 'bottom-[max(1rem,env(safe-area-inset-bottom))]',
+            showBar ? 'bottom-[10rem]' : 'bottom-[max(1rem,env(safe-area-inset-bottom))]',
           )}
         >
           <HistoryButton
@@ -219,7 +237,22 @@ function GuestTable({ token, context, onSessionClosed, onContextStale }: GuestTa
           />
         </div>
       )}
-      {showBar && !cartOpen && <CartBar count={summary.count} totalMinor={summary.totalMinor} currency={currency} onOpen={() => setCartOpen(true)} />}
+      {showBar && !cartOpen && (
+        <CartBar
+          token={token}
+          context={context}
+          cart={cart}
+          precisionCount={precisionCount}
+          onOpen={() => {
+            barSend.reset();
+            setCartOpen(true);
+          }}
+          onAdd={(itemId) => setQuantity(itemId, (cart[itemId] ?? 0) + 1)}
+          sending={barSend.isPending}
+          error={barSend.isError ? errorMessage(barSend.error) : null}
+          onConfirm={() => barSend.mutate()}
+        />
+      )}
       {landscape && (
         // Spec 019, R4 : panneau « Ma table » — le suivi, puis la commande en cours et le geste pour commander.
         <aside aria-label="Ma table" className="fixed inset-y-0 right-0 z-30 flex w-[380px] flex-col border-l border-line bg-surface">
@@ -252,12 +285,16 @@ function GuestTable({ token, context, onSessionClosed, onContextStale }: GuestTa
       )}
       {cartOpen && (
         <OrderScreen
+          initialSent={barSent}
           landscape={landscape}
           token={token}
           context={context}
           cart={cart}
           onQuantity={setQuantity}
-          onClose={() => setCartOpen(false)}
+          onClose={() => {
+            setCartOpen(false);
+            setBarSent(null);
+          }}
           details={details}
           onDetails={updateDetails}
           onSent={() => {
@@ -266,6 +303,7 @@ function GuestTable({ token, context, onSessionClosed, onContextStale }: GuestTa
           }}
           onOrdered={() => {
             setCartOpen(false);
+            setBarSent(null);
             // Retour en haut, sur le suivi de la commande (R4).
             window.scrollTo({ top: 0, behavior: 'smooth' });
           }}

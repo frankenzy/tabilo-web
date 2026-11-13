@@ -186,12 +186,12 @@ test('CA-001-12, 05, 14 et CA-002-01 à 09, 12, 13 — le client choisit par l�
   await guest.keyboard.press('Escape');
   await guest.evaluate(() => window.scrollTo(0, 0));
 
-  // « + » sur la photo, puis la fiche pour passer à 2.
+  // « + » sur la photo, puis, spec 021 (R4), la pastille « − n + » pour passer à 2, sans ouvrir la fiche.
   await guest.getByRole('button', { name: 'Ajouter Garba' }).click();
-  await guest.getByRole('button', { name: '1 Garba dans la commande, modifier' }).click();
-  const itemSheet = guest.getByRole('dialog', { name: 'Garba' });
-  await itemSheet.getByRole('button', { name: 'Ajouter un Garba' }).click();
-  await itemSheet.getByRole('button', { name: /Mettre à jour/ }).click();
+  const pill = guest.getByRole('group', { name: '1 Garba' });
+  await pill.getByRole('button', { name: 'Ajouter un Garba' }).click();
+  await expect(guest.getByRole('group', { name: '2 Garba' })).toBeVisible();
+  await expect(guest.getByRole('dialog')).toHaveCount(0);
   // CA-003-09 : crochets verts, un par unité.
   await expect(guest.getByRole('img', { name: '2 sélectionnés' }).locator('svg')).toHaveCount(2);
   await guest.getByRole('button', { name: 'Ajouter Bissap' }).click();
@@ -452,4 +452,33 @@ test('CA-020-01, 04, 05 — la fiche d’une table occupée : état, chiffres cl
   await expect(sheet.getByRole('button', { name: 'Supprimer…' })).toBeVisible();
   await expect(sheet.getByRole('button', { name: 'Supprimer', exact: true })).toHaveCount(0);
   await owner.keyboard.press('Escape');
+});
+
+test('CA-021-01 à 03 — commande express : glisser depuis la barre, quantité sur la photo', async ({ browser }) => {
+  const phone = await newPage(browser, MOBILE);
+  await phone.goto(qrUrl);
+  await phone.getByRole('button', { name: 'Ajouter Bissap' }).click();
+  // CA-021-03 : « − » à 1 retire le plat, la barre disparaît.
+  await phone.getByRole('group', { name: '1 Bissap' }).getByRole('button', { name: 'Retirer un Bissap' }).click();
+  await expect(phone.getByRole('button', { name: /^Voir la commande,/ })).toHaveCount(0);
+  await phone.getByRole('button', { name: 'Ajouter Bissap' }).click();
+  await expect(phone.getByRole('button', { name: /^Voir la commande, 1 article,/ })).toBeVisible();
+
+  // CA-021-02 : un toucher sur le geste n'envoie rien.
+  let posts = 0;
+  phone.on('request', (request) => {
+    if (request.method() === 'POST' && /guest\/orders$/.test(request.url())) posts += 1;
+  });
+  const knob = phone.getByRole('button', { name: /^Commander pour/ });
+  await knob.click();
+  await phone.waitForTimeout(800);
+  expect(posts).toBe(0);
+  await expect(phone.getByRole('dialog')).toHaveCount(0);
+
+  // CA-021-01 : le geste de la barre envoie une seule commande, la feuille s'ouvre sur « C'est parti ! ».
+  await knob.dblclick();
+  const sent = phone.getByRole('dialog', { name: 'Commande envoyée' });
+  await expect(sent.getByText('C’est parti !')).toBeVisible();
+  expect(posts).toBe(1);
+  await phone.context().close();
 });

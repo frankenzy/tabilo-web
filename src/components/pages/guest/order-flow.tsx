@@ -75,12 +75,23 @@ export function PrecisionChips({
  * Spec 013, R3 : « Glisser pour commander ». Un simple toucher n'envoie rien (CA-013-01) : la pastille
  * fait un petit bond qui invite à glisser. Glisser jusqu'au bout, un double toucher ou Entrée au clavier confirment.
  */
-export function SlideToConfirm({ label, detail, disabled, busy, onConfirm }: { label: string; detail: string; disabled: boolean; busy: boolean; onConfirm: () => void }) {
+export function SlideToConfirm({
+  label, detail, disabled, busy, onConfirm, variant = 'default',
+}: {
+  label: string;
+  detail: string;
+  disabled: boolean;
+  busy: boolean;
+  onConfirm: () => void;
+  /** Spec 021, R1 : `bar` — plus bas (56 px) et posé sur la barre sombre du bas de la carte. */
+  variant?: 'default' | 'bar';
+}) {
+  const bar = variant === 'bar';
   const track = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<{ start: number; x: number } | null>(null);
   const knobRef = useRef<HTMLButtonElement>(null);
   const [done, setDone] = useState(false);
-  const knob = 56;
+  const knob = bar ? 48 : 56;
   const max = () => Math.max(0, (track.current?.clientWidth ?? 300) - knob - 8);
   const x = done || busy ? max() : (drag?.x ?? 0);
 
@@ -133,20 +144,26 @@ export function SlideToConfirm({ label, detail, disabled, busy, onConfirm }: { l
     <div
       ref={track}
       className={cn(
-        'relative h-16 w-full overflow-hidden rounded-full p-1 transition-colors duration-300',
-        disabled ? 'bg-line' : 'bg-ink shadow-[0_12px_28px_-12px_rgb(27_25_23/0.7)]',
+        'relative w-full overflow-hidden rounded-full p-1 transition-colors duration-300',
+        bar ? 'h-14' : 'h-16',
+        bar ? (disabled ? 'bg-white/[0.06]' : 'bg-white/[0.12]') : disabled ? 'bg-line' : 'bg-ink shadow-[0_12px_28px_-12px_rgb(27_25_23/0.7)]',
       )}
     >
       {/* Remplissage qui suit la pastille. */}
       <span aria-hidden className="absolute inset-y-1 left-1 rounded-full bg-done/90" style={{ width: x + knob, opacity: progress > 0.02 ? 1 : 0, transition: drag ? 'none' : 'width 380ms var(--ease-spring), opacity 300ms' }} />
       <span
         aria-hidden
-        className={cn('pointer-events-none absolute inset-0 flex flex-col items-center justify-center pr-4 pl-16 leading-tight whitespace-nowrap', disabled ? 'text-ink-3' : 'text-white')}
+        className={cn(
+          'pointer-events-none absolute inset-0 flex flex-col items-center justify-center pr-4 leading-tight whitespace-nowrap',
+          bar ? 'pl-14' : 'pl-16',
+          disabled ? (bar ? 'text-white/40' : 'text-ink-3') : 'text-white',
+        )}
         style={{ opacity: busy ? 0 : 1 - progress * 1.2 }}
       >
         {/* Le total sur sa propre ligne : rien ne passe sous la pastille, même sur un petit écran. */}
         <span className="text-[16px] font-semibold">{label}</span>
-        <span className={cn('tabular text-[13px] font-medium', disabled ? 'text-ink-3' : 'text-white/70')}>{detail}</span>
+        {/* Dans la barre, le total est déjà affiché juste au-dessus : le geste garde une seule ligne. */}
+        {!bar && <span className={cn('tabular text-[13px] font-medium', disabled ? 'text-ink-3' : 'text-white/70')}>{detail}</span>}
       </span>
       {busy && (
         <span className="absolute inset-0 flex items-center justify-center gap-2 text-[15px] font-semibold text-white" role="status">
