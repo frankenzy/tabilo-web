@@ -65,7 +65,8 @@ function EstablishmentSettings() {
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const parsed = establishmentSchema.safeParse(Object.fromEntries(new FormData(event.currentTarget)));
+    const form = new FormData(event.currentTarget);
+    const parsed = establishmentSchema.safeParse({ ...Object.fromEntries(form), separateKitchen: form.get('separateKitchen') === 'on', pairingsEnabled: form.get('pairingsEnabled') === 'on' });
     if (!parsed.success) return setErrors(fieldErrors(parsed.error));
     setErrors({});
     const { address, phone, ...rest } = parsed.data;
@@ -104,6 +105,21 @@ function EstablishmentSettings() {
           <Input label="Demandes par session" name="maxRequestsPerSession" type="number" min={1} max={200} defaultValue={data.maxRequestsPerSession} error={errors.maxRequestsPerSession && 'Entre 1 et 200.'} />
           <Input label="Délai entre deux demandes (secondes)" name="requestCooldownSeconds" type="number" min={0} max={300} defaultValue={data.requestCooldownSeconds} error={errors.requestCooldownSeconds && 'Entre 0 et 300.'} />
         </div>
+      </fieldset>
+      <fieldset className="flex flex-col gap-3">
+        <legend className="mb-1 text-[15px] font-semibold text-ink">Commandes</legend>
+        <Checkbox
+          label="Cuisine séparée : signaler les commandes prêtes au serveur"
+          hint="Ajoute l’étape « Prête » sur l’écran Commandes. Laissez décoché si la même personne prépare et sert."
+          name="separateKitchen"
+          defaultChecked={data.separateKitchen}
+        />
+        <Checkbox
+          label="Afficher « Souvent pris avec » dans la fiche d’un plat"
+          hint="Propose au client, sous la quantité, les plats souvent commandés avec celui qu’il regarde."
+          name="pairingsEnabled"
+          defaultChecked={data.pairingsEnabled}
+        />
       </fieldset>
       <FormError message={save.isError ? errorMessage(save.error) : null} />
       <div>

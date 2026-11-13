@@ -57,6 +57,10 @@ export function useStaffRealtime(establishmentId: string): void {
 
       void queryClient.invalidateQueries({ queryKey: estKey(establishmentId, 'requests') });
       void queryClient.invalidateQueries({ queryKey: estKey(establishmentId, 'live') });
+      // Spec 006 : occupation, montants et commandes du jour de la vue « Tables ».
+      void queryClient.invalidateQueries({ queryKey: estKey(establishmentId, 'tables-overview') });
+      // Spec 008 : graphique par heure et top 3 du tableau de bord.
+      void queryClient.invalidateQueries({ queryKey: estKey(establishmentId, 'today') });
       void queryClient.invalidateQueries({ queryKey: estKey(establishmentId, 'notifications') });
 
       const { me, establishmentId: current } = useAuthStore.getState();
@@ -68,6 +72,10 @@ export function useStaffRealtime(establishmentId: string): void {
         chime('new');
       } else if ((event.type === 'request.assigned' || event.type === 'request.transferred') && event.request.assignee?.id === me?.id && !byMe) {
         toast.info(event.type === 'request.transferred' ? 'Demande transférée pour vous' : 'Demande affectée pour vous', subject);
+        chime('new');
+      } else if (event.type === 'request.ready' && !byMe && permissions.includes('requests.handle')) {
+        // Spec 007, R7 : la cuisine prévient toute l'équipe de salle.
+        toast.info('Commande prête', `Table ${event.request.table.label} · Commande prête`);
         chime('new');
       } else if (event.type === 'request.escalated' && permissions.includes('requests.supervise')) {
         toast.alert('Demande escaladée', subject);

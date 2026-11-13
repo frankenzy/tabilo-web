@@ -37,6 +37,7 @@ export const STATUS_LABELS: Record<RequestStatus, string> = {
   assigned: 'Affectée',
   accepted: 'Acceptée',
   in_progress: 'En cours',
+  ready: 'Prête',
   resolved: 'Résolue',
   cancelled: 'Annulée',
 };
@@ -46,6 +47,7 @@ export const STATUS_TONE: Record<RequestStatus, 'neutral' | 'wait' | 'progress' 
   assigned: 'wait',
   accepted: 'progress',
   in_progress: 'progress',
+  ready: 'done',
   resolved: 'done',
   cancelled: 'muted',
 };
@@ -55,6 +57,7 @@ export const EVENT_LABELS: Record<string, string> = {
   'request.assigned': 'Affectée',
   'request.accepted': 'Acceptée',
   'request.started': 'Traitement commencé',
+  'request.ready': 'Commande prête',
   'request.resolved': 'Résolue',
   'request.cancelled': 'Annulée',
   'request.transferred': 'Transférée',

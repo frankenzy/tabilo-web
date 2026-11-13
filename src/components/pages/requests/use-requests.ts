@@ -34,6 +34,8 @@ export function useStaff(enabled = true) {
 
 const SUCCESS: Partial<Record<RequestAction, string>> = {
   accept: 'Demande acceptée',
+  prepare: 'Commande en préparation',
+  ready: 'Commande prête : le serveur est prévenu',
   resolve: 'Demande résolue',
   assign: 'Demande affectée',
   transfer: 'Demande transférée',
@@ -52,6 +54,8 @@ export function useRequestAction() {
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: estKey(establishmentId, 'requests') });
     void queryClient.invalidateQueries({ queryKey: estKey(establishmentId, 'live') });
+    void queryClient.invalidateQueries({ queryKey: estKey(establishmentId, 'tables-overview') });
+    void queryClient.invalidateQueries({ queryKey: estKey(establishmentId, 'today') });
   };
   return useMutation({
     mutationFn: ({ id, action, body }: { id: string; action: RequestAction; body?: object }) =>

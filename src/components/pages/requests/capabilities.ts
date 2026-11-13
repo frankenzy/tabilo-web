@@ -26,6 +26,8 @@ export function capabilitiesOf(request: ServiceRequest, viewer: Viewer): Capabil
   else if (request.status === 'assigned' && handle && mine) primary = { action: 'accept', label: 'Accepter' };
   else if (request.status === 'accepted' && own) primary = { action: 'start', label: 'Commencer' };
   else if (request.status === 'in_progress' && own) primary = { action: 'resolve', label: 'Terminer' };
+  // Spec 007 : une commande prête est servie par n'importe quel membre qui traite les demandes.
+  else if (request.status === 'ready' && handle) primary = { action: 'resolve', label: 'Servie' };
   return {
     primary,
     assign: supervise && ['pending', 'assigned', 'in_progress'].includes(request.status),
