@@ -2,9 +2,9 @@
 
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Ban, Check, Minus, PauseCircle, Plus, RefreshCw, Search, SearchX, ShoppingBag, Sparkles, Trash2, X } from 'lucide-react';
+import { Ban, Check, ChevronLeft, ChevronRight, Minus, PauseCircle, Plus, Search, SearchX, ShoppingBag, Sparkles, Trash2, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Button, Dialog, FormError, Textarea } from '@/components/ui';
+import { Button, FormError, Textarea } from '@/components/ui';
 import type { GuestContext, GuestRequest, MenuItem, OrderLine } from '@/contracts';
 import { CategoryImage } from '@/components/pages/menu/category-image';
 import { cn } from '@/lib/utils';
@@ -13,6 +13,8 @@ import { guestApi } from '@/services/api/guest';
 import { errorMessage, toHttpError } from '@/services/http';
 import { formatMoney } from '@/utils/money';
 import { cartLines, MAX_QUANTITY, type Cart } from './cart';
+import { CART_BUMP, CART_TARGET_ATTR, flyToCart, haptic } from './fly-to-cart';
+import { prefersReducedMotion, usePhotoTint } from './photo-tint';
 import { guestRequestsKey, upsert } from './use-guest-requests';
 
 /**
@@ -33,6 +35,7 @@ function ItemPhoto({ item, className, dimmed }: { item: Pick<MenuItem, 'name' | 
         src={menuImageUrl(item.imageId)}
         alt={item.name}
         loading="lazy"
+        draggable={false}
         className={cn('bg-sunken object-cover', dimmed && 'opacity-45 grayscale', className)}
       />
     );
@@ -80,12 +83,16 @@ interface MenuViewProps {
   banner?: ReactNode;
   /** Tuile placée en tête de la rangée des rubriques (tuile spéciale « Eau », spec 005). */
   leadingTile?: ReactNode;
+  /** Tuile fixe en bout de rangée, isolée des rubriques (tuile « Serveur », spec 005, R9). */
+  trailingTile?: ReactNode;
+  /** Jeton de la session de table : suggestions « Souvent pris avec » de la fiche d'un plat (spec 012, R7). */
+  token?: string;
 }
 
 /** Recherche sans accents ni majuscules : « attieke » trouve « Attiéké ». */
 const normalize = (text: string) => text.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().trim();
 
-export function MenuView({ context, cart, onQuantity, action, banner, leadingTile }: MenuViewProps) {
+export function MenuView({ context, cart, onQuantity, action, banner, leadingTile, trailingTile, token }: MenuViewProps) {
   const currency = context.establishment.currency;
   const [query, setQuery] = useState('');
   const shown = useMemo(() => {
@@ -99,6 +106,40 @@ export function MenuView({ context, cart, onQuantity, action, banner, leadingTil
   const [opened, setOpened] = useState<MenuItem | null>(null);
   const sections = useRef(new Map<string, HTMLElement>());
   const chips = useRef(new Map<string, HTMLButtonElement>());
+  // Rangée des rubriques : savoir s'il reste des tuiles à gauche ou à droite (fondus, flèches).
+  const row = useRef<HTMLDivElement>(null);
+  const [edges, setEdges] = useState({ left: false, right: false });
+  const measureRow = () => {
+    const el = row.current;
+    if (!el) return;
+    const left = el.scrollLeft > 2;
+    const right = el.scrollLeft + el.clientWidth < el.scrollWidth - 2;
+    setEdges((current) => (current.left === left && current.right === right ? current : { left, right }));
+  };
+  useEffect(() => {
+    const el = row.current;
+    if (!el) return;
+    // La largeur du contenu change quand les images arrivent : on observe la rangée et chacune de ses tuiles.
+    const observer = new ResizeObserver(measureRow);
+    observer.observe(el);
+    Array.from(el.children).forEach((child) => observer.observe(child));
+    const frame = requestAnimationFrame(measureRow);
+    // Molette verticale de la souris → défilement horizontal de la rangée, sans faire défiler la page.
+    const onWheel = (event: WheelEvent) => {
+      if (el.scrollWidth <= el.clientWidth || Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
+      const atStart = el.scrollLeft <= 0 && event.deltaY < 0;
+      const atEnd = el.scrollLeft + el.clientWidth >= el.scrollWidth - 1 && event.deltaY > 0;
+      if (atStart || atEnd) return; // au bout de la rangée, la page reprend la main
+      event.preventDefault();
+      el.scrollBy({ left: event.deltaY, behavior: 'auto' });
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+      el.removeEventListener('wheel', onWheel);
+    };
+  }, [context.menu.length]);
 
   // Rubrique en cours = la première, dans l'ordre de la carte, qui occupe le haut de l'écran (CA-002-01).
   // L'observateur ne signale que les changements : on garde l'ensemble des rubriques visibles.
@@ -155,8 +196,18 @@ export function MenuView({ context, cart, onQuantity, action, banner, leadingTil
           </div>
           {action}
         </div>
-        <nav aria-label="Rubriques de la carte">
-          <div className="-mx-1 flex gap-1 overflow-x-auto px-1 pt-3 pb-2 [scrollbar-width:none]">
+        <nav aria-label="Rubriques de la carte" className="flex items-stretch">
+          {/* Rangée défilante, prête pour beaucoup de rubriques : fondus sur les bords, molette, arrêt net sur une tuile, flèches au survol. */}
+          <div className="group/row relative min-w-0 flex-1">
+          <div
+            ref={row}
+            onScroll={measureRow}
+            className="-mx-1 flex snap-x snap-proximity scroll-px-1 gap-1 overflow-x-auto overscroll-x-contain scroll-smooth px-1 pt-3 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&>*]:snap-start"
+            style={{
+              maskImage: `linear-gradient(to right, ${edges.left ? 'transparent 0, black 28px' : 'black 0'}, ${edges.right ? 'black calc(100% - 28px), transparent 100%' : 'black 100%'})`,
+              WebkitMaskImage: `linear-gradient(to right, ${edges.left ? 'transparent 0, black 28px' : 'black 0'}, ${edges.right ? 'black calc(100% - 28px), transparent 100%' : 'black 100%'})`,
+            }}
+          >
             {leadingTile}
             {context.menu.map((category) => (
               <button
@@ -190,6 +241,31 @@ export function MenuView({ context, cart, onQuantity, action, banner, leadingTil
               </button>
             ))}
           </div>
+          {(['left', 'right'] as const).map((side) =>
+            edges[side] ? (
+              <button
+                key={side}
+                type="button"
+                tabIndex={-1}
+                aria-hidden
+                onClick={() => row.current?.scrollBy({ left: (side === 'left' ? -1 : 1) * row.current.clientWidth * 0.8, behavior: 'smooth' })}
+                className={cn(
+                  'absolute top-[1.35rem] z-10 hidden size-8 place-items-center rounded-full bg-surface/95 text-ink shadow-md ring-1 ring-line opacity-0 transition-opacity duration-300 ease-apple group-hover/row:opacity-100 [@media(hover:hover)]:grid',
+                  side === 'left' ? 'left-0' : 'right-0',
+                )}
+              >
+                {side === 'left' ? <ChevronLeft className="size-4" /> : <ChevronRight className="size-4" />}
+              </button>
+            ) : null,
+          )}
+          </div>
+          {trailingTile && (
+            // Isolée des rubriques par un trait fin, et fixe pendant leur défilement.
+            <div className="flex shrink-0 items-start pt-3 pb-2 pl-2">
+              <span className="mt-1 mr-2 h-10 w-px bg-line" aria-hidden />
+              {trailingTile}
+            </div>
+          )}
         </nav>
       </div>
 
@@ -256,6 +332,11 @@ export function MenuView({ context, cart, onQuantity, action, banner, leadingTil
             setOpened(null);
           }}
           onClose={() => setOpened(null)}
+          pairings={
+            token && context.orderingEnabled && context.pairingsEnabled ? (
+              <PairedItems token={token} item={opened} context={context} cart={cart} onAdd={(id) => onQuantity(id, (cart[id] ?? 0) + 1)} />
+            ) : undefined
+          }
         />
       )}
     </>
@@ -295,7 +376,12 @@ function MenuCard({ item, currency, quantity, orderable, onAdd, onOpen }: MenuCa
         {canAdd && (
           <button
             type="button"
-            onClick={quantity === 0 ? onAdd : onOpen}
+            onClick={(event) => {
+              if (quantity > 0) return onOpen();
+              haptic();
+              flyToCart(event.currentTarget.parentElement?.getBoundingClientRect() ?? null, item.imageId ? menuImageUrl(item.imageId) : null);
+              onAdd();
+            }}
             aria-label={quantity === 0 ? `Ajouter ${item.name}` : `${quantity} ${item.name} dans la commande, modifier`}
             className="tabular absolute right-2 bottom-2 grid size-10 place-items-center rounded-full bg-ink text-[15px] font-semibold text-white shadow-pop ring-2 ring-surface active:scale-95"
           >
@@ -333,36 +419,248 @@ function SelectionChecks({ quantity }: { quantity: number }) {
 }
 
 /** Fiche d'un article (CA-002-04). */
-function ItemSheet({ item, currency, orderable, inCart, onSave, onClose }: { item: MenuItem; currency: string; orderable: boolean; inCart: number; onSave: (quantity: number) => void; onClose: () => void }) {
+/**
+ * Spec 012 : fiche d'un plat, feuille façon iOS.
+ * - R1 : photo pleine largeur, poignée, fermeture en tirant vers le bas, croix translucide, effet de profondeur.
+ * - R2 : nom, prix, puis description.
+ * - R3 : barre d'action fixe « [ − n + ] Ajouter · total », total qui se renouvelle en fondu.
+ * - R4 : une vignette du plat par unité.
+ * - R6 : états « épuisé » et « déjà dans la commande ».
+ */
+function ItemSheet({
+  item, currency, orderable, inCart, onSave, onClose, pairings,
+}: { item: MenuItem; currency: string; orderable: boolean; inCart: number; onSave: (quantity: number) => void; onClose: () => void; pairings?: ReactNode }) {
   const [quantity, setQuantity] = useState(Math.max(1, inCart));
   const canOrder = orderable && item.isAvailable;
   const label = inCart === 0 ? 'Ajouter' : quantity === 0 ? 'Retirer' : 'Mettre à jour';
+  const total = formatMoney(quantity * item.priceMinor, currency);
+
+  // R8 : teinte légère tirée de la couleur dominante de la photo ; pas d'effet de profondeur si mouvements réduits.
+  const tint = usePhotoTint(item.imageId ? menuImageUrl(item.imageId) : null);
+  const [calm] = useState(prefersReducedMotion);
+  // R1 : défilement (effet de profondeur sur la photo) et geste « tirer pour fermer ».
+  const [scroll, setScroll] = useState(0);
+  const [drag, setDrag] = useState<{ startY: number; startTime: number; offset: number } | null>(null);
+  const [closing, setClosing] = useState(false);
+  const sheet = useRef<HTMLDivElement>(null);
+  const offset = closing ? (sheet.current?.offsetHeight ?? 800) : (drag?.offset ?? 0);
+  const close = () => {
+    setClosing(true);
+    window.setTimeout(onClose, 260);
+  };
+  const onPointerDown = (event: React.PointerEvent) => {
+    if (event.button !== 0) return;
+    (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+    setDrag({ startY: event.clientY, startTime: performance.now(), offset: 0 });
+  };
+  const onPointerMove = (event: React.PointerEvent) => {
+    if (!drag) return;
+    setDrag({ ...drag, offset: Math.max(0, event.clientY - drag.startY) });
+  };
+  const onPointerUp = () => {
+    if (!drag) return;
+    const height = sheet.current?.offsetHeight ?? 600;
+    const speed = drag.offset / Math.max(1, performance.now() - drag.startTime); // px par ms
+    setDrag(null);
+    if (drag.offset > height / 3 || (drag.offset > 40 && speed > 0.8)) close();
+  };
+  const change = (next: number) => {
+    haptic(8);
+    setQuantity(Math.max(inCart > 0 ? 0 : 1, Math.min(MAX_QUANTITY, next)));
+  };
+  const photo = useRef<HTMLDivElement>(null);
+  const save = () => {
+    if (quantity > inCart) {
+      haptic([10, 40, 14]);
+      flyToCart(photo.current?.getBoundingClientRect() ?? null, item.imageId ? menuImageUrl(item.imageId) : null);
+    }
+    onSave(quantity);
+  };
+
   return (
-    <Dialog open onOpenChange={(open) => !open && onClose()} title={item.name}>
-      <div className="flex flex-col gap-4">
-        <ItemPhoto item={item} dimmed={!item.isAvailable} className="-mx-5 -mt-1 aspect-[4/3] w-[calc(100%+2.5rem)] text-4xl" />
-        <div>
-          <p className="tabular text-lg font-semibold text-ink">{formatMoney(item.priceMinor, currency)}</p>
-          {item.description && <p className="mt-1 text-sm text-ink-2">{item.description}</p>}
-          {!item.isAvailable && (
-            <p className="mt-2 flex items-center gap-1.5 text-sm font-medium text-late">
-              <Ban className="size-4" aria-hidden />
-              Épuisé pour le moment
-            </p>
-          )}
-        </div>
-        {canOrder && (
-          <div className="flex items-center gap-3">
-            <Stepper name={item.name} quantity={quantity} size="lg" onChange={(q) => setQuantity(Math.max(inCart > 0 ? 0 : 1, q))} />
-            <Button size="lg" className="h-12 flex-1 rounded-full" variant={label === 'Retirer' ? 'secondary' : 'primary'} onClick={() => onSave(quantity)}>
-              {label === 'Retirer' ? <Trash2 className="size-5" aria-hidden /> : label === 'Ajouter' ? <Plus className="size-5" aria-hidden /> : <RefreshCw className="size-5" aria-hidden />}
-              {label}
-              {quantity > 0 && <span className="tabular font-normal opacity-80">· {formatMoney(quantity * item.priceMinor, currency)}</span>}
-            </Button>
+    <DialogPrimitive.Root open onOpenChange={(open) => !open && close()}>
+      <DialogPrimitive.Portal>
+        <DialogPrimitive.Overlay
+          className={cn('fixed inset-0 z-40 bg-ink/45 backdrop-blur-[2px] transition-opacity duration-300', closing ? 'opacity-0' : 'animate-fade-in')}
+        />
+        <DialogPrimitive.Content
+          aria-describedby={undefined}
+          className="fixed inset-x-0 bottom-0 z-50 animate-sheet-up outline-none sm:inset-auto sm:top-1/2 sm:left-1/2 sm:w-full sm:max-w-md sm:-translate-x-1/2 sm:-translate-y-1/2 sm:animate-pop-in"
+        >
+          <div
+            ref={sheet}
+            className="flex max-h-[94dvh] flex-col overflow-hidden rounded-t-[28px] bg-surface shadow-pop transition-[background-color] duration-700 ease-apple sm:max-h-[88dvh] sm:rounded-[28px]"
+            style={{
+              // Teinte très douce : 8 % de la couleur de la photo dans le fond de la fiche.
+              backgroundColor: tint ? `color-mix(in srgb, ${tint} 8%, var(--color-surface))` : undefined,
+              transform: `translateY(${offset}px)`,
+              transition: drag ? 'none' : 'transform 380ms var(--ease-spring)',
+            }}
+          >
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain" onScroll={(event) => !calm && setScroll(event.currentTarget.scrollTop)}>
+              {/* Photo : zone de saisie du geste « tirer pour fermer ». */}
+              <div
+                ref={photo}
+                className="relative touch-none overflow-hidden select-none"
+                onPointerDown={onPointerDown}
+                onPointerMove={onPointerMove}
+                onPointerUp={onPointerUp}
+                onPointerCancel={onPointerUp}
+                onDragStart={(event) => event.preventDefault()}
+              >
+                <div style={{ transform: `translateY(${scroll * 0.4}px) scale(${1 + Math.min(scroll, 200) / 2000})` }}>
+                  <ItemPhoto item={item} dimmed={!item.isAvailable} className="aspect-[4/3] max-h-[46dvh] w-full text-5xl" />
+                </div>
+                <span className="absolute top-2 left-1/2 h-1.5 w-10 -translate-x-1/2 rounded-full bg-white/80 shadow-sm" aria-hidden />
+                <DialogPrimitive.Close
+                  className="absolute top-3 right-3 grid size-9 place-items-center rounded-full bg-black/35 text-white backdrop-blur-md transition-transform duration-200 ease-apple active:scale-90"
+                  aria-label="Fermer"
+                  onPointerDown={(event) => event.stopPropagation()}
+                >
+                  <X className="size-5" aria-hidden />
+                </DialogPrimitive.Close>
+                {inCart > 0 && item.isAvailable && (
+                  <span className="absolute bottom-3 left-3 inline-flex animate-pop-in items-center gap-1.5 rounded-full bg-done px-3 py-1 text-[13px] font-semibold text-white shadow-md">
+                    <Check className="size-4" strokeWidth={3} aria-hidden />
+                    {inCart} dans votre commande
+                  </span>
+                )}
+                {!item.isAvailable && (
+                  <span className="absolute inset-0 grid place-items-center" aria-hidden>
+                    <span className="grid size-20 place-items-center rounded-full bg-black/45 text-white backdrop-blur-md">
+                      <Ban className="size-10" />
+                    </span>
+                  </span>
+                )}
+              </div>
+
+              <div
+                className="relative px-5 pt-4 pb-6"
+                // Dégradé : la couleur de la photo se prolonge sous le titre, puis s'efface.
+                style={{ background: tint ? `linear-gradient(to bottom, color-mix(in srgb, ${tint} 16%, var(--color-surface)), transparent 70%)` : undefined }}
+              >
+                <div className="flex items-baseline justify-between gap-3">
+                  <DialogPrimitive.Title className="min-w-0 text-[22px] leading-tight font-semibold tracking-tight text-ink">{item.name}</DialogPrimitive.Title>
+                  <p className="tabular shrink-0 text-[19px] font-semibold text-brand-strong">{formatMoney(item.priceMinor, currency)}</p>
+                </div>
+                {item.description && <p className="mt-2 text-sm leading-relaxed text-ink-3">{item.description}</p>}
+                {canOrder && (
+                  <div className="mt-5 flex min-h-12 items-center justify-between gap-3 rounded-2xl bg-sunken/70 py-2 pr-2 pl-3">
+                    <QuantityThumbnails item={item} quantity={quantity} />
+                    <div className="flex shrink-0 items-center gap-1 rounded-full bg-surface p-1 shadow-sm ring-1 ring-line">
+                      <button
+                        type="button"
+                        onClick={() => change(quantity - 1)}
+                        disabled={quantity <= (inCart > 0 ? 0 : 1)}
+                        aria-label={`Retirer un ${item.name}`}
+                        className="grid size-10 place-items-center rounded-full text-ink transition-[transform,background-color] duration-200 ease-apple hover:bg-sunken active:scale-90 disabled:opacity-30"
+                      >
+                        <Minus className="size-5" aria-hidden />
+                      </button>
+                      <span className="tabular grid w-8 place-items-center overflow-hidden text-lg font-semibold text-ink" aria-live="polite" aria-label={`${quantity} ${item.name}`}>
+                        <span key={quantity} className="animate-number-in">
+                          {quantity}
+                        </span>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => change(quantity + 1)}
+                        disabled={quantity >= MAX_QUANTITY}
+                        aria-label={`Ajouter un ${item.name}`}
+                        className="grid size-10 place-items-center rounded-full bg-ink text-white transition-transform duration-200 ease-apple active:scale-90 disabled:opacity-30"
+                      >
+                        <Plus className="size-5" aria-hidden />
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {/* R7 : après le choix du plat principal, les plats souvent pris avec lui. */}
+                {canOrder && pairings}
+              </div>
+            </div>
+
+            {/* R3 : barre d'action, toujours visible, au-dessus des barres du téléphone. */}
+            <div
+              className="border-t border-line/70 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur-md"
+              style={{ backgroundColor: tint ? `color-mix(in srgb, color-mix(in srgb, ${tint} 8%, var(--color-surface)) 90%, transparent)` : 'color-mix(in srgb, var(--color-surface) 90%, transparent)' }}
+            >
+              {!item.isAvailable ? (
+                <p className="flex h-14 items-center justify-center gap-2 rounded-full bg-sunken text-[15px] font-semibold text-ink-2">
+                  <Ban className="size-5" aria-hidden />
+                  Épuisé pour le moment
+                </p>
+              ) : canOrder ? (
+                <button
+                  type="button"
+                  onClick={save}
+                  className={cn(
+                    'flex h-14 w-full items-center justify-center gap-2 rounded-full px-5 text-[17px] font-semibold text-white shadow-[0_10px_24px_-10px_rgb(27_25_23/0.6)] transition-[transform,background-color] duration-300 ease-apple active:scale-[0.98]',
+                    label === 'Retirer' ? 'bg-late' : 'bg-ink',
+                  )}
+                >
+                  {label === 'Retirer' && <Trash2 className="size-5 shrink-0" aria-hidden />}
+                  <span>{label}</span>
+                  {quantity > 0 && (
+                    <span className="tabular overflow-hidden font-normal opacity-85">
+                      ·{' '}
+                      <span key={total} className="inline-block animate-number-in">
+                        {total}
+                      </span>
+                    </span>
+                  )}
+                </button>
+              ) : null}
+            </div>
           </div>
-        )}
+        </DialogPrimitive.Content>
+      </DialogPrimitive.Portal>
+    </DialogPrimitive.Root>
+  );
+}
+
+/**
+ * Spec 012, R4 : une ou deux vignettes du plat côte à côte ; à partir de 3, elles s'empilent
+ * en petite pile (comme des cartes) avec le nombre « ×n » posé dessus.
+ */
+function QuantityThumbnails({ item, quantity }: { item: Pick<MenuItem, 'name' | 'imageId'>; quantity: number }) {
+  const label = `${quantity} ${item.name} choisi${quantity > 1 ? 's' : ''}`;
+  if (quantity <= 0) {
+    return (
+      <span role="img" aria-label={label} className="text-sm text-ink-3">
+        —
+      </span>
+    );
+  }
+  if (quantity < 3) {
+    return (
+      <div role="img" aria-label={label} className="flex items-center gap-1.5">
+        {Array.from({ length: quantity }, (_, index) => (
+          <span key={index} className="animate-pop-in rounded-full ring-2 ring-surface">
+            <ItemPhoto item={item} className="size-10 rounded-full text-xs" />
+          </span>
+        ))}
       </div>
-    </Dialog>
+    );
+  }
+  // Pile : trois vignettes décalées et légèrement tournées ; la clé relance le rebond à chaque ajout.
+  return (
+    <div role="img" aria-label={label} className="relative h-11 w-14">
+      {[2, 1, 0].map((layer) => (
+        <span
+          key={layer}
+          className="absolute top-0.5 left-0 rounded-full shadow-sm ring-2 ring-surface transition-transform duration-300 ease-spring"
+          style={{ transform: `translateX(${layer * 5}px) rotate(${(layer - 1) * 7}deg)`, zIndex: 3 - layer }}
+        >
+          <ItemPhoto item={item} className="size-10 rounded-full text-xs" />
+        </span>
+      ))}
+      <span
+        key={quantity}
+        className="tabular absolute -top-1 -right-1 z-10 grid h-6 min-w-6 animate-pop-in place-items-center rounded-full bg-done px-1.5 text-[13px] font-bold text-white ring-2 ring-surface"
+      >
+        ×{quantity}
+      </span>
+    </div>
   );
 }
 
@@ -370,16 +668,24 @@ function ItemSheet({ item, currency, orderable, inCart, onSave, onClose }: { ite
 
 /** Barre flottante « Voir la commande » (CA-002-06). */
 export function CartBar({ count, totalMinor, currency, onOpen }: { count: number; totalMinor: number; currency: string; onOpen: () => void }) {
+  // Spec 012, R5 : un rebond quand un plat arrive dans la commande.
+  const [bumps, setBumps] = useState(0);
+  useEffect(() => {
+    const onBump = () => setBumps((n) => n + 1);
+    window.addEventListener(CART_BUMP, onBump);
+    return () => window.removeEventListener(CART_BUMP, onBump);
+  }, []);
   if (count === 0) return null;
   return (
     <div className="pointer-events-none fixed inset-x-0 bottom-0 z-30 px-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
       <button
         type="button"
         onClick={onOpen}
-        className="pointer-events-auto mx-auto flex h-14 w-full max-w-md items-center justify-between gap-3 rounded-full bg-ink pr-5 pl-2 text-white shadow-pop active:scale-[0.99]"
+        key={bumps}
+        className={cn('pointer-events-auto mx-auto flex h-14 w-full max-w-md items-center justify-between gap-3 rounded-full bg-ink pr-5 pl-2 text-white shadow-pop active:scale-[0.99]', bumps > 0 && 'animate-cart-bump')}
       >
         <span className="flex items-center gap-3 text-[15px] font-semibold">
-          <span className="relative grid size-10 place-items-center rounded-full bg-white/15">
+          <span className="relative grid size-10 place-items-center rounded-full bg-white/15" {...{ [CART_TARGET_ATTR]: '' }}>
             <ShoppingBag className="size-5" aria-hidden />
             <span className="tabular absolute -top-1 -right-1 grid size-5 place-items-center rounded-full bg-brand text-[11px] font-bold text-white">{count}</span>
           </span>
@@ -517,6 +823,69 @@ export function OrderScreen({ token, context, cart, onQuantity, onClose, onOrder
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>
+  );
+}
+
+/**
+ * Spec 012, R7 : dans la fiche d'un plat, les plats souvent pris avec lui (suggestions de la spec 002),
+ * à ajouter d'un toucher. Une miniature déjà dans la commande porte une coche et son nombre.
+ */
+function PairedItems({ token, item, context, cart, onAdd }: { token: string; item: MenuItem; context: GuestContext; cart: Cart; onAdd: (itemId: string) => void }) {
+  const { data } = useQuery({
+    queryKey: ['guest', token, 'suggestions', [item.id]],
+    queryFn: () => guestApi.suggestions(token, [item.id]),
+    staleTime: 60_000,
+  });
+  const items = new Map(context.menu.flatMap((category) => category.items).map((entry) => [entry.id, entry]));
+  const paired = (data ?? [])
+    .map((id) => items.get(id))
+    .filter((entry): entry is MenuItem => !!entry && entry.isAvailable && entry.id !== item.id)
+    .slice(0, 6);
+  if (paired.length === 0) return null;
+  return (
+    <section aria-labelledby="paired-title" className="mt-5 animate-fade-in">
+      <h3 id="paired-title" className="flex items-center gap-1.5 text-[13px] font-semibold text-ink-2">
+        <Sparkles className="size-4 text-brand" aria-hidden />
+        Souvent pris avec
+      </h3>
+      <ul className="-mx-5 mt-2 flex snap-x scroll-px-5 gap-3 overflow-x-auto px-5 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        {paired.map((entry, index) => {
+          const count = cart[entry.id] ?? 0;
+          return (
+            <li key={entry.id} className="stagger w-[4.75rem] shrink-0 animate-item-in snap-start" style={{ '--i': index } as React.CSSProperties}>
+              <button
+                type="button"
+                onClick={(event) => {
+                  haptic();
+                  flyToCart(event.currentTarget.getBoundingClientRect(), entry.imageId ? menuImageUrl(entry.imageId) : null);
+                  onAdd(entry.id);
+                }}
+                aria-label={`Ajouter ${entry.name}${count > 0 ? `, ${count} dans la commande` : ''}`}
+                className="group relative block w-full rounded-2xl transition-transform duration-200 ease-apple active:scale-95"
+              >
+                <ItemPhoto item={entry} className="aspect-square w-full rounded-2xl text-lg" />
+                <span
+                  className={cn(
+                    'absolute right-1 bottom-1 grid size-7 place-items-center rounded-full text-white shadow-md ring-2 ring-surface transition-colors duration-300',
+                    count > 0 ? 'bg-done' : 'bg-ink',
+                  )}
+                >
+                  {count > 0 ? (
+                    <span key={count} className="tabular animate-pop-in text-[12px] font-bold">
+                      {count}
+                    </span>
+                  ) : (
+                    <Plus className="size-4" aria-hidden />
+                  )}
+                </span>
+              </button>
+              <p className="mt-1.5 line-clamp-2 text-[12px] leading-tight font-medium text-ink">{entry.name}</p>
+              <p className="tabular text-[11px] text-ink-3">{formatMoney(entry.priceMinor, context.establishment.currency)}</p>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
   );
 }
 

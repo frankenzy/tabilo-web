@@ -127,6 +127,7 @@ function GuestTable({ token, context, onSessionClosed, onContextStale }: GuestTa
       {hasMenu ? (
         <div className="mt-1">
           <MenuView
+            token={token}
             context={context}
             cart={cart}
             onQuantity={setQuantity}
@@ -146,6 +147,7 @@ function GuestTable({ token, context, onSessionClosed, onContextStale }: GuestTa
             }
             banner={active.length > 0 ? <ActiveTracking active={active} token={token} currency={currency} /> : undefined}
             leadingTile={waterType ? <WaterTile pending={activeTypeIds.has(waterType.id)} onCall={() => setSelected(waterType)} /> : undefined}
+            trailingTile={context.requestTypes.length > 0 ? <WaiterTile onCall={() => setServerOpen(true)} /> : undefined}
           />
         </div>
       ) : (
@@ -236,6 +238,22 @@ function GuestTable({ token, context, onSessionClosed, onContextStale }: GuestTa
 }
 
 /** Tuile spéciale « Eau » (spec 005, R6) : un geste pour demander de l'eau, sans lire ni passer par la cloche. */
+/** Tuile « Serveur » en bout de rangée (spec 005, R9) : la photo du serveur, comprise sans lire. */
+function WaiterTile({ onCall }: { onCall: () => void }) {
+  return (
+    <button type="button" onClick={onCall} aria-label="Serveur, appeler le serveur" title="Appeler le serveur" className="group flex w-16 shrink-0 flex-col items-center gap-1">
+      <span className="relative size-12 rounded-xl shadow-sm ring-1 ring-line transition-transform duration-300 ease-spring group-hover:-translate-y-0.5 group-active:scale-95">
+        {/* eslint-disable-next-line @next/next/no-img-element -- image statique de l'interface */}
+        <img src="/images/serveur.jpg" alt="" draggable={false} className="size-full rounded-xl object-cover" />
+        <span className="absolute -top-1 -right-1 grid size-5 place-items-center rounded-full bg-ink text-white ring-2 ring-paper">
+          <BellRing className="size-3" aria-hidden />
+        </span>
+      </span>
+      <span className="w-full truncate text-center text-[11px] leading-tight font-semibold text-ink">Serveur</span>
+    </button>
+  );
+}
+
 function WaterTile({ pending, onCall }: { pending: boolean; onCall: () => void }) {
   return (
     <button

@@ -31,9 +31,9 @@ export function useGuestSession(code: string) {
           storeToken(code, null);
         }
       }
-      const { token, establishment, table, requestTypes, menu, orderingEnabled } = await guestApi.openSession(code);
+      const { token, establishment, table, requestTypes, menu, orderingEnabled, pairingsEnabled } = await guestApi.openSession(code);
       storeToken(code, token);
-      setState({ phase: 'ready', token, context: { establishment, table, requestTypes, menu, orderingEnabled } });
+      setState({ phase: 'ready', token, context: { establishment, table, requestTypes, menu, orderingEnabled, pairingsEnabled } });
     } catch (error) {
       const http = toHttpError(error);
       const kind = http.status === 404 || http.status === 400 ? 'invalid' : http.status === 429 ? 'busy' : 'network';
