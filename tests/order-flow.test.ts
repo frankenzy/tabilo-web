@@ -17,13 +17,13 @@ describe('Spec 013 — note composée et frise de suivi', () => {
     expect(composeNote(['sans-piment'], 'x'.repeat(400), 280)).toHaveLength(280);
   });
 
-  it('CA-013-04 — la frise d’une commande : Envoyée, Prise en charge, En préparation, Servie', () => {
-    expect(trackingSteps('order').map((s) => s.label)).toEqual(['Envoyée', 'Prise en charge', 'En préparation', 'Servie']);
-    expect(trackingSteps('service').map((s) => s.label)).toEqual(['Envoyée', 'Prise en charge', 'En cours', 'Terminée']);
+  it('CA-015-01 — trois étapes : Envoyée, Prise en charge, Bon appétit (Terminée pour une demande)', () => {
+    expect(trackingSteps('order').map((s) => s.label)).toEqual(['Envoyée', 'Prise en charge', 'Bon appétit']);
+    expect(trackingSteps('service').map((s) => s.label)).toEqual(['Envoyée', 'Prise en charge', 'Terminée']);
   });
 
-  it('CA-013-04 — chaque statut tombe sur la bonne étape', () => {
-    const steps = (['pending', 'assigned', 'accepted', 'in_progress', 'resolved'] as const).map((status) => stepOf({ status }));
-    expect(steps).toEqual([0, 0, 1, 2, 3]);
+  it('CA-015-02, 03 — acceptée, en préparation et prête restent « Prise en charge » ; servie donne la dernière étape', () => {
+    const steps = (['pending', 'assigned', 'accepted', 'in_progress', 'ready', 'resolved'] as const).map((status) => stepOf({ status }));
+    expect(steps).toEqual([0, 0, 1, 1, 1, 2]);
   });
 });

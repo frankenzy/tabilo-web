@@ -2,17 +2,17 @@
 
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Ban, Check, ChevronLeft, ChevronRight, Minus, PauseCircle, Plus, Search, SearchX, ShoppingBag, Sparkles, Trash2, TriangleAlert, X } from 'lucide-react';
+import { Ban, Check, ChevronDown, ChevronLeft, ChevronRight, Minus, PauseCircle, Plus, Search, SearchX, ShoppingBag, Sparkles, Trash2, TriangleAlert, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Button, FormError, Textarea } from '@/components/ui';
-import type { GuestContext, GuestRequest, MenuItem, OrderLine } from '@/contracts';
+import type { GuestContext, GuestRequest, MenuCategory, MenuItem, OrderLine } from '@/contracts';
 import { CategoryImage } from '@/components/pages/menu/category-image';
 import { cn } from '@/lib/utils';
 import { menuImageUrl } from '@/services/api';
 import { guestApi } from '@/services/api/guest';
 import { errorMessage, toHttpError } from '@/services/http';
 import { formatMoney } from '@/utils/money';
-import { cartLines, MAX_QUANTITY, type Cart } from './cart';
+import { cartLines, MAX_QUANTITY, type Cart, type OrderDetails } from './cart';
 import { CART_BUMP, CART_TARGET_ATTR, flyToCart, haptic } from './fly-to-cart';
 import { CancelOrderButton, composeNote, OrderTracker, PrecisionChips, SlideToConfirm, SuccessCheck, TableBadge } from './order-flow';
 import { prefersReducedMotion, usePhotoTint } from './photo-tint';
@@ -28,7 +28,7 @@ const NOTE_MAX = 280;
 // ------------------------------------------------------------------ photos
 
 /** Photo d'article, ou aplat avec l'initiale : la grille garde toujours la même géométrie (CA-002-03). */
-function ItemPhoto({ item, className, dimmed }: { item: Pick<MenuItem, 'name' | 'imageId'>; className?: string; dimmed?: boolean }) {
+export function ItemPhoto({ item, className, dimmed }: { item: Pick<MenuItem, 'name' | 'imageId'>; className?: string; dimmed?: boolean }) {
   if (item.imageId) {
     return (
       // eslint-disable-next-line @next/next/no-img-element -- photo servie par l'API, déjà réduite
@@ -704,6 +704,9 @@ export function CartBar({ count, totalMinor, currency, onOpen }: { count: number
 const ORDER_ERRORS = new Set(['MENU_ITEM_UNAVAILABLE', 'MENU_ITEM_NOT_FOUND', 'ORDERING_DISABLED']);
 
 interface OrderScreenProps {
+  /** Spec 013, R2 : précisions conservées avec le panier (useOrderDetails). */
+  details: OrderDetails;
+  onDetails: (change: (current: OrderDetails) => OrderDetails) => void;
   token: string;
   context: GuestContext;
   cart: Cart;
@@ -717,14 +720,13 @@ interface OrderScreenProps {
 }
 
 /** Écran plein écran « Votre commande » (CA-002-07, 08, 09, 12). */
-export function OrderScreen({ token, context, cart, onQuantity, onClose, onOrdered, onSent, onContextStale, onSessionClosed }: OrderScreenProps) {
+export function OrderScreen({ token, context, cart, details, onDetails, onQuantity, onClose, onOrdered, onSent, onContextStale, onSessionClosed }: OrderScreenProps) {
   const queryClient = useQueryClient();
   const currency = context.establishment.currency;
   const { lines, count, totalMinor, hasInvalid } = cartLines(cart, context.menu);
   // Spec 013, R2 : précisions à toucher, et texte libre replié derrière « Autre ».
-  const [precisions, setPrecisions] = useState<string[]>([]);
-  const [freeOpen, setFreeOpen] = useState(false);
-  const [note, setNote] = useState('');
+  const { precisions, note } = details;
+  const [freeOpen, setFreeOpen] = useState(() => details.note.trim() !== '');
   // Une clé par intention de commander : un double appui ou une reprise réseau ne crée qu'une commande.
   const [idempotencyKey] = useState(() => crypto.randomUUID());
   // R5 : après l'envoi, la même feuille montre la confirmation et le suivi.
@@ -853,7 +855,7 @@ export function OrderScreen({ token, context, cart, onQuantity, onClose, onOrder
                         <PrecisionChips
                           className="scroll-pl-1 pr-4 pl-1 [mask-image:linear-gradient(to_right,#000_calc(100%-28px),transparent)]"
                           selected={precisions}
-                          onToggle={(key) => setPrecisions((current) => (current.includes(key) ? current.filter((k) => k !== key) : [...current, key]))}
+                          onToggle={(key) => onDetails((current) => ({ ...current, precisions: current.precisions.includes(key) ? current.precisions.filter((k) => k !== key) : [...current.precisions, key] }))}
                           freeOpen={freeOpen}
                           onFreeToggle={() => setFreeOpen((open) => !open)}
                         />
@@ -864,7 +866,7 @@ export function OrderScreen({ token, context, cart, onQuantity, onClose, onOrder
                         <Textarea
                           label="Une autre précision"
                           value={note}
-                          onChange={(event) => setNote(event.target.value.slice(0, NOTE_MAX))}
+                          onChange={(event) => { const value = event.target.value.slice(0, NOTE_MAX); onDetails((current) => ({ ...current, note: value })); }}
                           maxLength={NOTE_MAX}
                           rows={2}
                           placeholder="Ex. : sauce à part"
@@ -1105,22 +1107,96 @@ function Suggestions({ token, context, cart, onAdd }: { token: string; context: 
 
 // ------------------------------------------------------------------ suivi
 
-/** Contenu d'une commande dans le suivi du client (CA-001-26). */
-export function GuestOrderLines({ items, totalMinor, currency }: { items: OrderLine[]; totalMinor: number | null; currency: string }) {
+/** Hauteur d'une ligne (vignette de 40 px + marges) : la liste en montre deux (spec 016, R3). */
+const ORDER_ROW_PX = 52;
+
+/**
+ * Contenu d'une commande dans le suivi du client (CA-001-26 ; spec 016) : vignette, nom, « quantité × prix ».
+ * Au-delà de deux plats, la liste défile dans son bloc ; un fondu et une flèche montrent la suite.
+ */
+export function GuestOrderLines({ items, totalMinor, currency, menu }: { items: OrderLine[]; totalMinor: number | null; currency: string; menu: MenuCategory[] }) {
+  const list = useRef<HTMLUListElement>(null);
+  // Plats encore sous le pli : la pastille « +n » les compte, et disparaît en bas de la liste.
+  const [remaining, setRemaining] = useState(0);
+  const scrollable = items.length > 2;
+
+  useEffect(() => {
+    const el = list.current;
+    if (!el) return;
+    const update = () => setRemaining(Math.max(0, items.length - Math.round((el.scrollTop + el.clientHeight) / ORDER_ROW_PX)));
+    update();
+    el.addEventListener('scroll', update, { passive: true });
+    return () => el.removeEventListener('scroll', update);
+  }, [items.length]);
+
   if (items.length === 0) return null;
+  const atEnd = remaining === 0;
+  const more = (
+    <button
+      type="button"
+      tabIndex={-1}
+      aria-hidden
+      onClick={() => list.current?.scrollBy({ top: ORDER_ROW_PX * 2, behavior: 'smooth' })}
+      className={cn(
+        'inline-flex h-6 items-center gap-0.5 rounded-full bg-[#3a3632] pr-1.5 pl-2.5 text-[12px] font-semibold text-white/85 shadow-[0_4px_12px_-4px_rgb(0_0_0/0.6)] ring-1 ring-white/15 transition-[opacity,transform] duration-300 ease-apple',
+        atEnd ? 'pointer-events-none scale-75 opacity-0' : 'scale-100 opacity-100',
+      )}
+    >
+      <span className="tabular">+{remaining}</span>
+      <ChevronDown className="size-3.5" strokeWidth={2.5} />
+    </button>
+  );
+  const photos = new Map(menu.flatMap((category) => category.items).map((item) => [item.id, item]));
+
   return (
-    <div className="mt-3 rounded-lg bg-white/10 px-3 py-2 text-sm">
-      <ul className="flex flex-col gap-0.5">
-        {items.map((line) => (
-          <li key={line.name}>
-            <span className="tabular font-semibold">{line.quantity} ×</span> {line.name}
-          </li>
-        ))}
-      </ul>
+    <div className="mt-3 overflow-hidden rounded-xl bg-white/[0.07] ring-1 ring-white/10">
+      <div className="relative">
+        <ul
+          ref={list}
+          aria-label="Contenu de la commande"
+          tabIndex={scrollable ? 0 : undefined}
+          className={cn(
+            'flex flex-col overflow-y-auto overscroll-contain px-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
+            scrollable && 'snap-y snap-mandatory scroll-smooth outline-none',
+          )}
+          style={
+            scrollable
+              ? {
+                  maxHeight: ORDER_ROW_PX * 2,
+                  // Fondu du bas tant qu'il reste des plats à voir.
+                  maskImage: atEnd ? undefined : 'linear-gradient(to bottom, #000 calc(100% - 22px), transparent)',
+                  WebkitMaskImage: atEnd ? undefined : 'linear-gradient(to bottom, #000 calc(100% - 22px), transparent)',
+                }
+              : undefined
+          }
+        >
+          {items.map((line, index) => {
+            const item = line.menuItemId ? photos.get(line.menuItemId) : undefined;
+            return (
+              <li
+                key={`${line.menuItemId ?? ''}-${line.name}`}
+                className="stagger flex shrink-0 animate-item-in snap-start items-center gap-3 border-b border-white/[0.08] last:border-b-0"
+                style={{ height: ORDER_ROW_PX, '--i': Math.min(index, 8) } as React.CSSProperties}
+              >
+                <ItemPhoto item={item ?? { name: line.name, imageId: null }} className="size-10 shrink-0 rounded-[10px] text-xs ring-1 ring-white/10" />
+                <span className="min-w-0 flex-1 truncate text-[14px] font-medium text-white">{line.name}</span>
+                <span className="tabular shrink-0 text-[13px] whitespace-nowrap">
+                  <span className="font-semibold text-white">{line.quantity}</span>
+                  <span className="px-1 text-white/45">×</span>
+                  <span className="text-white/70">{formatMoney(line.unitPriceMinor, currency)}</span>
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+        {scrollable && totalMinor !== null && <div className="absolute bottom-0 left-1/2 z-10 -translate-x-1/2 translate-y-1/2">{more}</div>}
+      </div>
+      {/* Sans ligne de total (spec 017), la pastille vit dans un pied fin, sous la liste : elle ne cache aucun plat. */}
+      {scrollable && totalMinor === null && <div className="flex h-8 items-center justify-center border-t border-white/10">{more}</div>}
       {totalMinor !== null && (
-        <p className="mt-1 flex justify-between border-t border-white/15 pt-1 text-[13px] text-white/80">
-          <span>Total</span>
-          <span className="tabular font-semibold text-white">{formatMoney(totalMinor, currency)}</span>
+        <p className="flex items-baseline justify-between border-t border-white/10 bg-white/[0.04] px-3 py-2.5">
+          <span className="text-[13px] text-white/60">Total</span>
+          <span className="tabular text-[17px] font-semibold tracking-tight text-white">{formatMoney(totalMinor, currency)}</span>
         </p>
       )}
     </div>

@@ -2,20 +2,22 @@
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  BellRing, Check, Droplet, Minus, Plus, CheckCircle2, Clock, Loader2, QrCode, RotateCw, WifiOff, XCircle,
+  BellRing, Check, Droplet, Minus, Plus, Clock, Loader2, QrCode, RotateCw, WifiOff,
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Button, Dialog, FormError, Textarea } from '@/components/ui';
 import { requestIcon } from '@/constants/requests';
 import type { GuestContext, GuestRequest, GuestRequestType } from '@/contracts';
 import { cn } from '@/lib/utils';
+import { menuImageUrl } from '@/services/api';
 import { guestApi } from '@/services/api/guest';
 import { errorMessage, toHttpError } from '@/services/http';
-import { formatMoney } from '@/utils/money';
-import { formatTime } from '@/utils/time';
-import { cartLines, useCart } from './cart';
-import { CartBar, GuestOrderLines, MenuView, OrderScreen } from './guest-menu';
-import { CancelOrderButton, OrderTracker, stepOf } from './order-flow';
+import { cartLines, useCart, useOrderDetails } from './cart';
+import { flyToCart, haptic } from './fly-to-cart';
+import { CartBar, MenuView, OrderScreen } from './guest-menu';
+import { HistoryButton, useServedSpotlight } from './note';
+import { mergeIntoCart, reorderLines } from './order-logic';
+import { TrackingPager } from './tracking-card';
 import { guestRequestsKey, upsert, useGuestRequests } from './use-guest-requests';
 import { useGuestSession } from './use-guest-session';
 
@@ -87,14 +89,37 @@ function GuestTable({ token, context, onSessionClosed, onContextStale }: GuestTa
   const [serverOpen, setServerOpen] = useState(false);
   const [cartOpen, setCartOpen] = useState(false);
   const { cart, setQuantity, clear } = useCart(token);
+  const { details, updateDetails, clearDetails } = useOrderDetails(token);
   const hasMenu = context.menu.length > 0;
   const currency = context.establishment.currency;
   const summary = cartLines(cart, context.menu);
   const showBar = context.orderingEnabled && (summary.count > 0 || summary.hasInvalid);
 
   const active = useMemo(() => requests.filter((r) => ACTIVE.includes(r.status)), [requests]);
-  const finished = useMemo(() => requests.filter((r) => !ACTIVE.includes(r.status)).slice(0, 3), [requests]);
+  // Spec 018, R6 : les commandes terminées de ce téléphone vont dans l'historique « Ma note ».
+  const pastOrders = useMemo(() => requests.filter((r) => r.type.kind === 'order' && !ACTIVE.includes(r.status)), [requests]);
   const activeTypeIds = new Set(active.map((r) => r.type.id));
+  // Spec 018, R1 : une demande servie reste une minute dans le suivi (« Bon appétit »).
+  const { spotlight, dismiss } = useServedSpotlight(requests, token);
+  const tracked = requests.filter((r) => ACTIVE.includes(r.status) || spotlight.has(r.id));
+  // R6 : la demande « L'addition » de l'établissement.
+  const billType = context.requestTypes.find((type) => type.icon === 'receipt');
+
+  // R4 : les mêmes plats rejoignent le panier ; rien ne part en cuisine sans « Glisser pour commander ».
+  const reorder = (request: GuestRequest, from: DOMRect | null) => {
+    const lines = reorderLines(request, context.menu);
+    const next = mergeIntoCart(cart, lines);
+    for (const { itemId } of lines) setQuantity(itemId, next[itemId]);
+    haptic(10);
+    const first = context.menu.flatMap((category) => category.items).find((item) => item.id === lines[0]?.itemId);
+    // La barre « Voir la commande » apparaît au rendu suivant : la vignette part ensuite, pour savoir où atterrir.
+    window.setTimeout(() => flyToCart(from, first?.imageId ? menuImageUrl(first.imageId) : null), 60);
+  };
+
+  const banner =
+    tracked.length > 0 ? (
+      <TrackingPager active={tracked} token={token} currency={currency} menu={context.menu} spotlight={spotlight} onDismiss={dismiss} onReorder={reorder} />
+    ) : undefined;
   // Demande d'eau : le type de service à l'icône « goutte » (spec 005, R6).
   const waterType = context.requestTypes.find((type) => type.icon === 'droplet');
 
@@ -145,14 +170,14 @@ function GuestTable({ token, context, onSessionClosed, onContextStale }: GuestTa
                 </button>
               ) : undefined
             }
-            banner={active.length > 0 ? <ActiveTracking active={active} token={token} currency={currency} /> : undefined}
+            banner={banner}
             leadingTile={waterType ? <WaterTile pending={activeTypeIds.has(waterType.id)} onCall={() => setSelected(waterType)} /> : undefined}
             trailingTile={context.requestTypes.length > 0 ? <WaiterTile onCall={() => setServerOpen(true)} /> : undefined}
           />
         </div>
       ) : (
         <>
-          {active.length > 0 && <ActiveTracking active={active} token={token} currency={currency} />}
+          {banner}
         <section className="mt-8">
           <h2 className="text-[15px] font-semibold text-ink">{active.length > 0 ? 'Autre chose ?' : 'De quoi avez-vous besoin ?'}</h2>
           <RequestTiles types={context.requestTypes} activeTypeIds={activeTypeIds} onSelect={setSelected} />
@@ -160,45 +185,21 @@ function GuestTable({ token, context, onSessionClosed, onContextStale }: GuestTa
         </>
       )}
 
-      {finished.length > 0 && (
-        <section className="mt-10">
-          <h2 className="text-[13px] font-medium text-ink-3">Terminées</h2>
-          <ul className="mt-2 divide-y divide-line">
-            {finished.map((request) => (
-              <li key={request.id} className="flex items-center justify-between py-2.5 text-sm">
-                <span className="text-ink-2">
-                  {request.type.label}
-                  {request.quantity !== null && <span className="tabular"> × {request.quantity}</span>}
-                  {request.totalMinor !== null && <span className="tabular text-ink-3"> · {formatMoney(request.totalMinor, currency)}</span>}
-                </span>
-                <span className={cn('flex items-center gap-1.5', request.status === 'resolved' ? 'text-done' : 'text-ink-3')}>
-                  {request.status === 'resolved' ? <CheckCircle2 className="size-5" aria-hidden /> : <XCircle className="size-5" aria-hidden />}
-                  {request.status === 'resolved' ? 'Traitée' : 'Annulée'}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
 
       <p className="mt-auto pt-10 text-center text-xs text-ink-3">Service assuré avec TABILO</p>
 
-      {hasMenu && context.requestTypes.length > 0 && !cartOpen && (
-        // Bouton flottant « Serveur » (spec 005, R8) : toujours à portée de pouce, au-dessus de la barre de commande.
+      {pastOrders.length > 0 && !cartOpen && (
+        // Spec 018, R5 : le bouton historique prend la place du bouton flottant « Serveur » ; le serveur reste à la cloche et à la tuile.
         <div className={cn('pointer-events-none fixed inset-x-0 z-30 mx-auto flex max-w-md justify-end px-4', showBar ? 'bottom-[5.5rem]' : 'bottom-[max(1rem,env(safe-area-inset-bottom))]')}>
-          <button
-            type="button"
-            onClick={() => setServerOpen(true)}
-            aria-label="Appeler le serveur"
-            className="pointer-events-auto relative size-16 rounded-full shadow-pop ring-4 ring-surface active:scale-95"
-          >
-            {/* Une vraie photo de serveur : plus parlante qu'un pictogramme pour qui ne lit pas (spec 005, R8). */}
-            {/* eslint-disable-next-line @next/next/no-img-element -- image statique de l'interface */}
-            <img src="/images/serveur.jpg" alt="" className="size-full rounded-full object-cover" />
-            <span className="absolute -top-1 -left-1 grid size-6 place-items-center rounded-full bg-ink text-white ring-2 ring-surface">
-              <BellRing className="size-3.5" aria-hidden />
-            </span>
-          </button>
+          <HistoryButton
+            orders={pastOrders}
+            currency={currency}
+            menu={context.menu}
+            billAvailable={billType !== undefined}
+            billPending={billType !== undefined && activeTypeIds.has(billType.id)}
+            onBill={() => billType && setSelected(billType)}
+            onReorder={reorder}
+          />
         </div>
       )}
       {showBar && !cartOpen && <CartBar count={summary.count} totalMinor={summary.totalMinor} currency={currency} onOpen={() => setCartOpen(true)} />}
@@ -209,7 +210,12 @@ function GuestTable({ token, context, onSessionClosed, onContextStale }: GuestTa
           cart={cart}
           onQuantity={setQuantity}
           onClose={() => setCartOpen(false)}
-          onSent={clear}
+          details={details}
+          onDetails={updateDetails}
+          onSent={() => {
+            clear();
+            clearDetails();
+          }}
           onOrdered={() => {
             setCartOpen(false);
             // Retour en haut, sur le suivi de la commande (R4).
@@ -283,17 +289,6 @@ function WaterTile({ pending, onCall }: { pending: boolean; onCall: () => void }
   );
 }
 
-/** Commandes et demandes en cours, au-dessus de la carte (spec 004, R3). */
-function ActiveTracking({ active, token, currency }: { active: GuestRequest[]; token: string; currency: string }) {
-  return (
-    <section aria-label="Vos demandes en cours" className="mt-4 flex flex-col gap-3">
-      {active.map((request) => (
-        <Tracking key={request.id} request={request} token={token} currency={currency} />
-      ))}
-    </section>
-  );
-}
-
 /** Tuiles des demandes de service : une grande icône par demande (spec 003). */
 function RequestTiles({ types, activeTypeIds, onSelect }: { types: GuestRequestType[]; activeTypeIds: Set<string>; onSelect: (type: GuestRequestType) => void }) {
   if (types.length === 0) {
@@ -329,43 +324,6 @@ function RequestTiles({ types, activeTypeIds, onSelect }: { types: GuestRequestT
         );
       })}
     </div>
-  );
-}
-
-/** Suivi d'une demande ou d'une commande (spec 003, R4 ; spec 013, R6 et R7) : la même frise que sur la confirmation. */
-function Tracking({ request, token, currency }: { request: GuestRequest; token: string; currency: string }) {
-  const Icon = requestIcon(request.type.icon);
-  const step = stepOf(request);
-  const message =
-    step === 0
-      ? request.type.kind === 'order'
-        ? 'Votre commande est bien reçue. L’équipe est prévenue.'
-        : 'Votre demande est bien reçue. L’équipe est prévenue.'
-      : step === 1
-        ? `${request.handledBy ?? 'Un membre de l’équipe'} s’en occupe.`
-        : `${request.handledBy ?? 'Un membre de l’équipe'} est en train de traiter votre demande.`;
-
-  return (
-    <article className="rounded-2xl bg-ink p-4 text-white animate-rise">
-      <div className="flex items-center justify-between gap-3">
-        <h3 className="flex items-center gap-2 text-[15px] font-semibold">
-          <Icon className="size-4" aria-hidden />
-          {request.type.label}
-          {request.quantity !== null && <span className="tabular"> × {request.quantity}</span>}
-        </h3>
-        <span className="tabular text-xs text-white/60">{formatTime(request.createdAt)}</span>
-      </div>
-      <p role="status" className="mt-2 text-sm text-white/80">
-        {message}
-      </p>
-      {request.type.kind === 'order' && <GuestOrderLines items={request.items} totalMinor={request.totalMinor} currency={currency} />}
-      <div className="mt-4">
-        <OrderTracker request={request} tone="dark" />
-      </div>
-      <div className="mt-4 empty:hidden">
-        <CancelOrderButton request={request} token={token} tone="dark" />
-      </div>
-    </article>
   );
 }
 

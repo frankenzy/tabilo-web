@@ -178,10 +178,10 @@ test('CA-001-12, 05, 14 et CA-002-01 à 09, 12, 13 — le client choisit par l�
   await expect(search).toBeInViewport();
   await expect(guest.getByRole('button', { name: 'Serveur', exact: true })).toBeInViewport();
   await expect(chips).toBeInViewport();
-  // CA-005-07 : le bouton flottant « Serveur » reste en bas à droite et ouvre la fenêtre d'appel.
-  const floating = guest.getByRole('button', { name: 'Appeler le serveur', exact: true });
-  await expect(floating).toBeInViewport();
-  await floating.click();
+  // CA-018-07 : sans commande terminée, pas de bouton flottant ; la cloche appelle le serveur (le bouton « Serveur » de la spec 005 est remplacé).
+  await expect(guest.getByRole('button', { name: 'Historique des commandes' })).toHaveCount(0);
+  await expect(guest.getByRole('button', { name: 'Appeler le serveur', exact: true })).toHaveCount(0);
+  await guest.getByRole('button', { name: 'Serveur', exact: true }).first().click();
   await expect(guest.getByRole('dialog', { name: 'De quoi avez-vous besoin ?' })).toBeVisible();
   await guest.keyboard.press('Escape');
   await guest.evaluate(() => window.scrollTo(0, 0));
@@ -230,6 +230,8 @@ test('CA-001-12, 05, 14 et CA-002-01 à 09, 12, 13 — le client choisit par l�
   await guest.waitForTimeout(400); // fin de l'animation d'ouverture
   await shot(guest, '03-votre-commande', false);
 
+  // CA-013-03 : la précision se touche, sans écrire ; elle survit à un aller-retour vers la carte.
+  await screen.getByRole('button', { name: 'Sans piment' }).click();
   // « Ajouter d’autres articles » ramène à la carte sans rien perdre.
   await screen.getByRole('button', { name: 'Ajouter d’autres articles' }).click();
   await expect(guest.getByRole('button', { name: /Voir la commande/ })).toContainText(money('3 500 F CFA'));
@@ -247,8 +249,6 @@ test('CA-001-12, 05, 14 et CA-002-01 à 09, 12, 13 — le client choisit par l�
   expect(sent).toBe(0);
   await expect(order).toBeVisible();
 
-  // CA-013-03 : la précision se touche, sans écrire.
-  await order.getByRole('button', { name: 'Sans piment' }).click();
   await expect(order.getByRole('button', { name: 'Sans piment' })).toHaveAttribute('aria-pressed', 'true');
 
   // CA-013-02 : glisser jusqu'au bout envoie la commande, une seule fois.
@@ -266,11 +266,21 @@ test('CA-001-12, 05, 14 et CA-002-01 à 09, 12, 13 — le client choisit par l�
   await confirmation.getByRole('button', { name: 'Retour à la carte' }).click();
 
   const tracking = guest.getByRole('region', { name: 'Vos demandes en cours' });
-  await expect(tracking.getByText('Votre commande est bien reçue')).toBeVisible();
-  // CA-003-06 : quatre étapes en pictogrammes, la première atteinte.
-  await expect(tracking.getByRole('list', { name: 'Avancement' }).locator('svg')).toHaveCount(4);
-  await expect(tracking.getByText('Garba')).toBeVisible();
-  await expect(tracking.getByText(money('3 500 F CFA'))).toBeVisible();
+  // CA-017-01 : carte repliée, compacte : l'étape, le total, l'heure.
+  const orderCard = tracking.getByRole('article', { name: /^Commande,/ });
+  await expect(orderCard.getByText('L’équipe est prévenue')).toBeVisible();
+  await expect(orderCard.getByText(money('3 500 F CFA'))).toBeVisible();
+  expect((await orderCard.boundingBox())!.height).toBeLessThan(100);
+  // CA-017-02 : un toucher la déplie ; plats, frise et annulation apparaissent.
+  const toggle = orderCard.getByRole('button', { expanded: false });
+  await toggle.click();
+  // CA-003-06, CA-015-01 : trois étapes en pictogrammes, la première atteinte.
+  await expect(orderCard.getByRole('list', { name: 'Avancement' }).locator('svg')).toHaveCount(3);
+  await expect(orderCard.getByRole('list', { name: 'Avancement' }).getByText('Bon appétit')).toBeVisible();
+  await expect(orderCard.getByText('Garba')).toBeVisible();
+  await expect(orderCard.getByRole('button', { name: 'Annuler la commande' })).toBeVisible();
+  await orderCard.getByRole('button', { expanded: true }).click();
+  await expect(orderCard.getByRole('button', { name: 'Annuler la commande' })).toBeHidden();
   await expect(guest.getByRole('button', { name: /Voir la commande/ })).toHaveCount(0);
   // CA-004-04 : le suivi est au-dessus de la carte, en haut de page.
   await expect(tracking).toBeInViewport();
@@ -287,8 +297,12 @@ test('CA-001-12, 05, 14 et CA-002-01 à 09, 12, 13 — le client choisit par l�
   await guest.waitForTimeout(300);
   await shot(guest, '06-eau', false);
   await water.getByRole('button', { name: 'Envoyer la demande' }).click();
-  await expect(tracking.getByText('De l\'eau')).toBeVisible();
-  await expect(tracking.getByText('× 2')).toBeVisible();
+  // CA-017-04 : deux demandes, une seule rangée avec deux points.
+  await expect(tracking.getByRole('article', { name: /^De l'eau,/ })).toHaveCount(1);
+  await expect(tracking.getByRole('article', { name: /^De l'eau,/ }).getByText('×2')).toBeAttached();
+  await expect(tracking.getByRole('button', { name: /^Demande \d sur 2$/ })).toHaveCount(2);
+  await tracking.getByRole('button', { name: 'Demande 2 sur 2' }).click();
+  await expect(tracking.getByRole('button', { name: 'Demande 2 sur 2' })).toHaveAttribute('aria-current', 'true');
   await expect(guest.getByRole('button', { name: 'De l’eau, déjà demandé' })).toBeDisabled();
 
   // CA-004-02 : « Serveur » ouvre les demandes, puis la confirmation habituelle.
@@ -314,11 +328,30 @@ test('CA-001-22, 23 — le service reçoit la commande avec son contenu et la tr
   await shot(owner, '05-service');
 
   await card.getByRole('button', { name: 'Accepter' }).click();
-  await expect(guest.getByText('Awa s’en occupe.')).toBeVisible();
+  await expect(guest.getByText('Awa s’en occupe')).toBeVisible();
   await owner.getByRole('tab', { name: /Les miennes/ }).click();
   await owner.getByRole('article', { name: /Table 7/ }).getByRole('button', { name: 'Commencer' }).click();
+  // CA-015-02 : la préparation reste « Prise en charge » chez le client.
+  const steps = guest.getByRole('region', { name: 'Vos demandes en cours' }).locator('article').filter({ hasText: 'Garba' }).getByRole('list', { name: 'Avancement' });
+  await expect(steps.locator('[aria-current="step"]')).toContainText('Prise en charge');
+  await expect(guest.getByText('Awa s’en occupe')).toBeVisible();
   await owner.getByRole('article', { name: /Table 7/ }).getByRole('button', { name: 'Terminer' }).click();
-  await expect(guest.getByText('Traitée')).toBeVisible();
+  // CA-018-01 : la carte reste une minute, dépliée sur « Bon appétit », avec « Recommander ».
+  const served = guest.getByRole('region', { name: 'Vos demandes en cours' }).getByRole('article', { name: 'Commande, Bon appétit' });
+  await expect(served).toBeVisible();
+  await expect(served.getByRole('button', { name: 'Recommander la même commande' })).toBeVisible();
+  // CA-018-03 : fermer la retire du suivi.
+  await served.getByRole('button', { name: 'Fermer' }).click();
+  await expect(served).toHaveCount(0);
+  // CA-018-07, 05 : le bouton historique apparaît ; la feuille donne la commande servie et le total.
+  await guest.getByRole('button', { name: 'Historique des commandes' }).click();
+  const note = guest.getByRole('dialog', { name: 'Ma note' });
+  await expect(note.getByRole('button', { name: /^Commande servie à .*, 2 plats, 3 articles, / })).toBeVisible();
+  await expect(note.getByText('Total servi')).toBeVisible();
+  // CA-018-08 : relancer remet la commande dans le panier, sans l'envoyer.
+  await note.getByRole('button', { name: 'Relancer cette commande' }).click();
+  await expect(note).toHaveCount(0);
+  await expect(guest.getByRole('button', { name: /Voir la commande/ })).toContainText('3');
 });
 
 test('CA-001-13, R14 — commande suspendue : la carte reste consultable, sans panier', async () => {

@@ -11,7 +11,7 @@ import { cn } from '@/lib/utils';
 import { guestApi } from '@/services/api/guest';
 import { errorMessage } from '@/services/http';
 import { haptic } from './fly-to-cart';
-import { PRECISIONS, stepOf, trackingSteps } from './order-logic';
+import { LAST_STEP, PRECISIONS, stepOf, trackingSteps } from './order-logic';
 import { guestRequestsKey, upsert } from './use-guest-requests';
 
 // ------------------------------------------------------------ R2 précisions
@@ -215,7 +215,7 @@ export function OrderTracker({ request, tone }: { request: Pick<GuestRequest, 's
   }, [step]);
   const dark = tone === 'dark';
   return (
-    <ol className="grid grid-cols-4 gap-x-1" aria-label="Avancement">
+    <ol className="grid grid-cols-3 gap-x-1" aria-label="Avancement">
       {steps.map(({ label, icon: StepIcon }, index) => (
         <li key={label} aria-current={index === step ? 'step' : undefined} className="relative flex flex-col items-center text-center">
           {index > 0 && (
@@ -227,7 +227,7 @@ export function OrderTracker({ request, tone }: { request: Pick<GuestRequest, 's
             className={cn(
               'relative z-10 grid size-9 place-items-center rounded-full transition-colors duration-500',
               index <= step ? 'bg-brand text-white' : dark ? 'bg-[#3a3632] text-white/45' : 'bg-sunken text-ink-3',
-              index === step && step < 3 && 'animate-pulse-step',
+              index === step && step < LAST_STEP && 'animate-pulse-step',
             )}
           >
             <StepIcon className="size-[18px]" aria-hidden />

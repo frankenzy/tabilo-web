@@ -64,6 +64,54 @@ export function useCart(token: string) {
   return { cart, setQuantity, clear };
 }
 
+/** Précisions pour la cuisine (spec 013, R2) : pastilles choisies et texte libre. */
+export interface OrderDetails {
+  precisions: string[];
+  note: string;
+}
+const EMPTY_DETAILS: OrderDetails = { precisions: [], note: '' };
+const detailsKey = (token: string) => `tabilo.order-details.${token}`;
+
+function readDetails(token: string): OrderDetails {
+  try {
+    const parsed = JSON.parse(window.sessionStorage.getItem(detailsKey(token)) ?? 'null') as Partial<OrderDetails> | null;
+    return {
+      precisions: Array.isArray(parsed?.precisions) ? parsed.precisions.filter((key): key is string => typeof key === 'string') : [],
+      note: typeof parsed?.note === 'string' ? parsed.note : '',
+    };
+  } catch {
+    return EMPTY_DETAILS;
+  }
+}
+
+/**
+ * Les précisions vivent avec le panier, pas dans la feuille « Votre commande » : revenir à la carte
+ * pour ajouter un plat, fermer la feuille ou recharger la page ne les efface plus.
+ */
+export function useOrderDetails(token: string) {
+  const [details, setDetails] = useState<OrderDetails>(EMPTY_DETAILS);
+
+  useEffect(() => setDetails(readDetails(token)), [token]);
+
+  const update = useCallback(
+    (change: (current: OrderDetails) => OrderDetails) =>
+      setDetails((current) => {
+        const next = change(current);
+        try {
+          window.sessionStorage.setItem(detailsKey(token), JSON.stringify(next));
+        } catch {
+          // stockage indisponible : les précisions vivent le temps de la page
+        }
+        return next;
+      }),
+    [token],
+  );
+
+  const clearDetails = useCallback(() => update(() => EMPTY_DETAILS), [update]);
+
+  return { details, updateDetails: update, clearDetails };
+}
+
 export interface CartLine {
   itemId: string;
   quantity: number;

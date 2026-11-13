@@ -169,14 +169,14 @@ test('le client scanne le QR et envoie une demande', async () => {
   await guest.getByRole('button', { name: 'Envoyer la demande' }).click();
 
   const tracking = guest.getByRole('region', { name: 'Vos demandes en cours' });
-  await expect(tracking.getByText('Votre demande est bien reçue')).toBeVisible();
+  await expect(tracking.getByText('L’équipe est prévenue')).toBeVisible();
   // Tant que le serveur n'a pas confirmé, rien n'indique une prise en charge.
   await expect(tracking.getByText('s’en occupe')).toHaveCount(0);
   await expect(guest.getByRole('button', { name: /De l'eau.*Déjà demandé/ })).toBeDisabled();
 
   // Un rechargement conserve la session et le suivi.
   await guest.reload();
-  await expect(guest.getByRole('region', { name: 'Vos demandes en cours' }).getByText('Votre demande est bien reçue')).toBeVisible();
+  await expect(guest.getByRole('region', { name: 'Vos demandes en cours' }).getByText('L’équipe est prévenue')).toBeVisible();
 });
 
 test('le serveur reçoit la demande en temps réel et la traite ; le client suit chaque étape', async () => {
@@ -187,15 +187,18 @@ test('le serveur reçoit la demande en temps réel et la traite ; le client suit
   await expect(card.getByText('Personne ne s’en occupe encore')).toBeVisible();
 
   await card.getByRole('button', { name: 'Accepter' }).click();
-  await expect(guest.getByText('Koffi s’en occupe.')).toBeVisible();
+  await expect(guest.getByText('Koffi s’en occupe')).toBeVisible();
 
   await waiter.getByRole('tab', { name: /Les miennes/ }).click();
   await waiter.getByRole('article', { name: /Table 12/ }).getByRole('button', { name: 'Commencer' }).click();
-  await expect(guest.getByText('Koffi est en train de traiter votre demande.')).toBeVisible();
+  // CA-015-02 : en cours, la demande reste « Prise en charge » (trois étapes, spec 015).
+  await expect(guest.getByRole('list', { name: 'Avancement' }).locator('[aria-current="step"]')).toContainText('Prise en charge');
+  await expect(guest.getByText('Koffi s’en occupe')).toBeVisible();
 
   await waiter.getByRole('article', { name: /Table 12/ }).getByRole('button', { name: 'Terminer' }).click();
   await expect(waiter.getByText('Vous n’avez aucune demande en cours')).toBeVisible();
-  await expect(guest.getByText('Traitée')).toBeVisible();
+  // Spec 018, R1 : la demande servie reste un instant dans le suivi, sur « Terminée ».
+  await expect(guest.getByRole('region', { name: 'Vos demandes en cours' }).getByRole('article', { name: /, Terminée$/ })).toBeVisible();
   await expect(guest.getByRole('button', { name: 'De l\'eau' })).toBeEnabled();
 });
 

@@ -17,7 +17,7 @@ export function haptic(pattern: number | number[] = 10): void {
   }
 }
 
-function reducedMotion(): boolean {
+export function reducedMotion(): boolean {
   return typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 }
 
