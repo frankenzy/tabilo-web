@@ -13,15 +13,16 @@ import { TodaySection } from './today-charts';
 import { useActiveRequests, useFloor, useRequestAction } from '@/components/pages/requests/use-requests';
 import { Card, EmptyState, ErrorState, PageHeader, Spinner } from '@/components/ui';
 import { requestIcon } from '@/constants/requests';
-import type { ServiceRequest, Table } from '@/contracts';
+import { isServed, tableLook, TONE_CARD, TONE_LEGEND } from '@/components/pages/tables/tables-logic';
+import type { ServiceRequest, Table, TableStatusView } from '@/contracts';
 import { estKey, useEstablishmentId, useLiveRefetchInterval } from '@/hooks/use-establishment';
 import { useNow } from '@/hooks/use-now';
 import { cn } from '@/lib/utils';
-import { analyticsApi } from '@/services/api';
+import { analyticsApi, floorApi } from '@/services/api';
 import { errorMessage } from '@/services/http';
 import { useAuthStore, useMembership } from '@/stores/auth.store';
 import { formatClock, formatDuration, secondsSince } from '@/utils/time';
-import { URGENCY_TILE, urgencyOf, worstUrgency } from '@/utils/urgency';
+import { urgencyOf } from '@/utils/urgency';
 
 export function DashboardPage() {
   const establishmentId = useEstablishmentId();
@@ -50,6 +51,14 @@ export function DashboardPage() {
     () => ({ id: me?.id ?? '', can: (permission) => membership?.permissions.includes(permission) ?? false }),
     [me, membership],
   );
+  // Spec 023, R6 : occupation et montant des tables, pour « Occupée » et « Servie » (gérant et propriétaire).
+  const overview = useQuery({
+    queryKey: estKey(establishmentId, 'tables-overview'),
+    queryFn: () => floorApi.tablesOverview(establishmentId),
+    enabled: viewer.can('analytics.read'),
+    refetchInterval: Math.min(refetchInterval, 10_000),
+  });
+  const overviewById = useMemo(() => new Map((overview.data?.tables ?? []).map((table) => [table.id, table])), [overview.data]);
   const requests = useMemo(() => active.data?.items ?? [], [active.data]);
   const byTable = useMemo(() => {
     const map = new Map<string, ServiceRequest[]>();
@@ -149,7 +158,7 @@ export function DashboardPage() {
               <ul className="mt-4 grid grid-cols-4 gap-2 sm:grid-cols-6 md:grid-cols-8 xl:grid-cols-10">
                 {planTables.map((table, index) => (
                   <li key={table.id} className="stagger animate-item-in" style={{ '--i': Math.min(index, 20) } as CSSProperties}>
-                    <TableTile table={table} requests={byTable.get(table.id) ?? []} now={now} onOpen={() => setTableId(table.id)} />
+                    <TableTile table={table} overview={overviewById.get(table.id)} requests={byTable.get(table.id) ?? []} now={now} onOpen={() => setTableId(table.id)} />
                   </li>
                 ))}
               </ul>
@@ -240,19 +249,13 @@ function Stat({ label, value, hint, tone, className, index = 0 }: { label: strin
   );
 }
 
+/** Spec 023, R5 et R6 : même légende que la vue « Tables ». */
 function Legend() {
-  const items = [
-    { label: 'Nouvelle', className: 'bg-calm ring-1 ring-line' },
-    { label: 'En attente', className: 'bg-wait' },
-    { label: 'En retard', className: 'bg-late' },
-    { label: 'Prise en charge', className: 'bg-progress-soft ring-1 ring-progress/30' },
-    { label: 'Prête', className: 'bg-done' },
-  ];
   return (
     <ul className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-ink-2" aria-label="Légende">
-      {items.map((item) => (
-        <li key={item.label} className="flex items-center gap-1.5">
-          <span className={cn('size-2.5 rounded-sm', item.className)} aria-hidden />
+      {TONE_LEGEND.map((item) => (
+        <li key={item.tone} className="flex items-center gap-1.5">
+          <span className={cn('size-2.5 rounded-sm', item.swatch)} aria-hidden />
           {item.label}
         </li>
       ))}
@@ -260,18 +263,34 @@ function Legend() {
   );
 }
 
-function TableTile({ table, requests, now, onOpen }: { table: Table; requests: ServiceRequest[]; now: number; onOpen: () => void }) {
-  const urgency = worstUrgency(requests.map((r) => urgencyOf(r, now)));
+function TableTile({
+  table,
+  overview,
+  requests,
+  now,
+  onOpen,
+}: {
+  table: Table;
+  /** Absent pour un serveur (pas d'accès à la vue des tables) : l'occupation se lit alors aux téléphones connectés. */
+  overview?: TableStatusView;
+  requests: ServiceRequest[];
+  now: number;
+  onOpen: () => void;
+}) {
+  const status = overview?.status ?? (table.openSessions > 0 || requests.length > 0 ? 'occupied' : 'free');
+  const look = tableLook(status, requests, now, overview ? isServed(overview, requests.length) : false);
   const oldest = requests.reduce<ServiceRequest | null>((min, r) => (!min || r.createdAt < min.createdAt ? r : min), null);
-  const escalated = requests.some((r) => r.escalationStatus === 'escalated');
+  const escalated = look.escalated;
   return (
     <button
       type="button"
       onClick={onOpen}
-      aria-label={`Table ${table.label}, ${requests.length} demande${requests.length > 1 ? 's' : ''} en cours${precisionLabel(requests.map((request) => request.note).filter(Boolean).join(' · ') || null)}`}
+      data-tone={look.tone}
+      aria-label={`Table ${table.label}, ${look.label.toLowerCase()}, ${requests.length} demande${requests.length > 1 ? 's' : ''} en cours${precisionLabel(requests.map((request) => request.note).filter(Boolean).join(' · ') || null)}`}
       className={cn(
         'relative flex aspect-square w-full flex-col items-center justify-center rounded-lg p-0.5 text-center transition-transform duration-200 ease-apple hover:scale-[1.04] active:scale-95',
-        urgency ? URGENCY_TILE[urgency] : 'bg-surface text-ink-2 ring-1 ring-line ring-inset',
+        // Spec 023, R6 : mêmes fonds que les cartes de la vue « Tables ».
+        TONE_CARD[look.tone],
         escalated && 'animate-attention',
       )}
     >
@@ -289,7 +308,7 @@ function TableTile({ table, requests, now, onOpen }: { table: Table; requests: S
           <span className="tabular mt-0.5 font-mono text-[10px] leading-none opacity-80">{formatClock(secondsSince(oldest.createdAt, now))}</span>
         </>
       ) : (
-        table.openSessions > 0 && <Smartphone className="mt-1 size-3 text-ink-3" aria-label="Client connecté" />
+        table.openSessions > 0 && <Smartphone className="mt-1 size-3 opacity-60" aria-label="Client connecté" />
       )}
     </button>
   );

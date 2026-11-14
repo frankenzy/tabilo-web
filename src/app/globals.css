@@ -31,6 +31,9 @@
   --color-progress-soft: #e6edfc;
   --color-done: #1f7a4d;
   --color-done-soft: #e3f3ea;
+  /* Spec 023 : « Prête » en violet, le vert est réservé à « Servie ». */
+  --color-ready: #6941c6;
+  --color-ready-soft: #f0ebfb;
 
   --radius-card: 14px;
   --shadow-pop: 0 12px 40px -12px rgb(27 25 23 / 0.25);

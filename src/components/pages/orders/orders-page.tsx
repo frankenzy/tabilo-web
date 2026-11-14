@@ -32,16 +32,18 @@ type View = 'live' | 'served';
 const STEP_STYLE: Record<StepTone, string> = {
   red: 'bg-late text-white hover:brightness-95',
   orange: 'bg-brand text-white hover:bg-brand-strong',
+  violet: 'bg-ready text-white hover:brightness-95',
   green: 'bg-done text-white hover:brightness-95',
 };
 
 const PILL_STYLE: Record<StepTone, string> = {
   red: 'bg-late-soft text-late',
   orange: 'bg-brand-soft text-brand-strong',
+  violet: 'bg-ready-soft text-ready',
   green: 'bg-done-soft text-done',
 };
 
-const DOT_STYLE: Record<StepTone, string> = { red: 'bg-late', orange: 'bg-brand', green: 'bg-done' };
+const DOT_STYLE: Record<StepTone, string> = { red: 'bg-late', orange: 'bg-brand', violet: 'bg-ready', green: 'bg-done' };
 
 const STATUS_PILL_SHORT: Record<OrderColumn, string> = { todo: 'À préparer', preparing: 'En cours', ready: 'Prête' };
 

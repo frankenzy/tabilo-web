@@ -51,7 +51,7 @@ export function groupOrders(requests: ServiceRequest[], separateKitchen: boolean
 }
 
 /** Spec 007, R5 : la couleur suit l'état de la commande (rouge à préparer, orange en préparation, vert prête). */
-export type StepTone = 'red' | 'orange' | 'green';
+export type StepTone = 'red' | 'orange' | 'violet' | 'green';
 
 export interface OrderStep {
   action: RequestAction;
@@ -103,7 +103,8 @@ export function startOfToday(now: number): string {
 }
 
 /** Pastille d'état de la carte (R4), même couleur que le bouton d'étape (R5). */
-export const COLUMN_TONE: Record<OrderColumn, StepTone> = { todo: 'red', preparing: 'orange', ready: 'green' };
+/** Spec 023, Q2 : « Prête » en violet ; le vert reste au bouton « Servie », qui mène à l'état « Servie ». */
+export const COLUMN_TONE: Record<OrderColumn, StepTone> = { todo: 'red', preparing: 'orange', ready: 'violet' };
 export const STATUS_PILL: Record<OrderColumn, string> = { todo: 'À préparer', preparing: 'En préparation', ready: 'Prête' };
 
 /** Spec 007, R11 : recherche et filtres de l'écran « Commandes ». */

@@ -54,11 +54,13 @@ import {
   areasOf,
   filterTables,
   tableCounts,
+  CARD_BADGE,
+  CARD_PLATE,
+  isServed,
   tableLook,
+  TONE_CARD,
   tableSize,
-  TONE_BADGE,
   TONE_LEGEND,
-  TONE_PLATE,
   type TableFilters,
 } from "./tables-logic";
 
@@ -431,7 +433,7 @@ function TableCard({
   currency: string;
   onOpen: () => void;
 }) {
-  const look = tableLook(table.status, requests, now);
+  const look = tableLook(table.status, requests, now, isServed(table, requests.length));
   return (
     <li
       className="stagger animate-item-in"
@@ -441,7 +443,9 @@ function TableCard({
         type="button"
         onClick={onOpen}
         className={cn(
-          "flex h-full w-full flex-col justify-between gap-6 rounded-(--radius-card) bg-surface p-4 text-left ring-1 ring-line transition-[transform,box-shadow] duration-300 ease-apple hover:-translate-y-0.5 hover:shadow-lg hover:ring-ink-3 focus-visible:ring-2 focus-visible:ring-brand focus-visible:outline-none active:scale-[0.98]",
+          "flex h-full w-full flex-col justify-between gap-6 rounded-(--radius-card) p-4 text-left transition-[transform,box-shadow,background-color] duration-300 ease-apple hover:-translate-y-0.5 hover:shadow-lg focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:outline-none active:scale-[0.98]",
+          // Spec 023, R1 : toute la carte prend la couleur de l'état.
+          TONE_CARD[look.tone],
           look.escalated && "animate-attention",
         )}
         data-testid={`table-${table.label}`}
@@ -450,14 +454,14 @@ function TableCard({
       >
         <div className="flex items-start justify-between gap-2">
           <span className="flex items-center gap-2">
-            <TableDrawing label={table.label} plate={TONE_PLATE[look.tone]} />
+            <TableDrawing label={table.label} plate={CARD_PLATE[look.tone]} />
             {/* Spec 022, R5 : une demande en cours porte une précision (à emporter, piment). */}
             <PrecisionFlags notes={requests.map((request) => request.note)} />
           </span>
           <span
             className={cn(
-              "flex shrink-0 flex-col items-end rounded-2xl px-3 py-1 text-[13px] font-medium",
-              TONE_BADGE[look.tone],
+              "flex shrink-0 flex-col items-end rounded-2xl px-3 py-1 text-[13px] font-semibold",
+              CARD_BADGE[look.tone],
             )}
           >
             {look.label}
@@ -468,16 +472,18 @@ function TableCard({
             )}
           </span>
         </div>
-        <div className="flex items-baseline justify-between gap-2 text-sm text-ink-2">
-          <span>{tableSize(table.seats)}</span>
-          <span>
+        <div className="flex items-baseline justify-between gap-2 text-sm">
+          <span className="opacity-75">{tableSize(table.seats)}</span>
+          <span className="opacity-75">
             {table.seats} couvert{table.seats > 1 ? "s" : ""}
           </span>
+          {/* Spec 023, R4 : le montant prend la couleur du texte de la carte (lisible sur tous les fonds). */}
           <span
             className={cn(
               "tabular font-semibold",
-              table.amountMinor === null ? "text-ink-3" : "text-brand",
+              table.amountMinor === null && "opacity-50",
             )}
+            data-testid="table-amount"
           >
             {table.amountMinor === null
               ? "—"

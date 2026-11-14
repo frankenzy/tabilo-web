@@ -100,11 +100,11 @@ describe('Spec 007 — écran Commandes', () => {
     expect(images.get('alloco')).toEqual({ imageId: null, icon: 'fish' });
   });
 
-  it('CA-007-06 — une commande prête est verte « Prête » sur le tableau de bord et la vue Tables', () => {
+  it('CA-007-06 — une commande prête est violette « Prête » (spec 023) sur le tableau de bord et la vue Tables', () => {
     const ready = request('ready');
     expect(urgencyOf(ready, T0)).toBe('ready');
     expect(URGENCY_LABEL.ready).toBe('Prête');
-    expect(URGENCY_TILE.ready).toContain('bg-done');
+    expect(URGENCY_TILE.ready).toContain('bg-ready'); // spec 023, Q2 : violet, le vert est réservé à « Servie »
     expect(tableLook('occupied', [ready], T0)).toMatchObject({ tone: 'ready', label: 'Prête' });
   });
 

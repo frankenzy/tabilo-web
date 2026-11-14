@@ -31,12 +31,16 @@ export function worstUrgency(levels: Urgency[]): Urgency | null {
   return levels.reduce((worst, level) => (RANK[level] > RANK[worst] ? level : worst));
 }
 
+/**
+ * Spec 023 : les états où il faut agir sont en fond plein (Nouvelle, En attente, En retard, Prête),
+ * la prise en charge reste pâle. « Prête » est violette : le vert est réservé à « Servie ».
+ */
 export const URGENCY_TILE: Record<Urgency, string> = {
-  calm: 'bg-calm text-calm-ink',
+  calm: 'bg-ink-2 text-white',
   waiting: 'bg-wait text-wait-ink',
   late: 'bg-late text-white',
   progress: 'bg-progress-soft text-progress',
-  ready: 'bg-done text-white',
+  ready: 'bg-ready text-white',
   done: 'bg-done-soft text-done',
 };
 

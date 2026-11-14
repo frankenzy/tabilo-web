@@ -43,7 +43,6 @@ export function TableRequestsDialog({ table, areaName, status, requests, canClos
   const establishmentId = useEstablishmentId();
   const queryClient = useQueryClient();
   const now = useNow();
-  const look = tableLook(status, requests, now);
   const occupation = useQuery({
     queryKey: estKey(establishmentId, 'table-occupation', table.id),
     queryFn: () => floorApi.occupation(establishmentId, table.id),
@@ -75,6 +74,8 @@ export function TableRequestsDialog({ table, areaName, status, requests, canClos
   const data = occupation.data;
   const currency = data?.currency ?? 'XOF';
   const occupied = status === 'occupied' || (data?.occupiedSince ?? null) !== null;
+  // Spec 023, R3 : une commande de l'occupation déjà servie.
+  const look = tableLook(status, requests, now, (data?.orders ?? []).some((order) => order.status === 'resolved'));
   const tint = TONE_TINT[look.tone];
   const details = [areaName, tableSize(table.seats), `${table.seats} couvert${table.seats > 1 ? 's' : ''}`].filter(Boolean).join(' · ');
   // Cascade d'entrée (R7) : chaque bloc arrive 40 ms après le précédent.

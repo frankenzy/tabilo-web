@@ -45,10 +45,10 @@ export function areasOf(tables: TableStatusView[]): { id: string; name: string }
 }
 
 /**
- * Spec 006, R2 bis : couleur d'une table, avec le code du plan de salle du tableau de bord.
- * Les demandes en cours priment ; sinon l'occupation (orange) ou libre (vert).
+ * Spec 006, R2 bis, et spec 023 : couleur d'une table, avec le code du plan de salle du tableau de bord.
+ * Les demandes en cours priment ; sinon servie (vert), occupée (orange) ou libre (blanc).
  */
-export type TableTone = Urgency | 'occupied' | 'free';
+export type TableTone = Urgency | 'served' | 'occupied' | 'free';
 
 export interface TableLook {
   tone: TableTone;
@@ -60,49 +60,109 @@ export interface TableLook {
 
 type ActiveRequest = Pick<ServiceRequest, 'status' | 'createdAt' | 'dueAt' | 'escalationStatus'>;
 
-export function tableLook(status: TableStatus, requests: ActiveRequest[], now: number): TableLook {
+const QUIET_LABEL = { served: 'Servie', occupied: 'Occupée', free: 'Libre' } as const;
+
+/** Spec 023, R2 et R3 : `served` vaut vrai quand une commande de l'occupation a été servie. */
+export function tableLook(status: TableStatus, requests: ActiveRequest[], now: number, served = false): TableLook {
   const urgency = worstUrgency(requests.map((request) => urgencyOf(request, now)));
   const oldestCreatedAt = requests.reduce<string | null>((min, r) => (!min || r.createdAt < min ? r.createdAt : min), null);
   const escalated = requests.some((request) => request.escalationStatus === 'escalated');
   if (urgency && urgency !== 'done') return { tone: urgency, label: URGENCY_LABEL[urgency], oldestCreatedAt, escalated };
-  return { tone: status, label: status === 'occupied' ? 'Occupée' : 'Libre', oldestCreatedAt: null, escalated: false };
+  const tone = status === 'free' ? 'free' : served ? 'served' : 'occupied';
+  return { tone, label: QUIET_LABEL[tone], oldestCreatedAt: null, escalated: false };
 }
 
+/**
+ * Spec 023, R3 : une table occupée, sans demande en cours, avec un montant non nul a été servie
+ * (le montant ne compte que les commandes non annulées ; sans demande en cours, elles sont toutes servies).
+ */
+export function isServed(table: Pick<TableStatusView, 'status' | 'amountMinor'>, activeRequests: number): boolean {
+  return table.status === 'occupied' && activeRequests === 0 && (table.amountMinor ?? 0) > 0;
+}
+
+/** Les états où quelqu'un doit agir : fond plein. Les autres : fond pâle (spec 023, § 5). */
+export function isActionTone(tone: TableTone): boolean {
+  return tone === 'calm' || tone === 'waiting' || tone === 'late' || tone === 'ready';
+}
+
+/** Pastille et plateau posés sur un fond blanc (fiche d'une table). */
 export const TONE_BADGE: Record<TableTone, string> = {
   ...URGENCY_TILE,
+  served: 'bg-done-soft text-done',
   occupied: 'bg-brand-soft text-brand',
-  free: 'bg-done-soft text-done',
+  free: 'bg-sunken text-ink-2',
 };
 
-/** Plateau dessiné : mêmes couleurs ; libre et occupée gardent le plateau clair de la maquette. */
 export const TONE_PLATE: Record<TableTone, string> = {
   ...URGENCY_TILE,
+  served: 'bg-done-soft text-ink',
   occupied: 'bg-brand-soft text-ink',
-  free: 'bg-brand-soft text-ink',
+  free: 'bg-sunken text-ink',
 };
 
-/** Légende, dans l'ordre du tableau de bord, précédée des deux états sans demande. */
+/** Spec 023, R1 : fond de la carte de la vue « Tables » — pâle s'il n'y a rien à faire, plein s'il faut agir. */
+export const TONE_CARD: Record<TableTone, string> = {
+  free: 'bg-surface text-ink ring-1 ring-line',
+  occupied: 'bg-brand-soft text-ink ring-1 ring-brand/25',
+  progress: 'bg-progress-soft text-ink ring-1 ring-progress/25',
+  served: 'bg-done-soft text-ink ring-1 ring-done/25',
+  done: 'bg-done-soft text-ink ring-1 ring-done/25',
+  calm: 'bg-ink-2 text-white',
+  waiting: 'bg-wait text-wait-ink ring-1 ring-wait-ink/20',
+  late: 'bg-late text-white',
+  ready: 'bg-ready text-white',
+};
+
+/** Pastille sur la carte : même famille que le fond, en plus soutenu. */
+export const CARD_BADGE: Record<TableTone, string> = {
+  free: 'bg-sunken text-ink-2',
+  occupied: 'bg-brand text-white',
+  progress: 'bg-progress text-white',
+  served: 'bg-done text-white',
+  done: 'bg-done text-white',
+  calm: 'bg-white/20 text-white',
+  waiting: 'bg-white/60 text-wait-ink',
+  late: 'bg-white/20 text-white',
+  ready: 'bg-white/20 text-white',
+};
+
+/** Plateau sur la carte : blanc sur un fond pâle, translucide sur un fond plein. */
+export const CARD_PLATE: Record<TableTone, string> = {
+  free: 'bg-sunken text-ink',
+  occupied: 'bg-surface text-ink',
+  progress: 'bg-surface text-ink',
+  served: 'bg-surface text-ink',
+  done: 'bg-surface text-ink',
+  calm: 'bg-white/20 text-white',
+  waiting: 'bg-white/60 text-wait-ink',
+  late: 'bg-white/20 text-white',
+  ready: 'bg-white/20 text-white',
+};
+
+/** Spec 023, R5 : légende, d'abord les états sans action (pâles), puis ceux où il faut agir (pleins). */
 export const TONE_LEGEND: { tone: TableTone; label: string; swatch: string }[] = [
-  { tone: 'free', label: 'Libre', swatch: 'bg-done-soft ring-1 ring-done/30' },
+  { tone: 'free', label: 'Libre', swatch: 'bg-surface ring-1 ring-line' },
   { tone: 'occupied', label: 'Occupée', swatch: 'bg-brand-soft ring-1 ring-brand/30' },
-  { tone: 'calm', label: URGENCY_LABEL.calm, swatch: 'bg-calm ring-1 ring-line' },
+  { tone: 'progress', label: URGENCY_LABEL.progress, swatch: 'bg-progress-soft ring-1 ring-progress/30' },
+  { tone: 'served', label: 'Servie', swatch: 'bg-done-soft ring-1 ring-done/30' },
+  { tone: 'calm', label: URGENCY_LABEL.calm, swatch: 'bg-ink-2' },
   { tone: 'waiting', label: URGENCY_LABEL.waiting, swatch: 'bg-wait' },
   { tone: 'late', label: URGENCY_LABEL.late, swatch: 'bg-late' },
-  { tone: 'progress', label: URGENCY_LABEL.progress, swatch: 'bg-progress-soft ring-1 ring-progress/30' },
-  { tone: 'ready', label: URGENCY_LABEL.ready, swatch: 'bg-done' },
+  { tone: 'ready', label: URGENCY_LABEL.ready, swatch: 'bg-ready' },
 ];
 
 // ------------------------------------------------------------- spec 020 : fiche d'une table
 
 /** Spec 020, R1 : teinte du bandeau de la fiche, même code que la carte et le tableau de bord. */
 export const TONE_TINT: Record<TableTone, string> = {
-  free: 'var(--color-done)',
+  free: 'var(--color-ink-3)',
   occupied: 'var(--color-brand)',
-  calm: 'var(--color-ink-3)',
+  served: 'var(--color-done)',
+  calm: 'var(--color-ink-2)',
   waiting: '#e9a300',
   late: 'var(--color-late)',
   progress: 'var(--color-progress)',
-  ready: 'var(--color-done)',
+  ready: 'var(--color-ready)',
   done: 'var(--color-done)',
 };
 
