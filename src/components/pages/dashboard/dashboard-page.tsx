@@ -8,13 +8,13 @@ import { RequestCard, type Viewer } from '@/components/pages/requests/request-ca
 import { RequestDialogs, type RequestDialog } from '@/components/pages/requests/request-dialogs';
 import { TableRequestsDialog } from '@/components/pages/requests/table-requests-dialog';
 import { PrecisionFlags, precisionLabel } from '@/components/pages/requests/precisions';
-import { SalesRow } from './sales-row';
+import { SalesPeriodFilter, TotalSoldCard } from './sales-row';
 import { TodaySection } from './today-charts';
 import { useActiveRequests, useFloor, useRequestAction } from '@/components/pages/requests/use-requests';
 import { Card, EmptyState, ErrorState, PageHeader, Spinner } from '@/components/ui';
 import { requestIcon } from '@/constants/requests';
 import { isServed, tableLook, TONE_CARD, TONE_LEGEND } from '@/components/pages/tables/tables-logic';
-import type { ServiceRequest, Table, TableStatusView } from '@/contracts';
+import type { SalesPeriod, ServiceRequest, Table, TableStatusView } from '@/contracts';
 import { estKey, useEstablishmentId, useLiveRefetchInterval } from '@/hooks/use-establishment';
 import { useNow } from '@/hooks/use-now';
 import { cn } from '@/lib/utils';
@@ -42,6 +42,8 @@ export function DashboardPage() {
   const [tableId, setTableId] = useState<string | null>(null);
   // Filtre de zone du plan de salle (« Toutes les zones » par défaut).
   const [areaId, setAreaId] = useState<string>('all');
+  // Spec 024, R3 : période de « Total vendu », choisie dans l'en-tête.
+  const [salesPeriod, setSalesPeriod] = useState<SalesPeriod>('month');
   const planTables = useMemo(
     () => (floor.data ?? []).filter((area) => areaId === 'all' || area.id === areaId).flatMap((area) => area.tables),
     [floor.data, areaId],
@@ -96,17 +98,16 @@ export function DashboardPage() {
 
   return (
     <>
-      <PageHeader title="Tableau de bord" description="La salle, en ce moment." />
+      <PageHeader title="Tableau de bord" description="La salle, en ce moment." actions={<SalesPeriodFilter period={salesPeriod} onChange={setSalesPeriod} />} />
 
-      <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-        <Stat index={0} label="En attente" value={stats.pending + stats.assigned} hint={stats.oldestPendingSeconds ? `plus ancienne : ${formatDuration(stats.oldestPendingSeconds)}` : 'aucune attente'} />
-        <Stat index={1} label="Prises en charge" value={stats.accepted + stats.inProgress} hint={`${stats.inProgress} en cours de traitement`} />
-        <Stat index={2} label="En retard" value={stats.late} tone={stats.late > 0 ? 'late' : undefined} hint="délai cible dépassé" />
-        <Stat index={3} label="Escaladées" value={stats.escalated} tone={stats.escalated > 0 ? 'late' : undefined} hint="à acquitter" />
-        <Stat index={4} className="col-span-2 sm:col-span-1" label="Prise en charge médiane" value={formatDuration(stats.today.medianAcceptSeconds)} hint={`aujourd’hui · ${stats.today.total} demandes`} />
+      {/* Spec 024 : quatre cartes, deux par ligne sur téléphone et tablette, quatre sur grand écran. */}
+      <dl className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <TotalSoldCard index={0} period={salesPeriod} />
+        <Stat index={1} label="En attente" value={stats.pending + stats.assigned} hint={stats.oldestPendingSeconds ? `plus ancienne : ${formatDuration(stats.oldestPendingSeconds)}` : 'aucune attente'} />
+        <Stat index={2} label="Prises en charge" value={stats.accepted + stats.inProgress} hint={`${stats.inProgress} en cours de traitement`} />
+        <Stat index={3} label="En retard" value={stats.late} tone={stats.late > 0 ? 'late' : undefined} hint="délai cible dépassé" />
       </dl>
 
-      <SalesRow />
       <TodaySection />
 
       {/* Plan de salle sur deux tiers de la ligne, priorités et équipe sur le tiers restant. */}
