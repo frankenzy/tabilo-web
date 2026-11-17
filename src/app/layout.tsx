@@ -1,7 +1,7 @@
 import type { Metadata, Viewport } from 'next';
-import { GeistMono } from 'geist/font/mono';
 import { GeistSans } from 'geist/font/sans';
 import type { ReactNode } from 'react';
+import { geistMono } from './fonts';
 import './globals.css';
 import { Providers } from './providers';
 
@@ -20,7 +20,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="fr" className={`${GeistSans.variable} ${GeistMono.variable}`}>
+    <html lang="fr" className={`${GeistSans.variable} ${geistMono.variable}`}>
       <body className="min-h-dvh">
         <Providers>{children}</Providers>
       </body>
