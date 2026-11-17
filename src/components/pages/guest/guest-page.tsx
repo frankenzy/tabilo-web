@@ -8,7 +8,7 @@ import { useMemo, useState } from 'react';
 import { Button, Dialog, FormError, Textarea } from '@/components/ui';
 import { requestIcon } from '@/constants/requests';
 import type { GuestContext, GuestRequest, GuestRequestType } from '@/contracts';
-import { cn } from '@/lib/utils';
+import { cn, randomId } from '@/lib/utils';
 import { menuImageUrl } from '@/services/api';
 import { guestApi } from '@/services/api/guest';
 import { errorMessage, toHttpError } from '@/services/http';
@@ -382,7 +382,7 @@ function ConfirmRequest({ type, token, onClose, onSessionClosed }: { type: Guest
   const isWater = type.icon === 'droplet';
   const [quantity, setQuantity] = useState(1);
   // Une clé par intention : un double appui ou une reprise réseau ne crée qu'une demande.
-  const [idempotencyKey] = useState(() => crypto.randomUUID());
+  const [idempotencyKey] = useState(() => randomId());
   const Icon = requestIcon(type.icon);
 
   const create = useMutation({

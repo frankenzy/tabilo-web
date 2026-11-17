@@ -7,7 +7,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Button, FormError, Textarea } from '@/components/ui';
 import type { GuestContext, GuestRequest, MenuCategory, MenuItem, OrderLine } from '@/contracts';
 import { CategoryImage } from '@/components/pages/menu/category-image';
-import { cn } from '@/lib/utils';
+import { cn, randomId } from '@/lib/utils';
 import { menuImageUrl } from '@/services/api';
 import { guestApi } from '@/services/api/guest';
 import { errorMessage, toHttpError } from '@/services/http';
@@ -796,7 +796,7 @@ function OrderBody({
   const { precisions, note } = details;
   const [freeOpen, setFreeOpen] = useState(() => details.note.trim() !== '');
   // Une clé par intention de commander : un double appui ou une reprise réseau ne crée qu'une commande.
-  const [idempotencyKey] = useState(() => crypto.randomUUID());
+  const [idempotencyKey] = useState(() => randomId());
   // R5 : après l'envoi, la même feuille montre la confirmation et le suivi.
   const [sent, setSent] = useState<GuestRequest | null>(null);
   const total = formatMoney(totalMinor, currency);
