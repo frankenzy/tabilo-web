@@ -329,15 +329,34 @@ test('CA-001-22, 23 — le service reçoit la commande avec son contenu et la tr
   await expect(card).toHaveAccessibleName(/avec précisions, piment/);
   await shot(owner, '05-service');
 
+  // CA-025-01 : « Accepter » met la commande directement en préparation.
   await card.getByRole('button', { name: 'Accepter' }).click();
   await expect(guest.getByText('Awa s’en occupe')).toBeVisible();
   await owner.getByRole('tab', { name: /Les miennes/ }).click();
-  await owner.getByRole('article', { name: /Table 7/ }).getByRole('button', { name: 'Commencer' }).click();
+  const preparing = owner.getByRole('article', { name: /Table 7, Commande, En cours/ });
+  await expect(preparing).toBeVisible();
   // CA-015-02 : la préparation reste « Prise en charge » chez le client.
   const steps = guest.getByRole('region', { name: 'Vos demandes en cours' }).locator('article').filter({ hasText: 'Garba' }).getByRole('list', { name: 'Avancement' });
   await expect(steps.locator('[aria-current="step"]')).toContainText('Prise en charge');
   await expect(guest.getByText('Awa s’en occupe')).toBeVisible();
-  await owner.getByRole('article', { name: /Table 7/ }).getByRole('button', { name: 'Terminer' }).click();
+
+  // CA-025-03 : un simple toucher sur « Glisser pour servir » ne sert pas.
+  const serve = preparing.getByRole('button', { name: /^Glisser pour servir, table 7/ });
+  let resolves = 0;
+  owner.on('request', (request) => {
+    if (request.method() === 'POST' && /\/requests\/[^/]+\/resolve$/.test(request.url())) resolves += 1;
+  });
+  await serve.click();
+  await owner.waitForTimeout(500);
+  expect(resolves).toBe(0);
+
+  // CA-025-04 : glisser jusqu'au bout sert la commande.
+  const knob = (await serve.boundingBox())!;
+  const track = await serve.evaluate((el) => el.parentElement!.getBoundingClientRect().width);
+  await owner.mouse.move(knob.x + knob.width / 2, knob.y + knob.height / 2);
+  await owner.mouse.down();
+  await owner.mouse.move(knob.x + track, knob.y + knob.height / 2, { steps: 12 });
+  await owner.mouse.up();
   // CA-018-01 : la carte reste une minute, dépliée sur « Bon appétit », avec « Recommander ».
   const served = guest.getByRole('region', { name: 'Vos demandes en cours' }).getByRole('article', { name: 'Commande, Bon appétit' });
   await expect(served).toBeVisible();

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { inSpotlight, mergeIntoCart, reorderLines, servedTotal, SERVED_SPOTLIGHT_MS, spotlightStart } from '@/components/pages/guest/order-logic';
+import { inSpotlight, mergeIntoCart, reorderLines, servedTotal, SERVED_SPOTLIGHT_MS, spotlightStart, unpaidTotal } from '@/components/pages/guest/order-logic';
 
 /** Spec 018 — commande servie (specs/018-commande-servie/spec.md). */
 describe('Spec 018 — commande servie', () => {
@@ -46,5 +46,17 @@ describe('Spec 018 — commande servie', () => {
         { status: 'resolved', totalMinor: null, type: water },
       ]),
     ).toBe(12_500);
+  });
+
+  it('CA-026-07 — reste à régler : seulement les commandes servies et non réglées', () => {
+    const order = { kind: 'order' as const, id: 'c', label: 'Commande', icon: 'utensils' };
+    expect(
+      unpaidTotal([
+        { status: 'resolved', totalMinor: 5000, type: order, paidAt: '2026-11-17T12:00:00Z' },
+        { status: 'resolved', totalMinor: 2000, type: order, paidAt: null },
+        { status: 'in_progress', totalMinor: 1500, type: order, paidAt: null },
+        { status: 'cancelled', totalMinor: 3000, type: order, paidAt: null },
+      ]),
+    ).toBe(2000);
   });
 });

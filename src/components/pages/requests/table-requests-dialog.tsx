@@ -2,16 +2,17 @@
 
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ChevronDown, Coffee, Pencil, Power, QrCode, Receipt, Smartphone, Timer, X } from 'lucide-react';
+import { ChevronDown, Coffee, HandCoins, Pencil, Power, QrCode, Receipt, Smartphone, Timer, X } from 'lucide-react';
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import { Button } from '@/components/ui';
+import { Button, ConfirmDialog } from '@/components/ui';
+import { SlideToConfirm } from '@/components/ui/slide-to-confirm';
 import { occupiedFor, orderStateLabel, orderSummary, tableLook, tableSize, TONE_BADGE, TONE_PLATE, TONE_TINT } from '@/components/pages/tables/tables-logic';
 import type { OccupationOrder, ServiceRequest, TableStatus } from '@/contracts';
 import { estKey, useEstablishmentId } from '@/hooks/use-establishment';
 import { useNow } from '@/hooks/use-now';
 import { cn } from '@/lib/utils';
 import { PrecisionBanner, PrecisionFlags } from './precisions';
-import { floorApi, menuImageUrl } from '@/services/api';
+import { floorApi, menuImageUrl, requestsApi } from '@/services/api';
 import { errorMessage } from '@/services/http';
 import { toast } from '@/stores/toast.store';
 import { formatMoney } from '@/utils/money';
@@ -25,6 +26,8 @@ interface Props {
   status: TableStatus;
   requests: ServiceRequest[];
   canClose: boolean;
+  /** Spec 026, R4 : régler la table (droit `requests.handle`). */
+  canSettle?: boolean;
   onClose: () => void;
   /** Rendu d'une demande (carte avec ses actions), fourni par la page appelante. */
   children: (request: ServiceRequest) => ReactNode;
@@ -39,7 +42,7 @@ interface Props {
  * fermeture des sessions, puis configuration en retrait.
  * Partagée par le plan de salle du tableau de bord et la vue « Tables » (spec 006, R9 ; spec 020, R8).
  */
-export function TableRequestsDialog({ table, areaName, status, requests, canClose, onClose, children, onQr, onEdit, onDelete }: Props) {
+export function TableRequestsDialog({ table, areaName, status, requests, canClose, canSettle = false, onClose, children, onQr, onEdit, onDelete }: Props) {
   const establishmentId = useEstablishmentId();
   const queryClient = useQueryClient();
   const now = useNow();
@@ -60,19 +63,39 @@ export function TableRequestsDialog({ table, areaName, status, requests, canClos
     void refetch();
   }, [signature, refetch]);
 
+  const [confirmFree, setConfirmFree] = useState(false);
   const close = useMutation({
     mutationFn: () => floorApi.closeSessions(establishmentId, table.id),
     onSuccess: ({ closed }) => {
-      toast.success(closed > 0 ? `${closed} session${closed > 1 ? 's' : ''} fermée${closed > 1 ? 's' : ''}` : 'Aucune session ouverte');
+      setConfirmFree(false);
+      toast.success(closed > 0 ? `Table ${table.label} libérée` : 'Aucun téléphone connecté');
       void queryClient.invalidateQueries({ queryKey: estKey(establishmentId, 'floor') });
       void queryClient.invalidateQueries({ queryKey: estKey(establishmentId, 'tables-overview') });
       void refetch();
     },
-    onError: (error) => toast.error('Fermeture impossible', errorMessage(error)),
+    onError: (error) => toast.error('Libération impossible', errorMessage(error)),
+  });
+  // Spec 026, R4 : régler toutes les commandes servies non réglées de l'occupation.
+  const settle = useMutation({
+    mutationFn: () => requestsApi.settleTable(establishmentId, table.id),
+    onSuccess: ({ amountMinor }) => {
+      toast.success(`Table ${table.label} réglée`, formatMoney(amountMinor, currency));
+      void queryClient.invalidateQueries({ queryKey: estKey(establishmentId, 'requests') });
+      void queryClient.invalidateQueries({ queryKey: estKey(establishmentId, 'tables-overview') });
+      void queryClient.invalidateQueries({ queryKey: estKey(establishmentId, 'today') });
+      void refetch();
+    },
+    onError: (error) => {
+      toast.error('Règlement impossible', errorMessage(error));
+      void refetch();
+    },
   });
 
   const data = occupation.data;
   const currency = data?.currency ?? 'XOF';
+  const unpaid = data?.unpaidMinor ?? 0;
+  // R5 : libérer avec un reste demande confirmation.
+  const free = () => (unpaid > 0 ? setConfirmFree(true) : close.mutate());
   const occupied = status === 'occupied' || (data?.occupiedSince ?? null) !== null;
   // Spec 023, R3 : une commande de l'occupation déjà servie.
   const look = tableLook(status, requests, now, (data?.orders ?? []).some((order) => order.status === 'resolved'));
@@ -136,13 +159,21 @@ export function TableRequestsDialog({ table, areaName, status, requests, canClos
             {/* R2 : chiffres clés. */}
             <div className="stagger animate-item-in" style={next()}>
               {occupied ? (
-                <dl className="grid grid-cols-[1.5fr_1fr_1fr] gap-2 sm:gap-2.5">
+                <dl className="grid grid-cols-2 gap-2 sm:gap-2.5">
                   <Tile
                     icon={<Receipt className="size-4" aria-hidden />}
                     value={data?.amountMinor ?? null}
                     format={(value) => formatMoney(value, currency)}
                     label="commandés"
                     accent
+                  />
+                  {/* Spec 026, R4 : servi et pas encore réglé. */}
+                  <Tile
+                    icon={<HandCoins className="size-4" aria-hidden />}
+                    value={data ? unpaid : null}
+                    format={(value) => formatMoney(value, currency)}
+                    label="à régler"
+                    alert={unpaid > 0}
                   />
                   <Tile
                     icon={<Timer className="size-4" aria-hidden />}
@@ -212,6 +243,31 @@ export function TableRequestsDialog({ table, areaName, status, requests, canClos
               </section>
             )}
 
+            {/* Spec 026, R4 : régler la table à l'addition. Ne la libère pas (R6). */}
+            {canSettle && occupied && unpaid > 0 && (
+              <div className="stagger mt-7 animate-item-in rounded-2xl bg-sunken/70 p-4" style={next()}>
+                <div className="flex items-start gap-3">
+                  <span className="grid size-10 shrink-0 place-items-center rounded-full bg-ink text-white shadow-sm" aria-hidden>
+                    <HandCoins className="size-5" />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[15px] font-semibold text-ink">Régler la table</p>
+                    <p className="mt-0.5 text-[13px] text-ink-2">Toutes les commandes servies et non réglées. La table reste occupée.</p>
+                  </div>
+                </div>
+                <SlideToConfirm
+                  className="mt-3"
+                  size="md"
+                  tone="ink"
+                  label={`Glisser pour régler · ${formatMoney(unpaid, currency)}`}
+                  ariaLabel={`Régler la table ${table.label}, ${formatMoney(unpaid, currency)}`}
+                  busyLabel="Règlement…"
+                  busy={settle.isPending}
+                  onConfirm={() => settle.mutate()}
+                />
+              </div>
+            )}
+
             {/* R5 : action de service. */}
             {canClose && occupied && (
               <div className="stagger mt-7 flex animate-item-in items-start gap-3 rounded-2xl bg-sunken/70 p-4" style={next()}>
@@ -220,9 +276,9 @@ export function TableRequestsDialog({ table, areaName, status, requests, canClos
                 </span>
                 <div className="min-w-0 flex-1">
                   <p className="text-[15px] font-semibold text-ink">Les clients sont partis ?</p>
-                  <p className="mt-0.5 text-[13px] text-ink-2">Fermez leurs sessions : leurs téléphones ne pourront plus envoyer de demande pour cette table.</p>
-                  <Button variant="secondary" size="sm" className="mt-3" loading={close.isPending} onClick={() => close.mutate()}>
-                    Fermer les sessions
+                  <p className="mt-0.5 text-[13px] text-ink-2">Libérez la table : leurs téléphones ne pourront plus envoyer de demande, et la table redevient libre.</p>
+                  <Button variant="secondary" size="sm" className="mt-3" loading={close.isPending && !confirmFree} onClick={free}>
+                    Libérer la table
                   </Button>
                 </div>
               </div>
@@ -253,6 +309,17 @@ export function TableRequestsDialog({ table, areaName, status, requests, canClos
           )}
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>
+      {/* Spec 026, R5 : il reste à régler. */}
+      <ConfirmDialog
+        open={confirmFree}
+        onOpenChange={setConfirmFree}
+        title={`Libérer la table ${table.label} ?`}
+        description={`${formatMoney(unpaid, currency)} ne sont pas réglés. Libérer quand même ? Ils resteront dans « Reste à encaisser ».`}
+        confirmLabel="Libérer quand même"
+        danger
+        loading={close.isPending}
+        onConfirm={() => close.mutate()}
+      />
     </DialogPrimitive.Root>
   );
 }
@@ -272,8 +339,8 @@ function SectionTitle({ id, count, children }: { id: string; count: number; chil
 
 /** R2 : une tuile — pictogramme, chiffre en grand (compté à l'ouverture), libellé court. */
 function Tile({
-  icon, value, format, text, label, accent = false,
-}: { icon: ReactNode; value?: number | null; format?: (value: number) => string; text?: string; label: string; accent?: boolean }) {
+  icon, value, format, text, label, accent = false, alert = false,
+}: { icon: ReactNode; value?: number | null; format?: (value: number) => string; text?: string; label: string; accent?: boolean; alert?: boolean }) {
   const counted = useCountUp(value ?? null);
   const shown = text ?? (value === null || value === undefined || counted === null ? '—' : format ? format(counted) : String(counted));
   return (
@@ -282,7 +349,7 @@ function Tile({
         {icon}
       </span>
       <div className="min-w-0">
-        <dd className={cn('tabular truncate text-[17px] leading-tight font-semibold tracking-tight sm:text-[19px]', accent ? 'text-brand-strong' : 'text-ink')}>{shown}</dd>
+        <dd className={cn('tabular truncate text-[17px] leading-tight font-semibold tracking-tight sm:text-[19px]', accent ? 'text-brand-strong' : alert ? 'text-late' : 'text-ink')}>{shown}</dd>
         <dt className="mt-0.5 line-clamp-2 text-[12px] leading-tight text-ink-3">{label}</dt>
       </div>
     </div>
@@ -353,6 +420,12 @@ function OrderRow({ order, currency }: { order: OccupationOrder; currency: strin
           <span className="mt-0.5 flex items-center gap-2">
             <span className="tabular text-[12px] text-ink-3">{formatTime(order.createdAt)}</span>
             <StatePill state={state} />
+            {/* Spec 026, R4 : une commande servie est réglée ou à régler. */}
+            {order.status === 'resolved' && (
+              <span className={cn('rounded-full px-1.5 py-px text-[11px] font-semibold', order.paidAt ? 'bg-done-soft text-done' : 'bg-ink text-white')}>
+                {order.paidAt ? 'Réglée' : 'À régler'}
+              </span>
+            )}
           </span>
         </span>
         <span className={cn('tabular shrink-0 text-right text-[14px] font-semibold', cancelled ? 'text-ink-3 line-through' : 'text-ink')}>

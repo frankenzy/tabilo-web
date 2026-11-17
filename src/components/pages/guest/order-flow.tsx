@@ -3,9 +3,8 @@
 export { composeNote, PRECISIONS, stepOf, trackingSteps } from './order-logic';
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowRight, CheckCircle2, MapPin, Pencil, Trash2 } from 'lucide-react';
-import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
-import { ActivityIndicator } from '@/components/ui';
+import { CheckCircle2, MapPin, Pencil, Trash2 } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 import type { GuestRequest } from '@/contracts';
 import { cn } from '@/lib/utils';
 import { guestApi } from '@/services/api/guest';
@@ -64,117 +63,6 @@ export function PrecisionChips({
           <Pencil className="size-4" aria-hidden />
         </span>
         Autre
-      </button>
-    </div>
-  );
-}
-
-// ------------------------------------------------- R3 glisser pour commander
-
-/**
- * Spec 013, R3 : « Glisser pour commander ». Un simple toucher n'envoie rien (CA-013-01) : la pastille
- * fait un petit bond qui invite à glisser. Glisser jusqu'au bout, un double toucher ou Entrée au clavier confirment.
- */
-export function SlideToConfirm({ label, detail, disabled, busy, onConfirm }: { label: string; detail: string; disabled: boolean; busy: boolean; onConfirm: () => void }) {
-  const track = useRef<HTMLDivElement>(null);
-  const [drag, setDrag] = useState<{ start: number; x: number } | null>(null);
-  const knobRef = useRef<HTMLButtonElement>(null);
-  const [done, setDone] = useState(false);
-  const knob = 56;
-  const max = () => Math.max(0, (track.current?.clientWidth ?? 300) - knob - 8);
-  const x = done || busy ? max() : (drag?.x ?? 0);
-
-  useEffect(() => {
-    if (!busy) setDone(false);
-  }, [busy]);
-
-  const confirm = () => {
-    if (disabled || busy) return;
-    setDone(true);
-    haptic([12, 40, 18]);
-    onConfirm();
-  };
-  const onPointerDown = (event: PointerEvent<HTMLButtonElement>) => {
-    if (disabled || busy) return;
-    event.currentTarget.setPointerCapture(event.pointerId);
-    setDrag({ start: event.clientX, x: 0 });
-  };
-  const onPointerMove = (event: PointerEvent<HTMLButtonElement>) => {
-    if (!drag) return;
-    setDrag({ ...drag, x: Math.min(max(), Math.max(0, event.clientX - drag.start)) });
-  };
-  const onPointerUp = () => {
-    if (!drag) return;
-    const reached = drag.x >= max() * 0.88;
-    const moved = drag.x > 6;
-    setDrag(null);
-    if (reached) return confirm();
-    if (!moved) {
-      // Simple toucher : rien n'est envoyé, la pastille montre le geste attendu.
-      // On relance l'animation sans recréer le bouton : un double toucher doit viser le même élément.
-      haptic(8);
-      const el = knobRef.current;
-      if (el) {
-        el.classList.remove('animate-slide-hint');
-        void el.offsetWidth;
-        el.classList.add('animate-slide-hint');
-      }
-    }
-  };
-  const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
-    if (event.key === 'Enter') {
-      event.preventDefault();
-      confirm();
-    }
-  };
-  const progress = max() > 0 ? x / max() : 0;
-
-  return (
-    <div
-      ref={track}
-      className={cn(
-        'relative h-16 w-full overflow-hidden rounded-full p-1 transition-colors duration-300',
-        disabled ? 'bg-line' : 'bg-ink shadow-[0_12px_28px_-12px_rgb(27_25_23/0.7)]',
-      )}
-    >
-      {/* Remplissage qui suit la pastille. */}
-      <span aria-hidden className="absolute inset-y-1 left-1 rounded-full bg-done/90" style={{ width: x + knob, opacity: progress > 0.02 ? 1 : 0, transition: drag ? 'none' : 'width 380ms var(--ease-spring), opacity 300ms' }} />
-      <span
-        aria-hidden
-        className={cn('pointer-events-none absolute inset-0 flex flex-col items-center justify-center pr-4 pl-16 leading-tight whitespace-nowrap', disabled ? 'text-ink-3' : 'text-white')}
-        style={{ opacity: busy ? 0 : 1 - progress * 1.2 }}
-      >
-        {/* Le total sur sa propre ligne : rien ne passe sous la pastille, même sur un petit écran. */}
-        <span className="text-[16px] font-semibold">{label}</span>
-        <span className={cn('tabular text-[13px] font-medium', disabled ? 'text-ink-3' : 'text-white/70')}>{detail}</span>
-      </span>
-      {busy && (
-        <span className="absolute inset-0 flex items-center justify-center gap-2 text-[15px] font-semibold text-white" role="status">
-          <ActivityIndicator className="size-5 text-white" />
-          Envoi…
-        </span>
-      )}
-      <button
-        ref={knobRef}
-        type="button"
-        disabled={disabled}
-        aria-label={`Commander pour ${detail}. Glissez vers la droite, touchez deux fois ou appuyez sur Entrée pour confirmer`}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerCancel={() => setDrag(null)}
-        onDoubleClick={confirm}
-        onKeyDown={onKeyDown}
-        onAnimationEnd={(event) => event.currentTarget.classList.remove('animate-slide-hint')}
-        className="relative z-10 grid touch-none place-items-center rounded-full bg-surface text-ink shadow-md select-none disabled:cursor-not-allowed"
-        style={{
-          width: knob,
-          height: knob,
-          transform: `translateX(${x}px)`,
-          transition: drag ? 'none' : 'transform 420ms var(--ease-spring)',
-        }}
-      >
-        {busy ? <span className="size-5" /> : <ArrowRight className={cn('size-6', disabled && 'text-ink-3')} aria-hidden />}
       </button>
     </div>
   );

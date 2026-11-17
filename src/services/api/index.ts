@@ -33,7 +33,7 @@ export const authApi = {
 };
 
 export interface RequestFilters {
-  scope?: 'active' | 'closed' | 'all';
+  scope?: 'active' | 'closed' | 'unpaid' | 'all';
   status?: string;
   areaId?: string;
   requestTypeId?: string;
@@ -55,6 +55,9 @@ export const requestsApi = {
   get: (e: string, id: string) => data(http.get<ServiceRequestDetail>(`${est(e)}/requests/${id}`)),
   create: (e: string, body: { tableId: string; requestTypeId: string; note?: string; takeIt?: boolean }) =>
     data(http.post<ServiceRequest>(`${est(e)}/requests`, body)),
+  /** Spec 026, R4 : régler toutes les commandes servies non réglées de l'occupation d'une table. */
+  settleTable: (e: string, tableId: string) =>
+    data(http.post<{ settled: number; amountMinor: number }>(`${est(e)}/requests/settle-table`, { tableId })),
   act: (e: string, id: string, action: RequestAction, body: object = {}) =>
     data(http.post<ServiceRequest>(`${est(e)}/requests/${id}/${action}`, body)),
 };
@@ -62,7 +65,9 @@ export const requestsApi = {
 export type RequestAction =
   | 'accept' | 'start' | 'resolve' | 'release' | 'transfer' | 'assign' | 'cancel' | 'acknowledge-escalation'
   // Spec 007 : préparer (accepter + démarrer) et signaler prête.
-  | 'prepare' | 'ready';
+  | 'prepare' | 'ready'
+  // Spec 026 : régler une commande servie.
+  | 'settle';
 
 export const floorApi = {
   overview: (e: string) => data(http.get<Area[]>(`${est(e)}/floor`)),

@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { estKey, useEstablishmentId, useLiveRefetchInterval } from '@/hooks/use-establishment';
-import { floorApi, requestsApi, requestTypesApi, staffApi, type RequestAction } from '@/services/api';
+import { establishmentApi, floorApi, requestsApi, requestTypesApi, staffApi, type RequestAction } from '@/services/api';
 import { errorMessage } from '@/services/http';
 import { toast } from '@/stores/toast.store';
 
@@ -15,6 +15,25 @@ export function useActiveRequests() {
     queryFn: () => requestsApi.list(establishmentId, { scope: 'active', pageSize: 100 }),
     refetchInterval,
   });
+}
+
+/** Spec 026 : commandes servies et non réglées, la plus ancienne en premier. Invalidées avec les autres demandes. */
+export function useUnpaidOrders(enabled = true) {
+  const establishmentId = useEstablishmentId();
+  const refetchInterval = useLiveRefetchInterval();
+  return useQuery({
+    queryKey: estKey(establishmentId, 'requests', 'unpaid'),
+    queryFn: () => requestsApi.list(establishmentId, { scope: 'unpaid', pageSize: 100 }),
+    refetchInterval,
+    enabled,
+  });
+}
+
+/** Réglage « Cuisine séparée » (spec 007, R6) : décide si une commande passe par « Prête » (spec 025, R4). */
+export function useSeparateKitchen(): boolean {
+  const establishmentId = useEstablishmentId();
+  const establishment = useQuery({ queryKey: estKey(establishmentId, 'establishment'), queryFn: () => establishmentApi.get(establishmentId) });
+  return establishment.data?.separateKitchen ?? false;
 }
 
 export function useFloor() {
@@ -42,6 +61,7 @@ const SUCCESS: Partial<Record<RequestAction, string>> = {
   release: 'Demande remise en attente',
   cancel: 'Demande annulée',
   'acknowledge-escalation': 'Escalade acquittée',
+  settle: 'Commande réglée',
 };
 
 /**
@@ -56,6 +76,8 @@ export function useRequestAction() {
     void queryClient.invalidateQueries({ queryKey: estKey(establishmentId, 'live') });
     void queryClient.invalidateQueries({ queryKey: estKey(establishmentId, 'tables-overview') });
     void queryClient.invalidateQueries({ queryKey: estKey(establishmentId, 'today') });
+    // Spec 026 : la fiche de table suit les règlements.
+    void queryClient.invalidateQueries({ queryKey: estKey(establishmentId, 'table-occupation') });
   };
   return useMutation({
     mutationFn: ({ id, action, body }: { id: string; action: RequestAction; body?: object }) =>

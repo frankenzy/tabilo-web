@@ -64,6 +64,8 @@ export const EVENT_LABELS: Record<string, string> = {
   'request.released': 'Remise en attente',
   'request.escalated': 'Escaladée',
   'request.escalation_acknowledged': 'Escalade acquittée',
+  // Spec 026 : commande servie réglée.
+  'request.paid': 'Réglée',
 };
 
 export const AUDIT_LABELS: Record<string, string> = {

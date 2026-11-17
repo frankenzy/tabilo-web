@@ -8,7 +8,7 @@ import { RequestCard, type Viewer } from '@/components/pages/requests/request-ca
 import { RequestDialogs, type RequestDialog } from '@/components/pages/requests/request-dialogs';
 import { TableRequestsDialog } from '@/components/pages/requests/table-requests-dialog';
 import { PrecisionFlags, precisionLabel } from '@/components/pages/requests/precisions';
-import { SalesPeriodFilter, TotalSoldCard } from './sales-row';
+import { CashCards, SalesPeriodFilter } from './sales-row';
 import { TodaySection } from './today-charts';
 import { useActiveRequests, useFloor, useRequestAction } from '@/components/pages/requests/use-requests';
 import { Card, EmptyState, ErrorState, PageHeader, Spinner } from '@/components/ui';
@@ -42,7 +42,7 @@ export function DashboardPage() {
   const [tableId, setTableId] = useState<string | null>(null);
   // Filtre de zone du plan de salle (« Toutes les zones » par défaut).
   const [areaId, setAreaId] = useState<string>('all');
-  // Spec 024, R3 : période de « Total vendu », choisie dans l'en-tête.
+  // Spec 024, R3 et spec 026, R7 : période de la rangée « Caisse », choisie dans l'en-tête.
   const [salesPeriod, setSalesPeriod] = useState<SalesPeriod>('month');
   const planTables = useMemo(
     () => (floor.data ?? []).filter((area) => areaId === 'all' || area.id === areaId).flatMap((area) => area.tables),
@@ -100,12 +100,12 @@ export function DashboardPage() {
     <>
       <PageHeader title="Tableau de bord" description="La salle, en ce moment." actions={<SalesPeriodFilter period={salesPeriod} onChange={setSalesPeriod} />} />
 
-      {/* Spec 024 : quatre cartes, deux par ligne sur téléphone et tablette, quatre sur grand écran. */}
-      <dl className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <TotalSoldCard index={0} period={salesPeriod} />
-        <Stat index={1} label="En attente" value={stats.pending + stats.assigned} hint={stats.oldestPendingSeconds ? `plus ancienne : ${formatDuration(stats.oldestPendingSeconds)}` : 'aucune attente'} />
-        <Stat index={2} label="Prises en charge" value={stats.accepted + stats.inProgress} hint={`${stats.inProgress} en cours de traitement`} />
-        <Stat index={3} label="En retard" value={stats.late} tone={stats.late > 0 ? 'late' : undefined} hint="délai cible dépassé" />
+      {/* Spec 026, R7 : activité puis caisse, trois cartes par ligne sur grand écran, deux sur téléphone. */}
+      <dl className="grid grid-cols-2 gap-3 lg:grid-cols-3">
+        <Stat index={0} label="En attente" value={stats.pending + stats.assigned} hint={stats.oldestPendingSeconds ? `plus ancienne : ${formatDuration(stats.oldestPendingSeconds)}` : 'aucune attente'} />
+        <Stat index={1} label="Prises en charge" value={stats.accepted + stats.inProgress} hint={`${stats.inProgress} en cours de traitement`} />
+        <Stat index={2} label="En retard" value={stats.late} tone={stats.late > 0 ? 'late' : undefined} hint="délai cible dépassé" />
+        <CashCards index={3} period={salesPeriod} />
       </dl>
 
       <TodaySection />
@@ -220,6 +220,7 @@ export function DashboardPage() {
           status={selectedTable.openSessions > 0 || (byTable.get(selectedTable.id)?.length ?? 0) > 0 ? 'occupied' : 'free'}
           requests={byTable.get(selectedTable.id) ?? []}
           canClose={viewer.can('sessions.manage')}
+          canSettle={viewer.can('requests.handle')}
           onClose={() => setTableId(null)}
         >
           {(request) => card(request)}

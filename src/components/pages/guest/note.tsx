@@ -9,7 +9,7 @@ import { formatMoney } from '@/utils/money';
 import { formatTime } from '@/utils/time';
 import { haptic } from './fly-to-cart';
 import { ItemPhoto } from './guest-menu';
-import { inSpotlight, reorderLines, servedTotal, spotlightStart } from './order-logic';
+import { inSpotlight, reorderLines, servedTotal, spotlightStart, unpaidTotal } from './order-logic';
 
 /** Marge pour qu'une carte en train de sortir (R3) ne disparaisse pas d'un coup sur un rendu voisin. */
 const EXIT_GRACE_MS = 1500;
@@ -150,6 +150,7 @@ export function HistoryButton({ orders, currency, menu, billAvailable, billPendi
 function HistorySheet({ orders, currency, menu, billAvailable, billPending, onBill, onReorder }: HistoryProps) {
   const [expanded, setExpanded] = useState<string | null>(null);
   const total = servedTotal(orders);
+  const unpaid = unpaidTotal(orders);
   const hasServed = orders.some((request) => request.status === 'resolved');
 
   return (
@@ -188,7 +189,11 @@ function HistorySheet({ orders, currency, menu, billAvailable, billPending, onBi
                     <span className={cn('block truncate text-[15px] font-semibold', served ? 'text-ink' : 'text-ink-3')}>
                       {dishes} plat{dishes > 1 ? 's' : ''}
                     </span>
-                    <span className="tabular block text-[12px] text-ink-3">{formatTime(served && request.resolvedAt ? request.resolvedAt : request.createdAt)}</span>
+                    <span className="tabular flex items-center gap-1.5 text-[12px] text-ink-3">
+                      {formatTime(served && request.resolvedAt ? request.resolvedAt : request.createdAt)}
+                      {/* Spec 026, R8 : commande réglée. */}
+                      {served && request.paidAt && <span className="rounded-full bg-done-soft px-1.5 py-px text-[11px] font-semibold text-done">Réglée</span>}
+                    </span>
                   </span>
                   {/* 3. Quantité, 4. prix. */}
                   <span className="tabular shrink-0 text-[14px] text-ink-2">
@@ -230,9 +235,18 @@ function HistorySheet({ orders, currency, menu, billAvailable, billPending, onBi
       </ul>
 
       {hasServed && (
-        <div className="mt-4 flex items-baseline justify-between rounded-2xl bg-sunken px-4 py-3">
-          <span className="text-[13px] font-medium text-ink-2">Total servi</span>
-          <span className="tabular text-[26px] font-bold tracking-tight text-ink">{formatMoney(total, currency)}</span>
+        <div className="mt-4 rounded-2xl bg-sunken px-4 py-3">
+          <div className="flex items-baseline justify-between">
+            <span className="text-[13px] font-medium text-ink-2">Total servi</span>
+            <span className="tabular text-[26px] font-bold tracking-tight text-ink">{formatMoney(total, currency)}</span>
+          </div>
+          {/* Spec 026, R8 : ce qui reste à payer, seulement s'il y en a. */}
+          {unpaid > 0 && (
+            <div className="mt-1 flex items-baseline justify-between border-t border-line pt-2">
+              <span className="text-[13px] font-medium text-ink-2">Reste à régler</span>
+              <span className="tabular text-[17px] font-semibold text-ink">{formatMoney(unpaid, currency)}</span>
+            </div>
+          )}
         </div>
       )}
 

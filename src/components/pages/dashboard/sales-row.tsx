@@ -1,7 +1,7 @@
 'use client';
 
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { Minus, RotateCw, TrendingDown, TrendingUp, Wallet, type LucideIcon } from 'lucide-react';
+import { Clock, HandCoins, Minus, RotateCw, TrendingDown, TrendingUp, Wallet, type LucideIcon } from 'lucide-react';
 import type { CSSProperties } from 'react';
 import { useSlidingIndicator } from '@/components/ui';
 import type { SalesPeriod } from '@/contracts';
@@ -17,7 +17,7 @@ const PERIODS: { value: SalesPeriod; label: string; previous: string }[] = [
   { value: 'year', label: 'Annuel', previous: 'à l’année dernière' },
 ];
 
-/** Spec 024, R3 : filtre Mensuel · Annuel de « Total vendu », en haut à droite de la page. */
+/** Spec 024, R3 et spec 026, R7 : filtre Mensuel · Annuel de la rangée « Caisse », en haut à droite de la page. */
 export function SalesPeriodFilter({ period, onChange }: { period: SalesPeriod; onChange: (period: SalesPeriod) => void }) {
   const segments = useSlidingIndicator(period);
   return (
@@ -50,10 +50,10 @@ const TREND_STYLE: Record<Exclude<SalesTrend['kind'], 'none'>, { icon: LucideIco
 };
 
 /**
- * Spec 024, R3 (règles de la spec 009) : commandes servies du mois ou de l'année en cours,
- * comparées à la même durée de la période précédente.
+ * Spec 026, R7 : rangée « Caisse » — Total servi (règles de la spec 009), Total encaissé (daté du règlement)
+ * et Reste à encaisser (toutes dates). Les deux premiers suivent le filtre Mensuel · Annuel.
  */
-export function TotalSoldCard({ period, index = 0 }: { period: SalesPeriod; index?: number }) {
+export function CashCards({ period, index = 0 }: { period: SalesPeriod; index?: number }) {
   const establishmentId = useEstablishmentId();
   const refetchInterval = useLiveRefetchInterval();
   // Clé sous « today » : invalidée par le temps réel avec le reste du tableau de bord (spec 009, R6).
@@ -65,53 +65,109 @@ export function TotalSoldCard({ period, index = 0 }: { period: SalesPeriod; inde
   });
   const previousLabel = PERIODS.find((option) => option.value === period)!.previous;
   const data = sales.data;
-  const amount = data ? formatMoney(data.current.totalMinor, data.currency) : sales.isError ? '—' : null;
-  const trend: SalesTrend = data ? salesTrend(data.current.totalMinor, data.previous.totalMinor) : { kind: 'none' };
-  const style = trend.kind === 'none' ? null : TREND_STYLE[trend.kind];
+  const money = (minor: number) => (data ? formatMoney(minor, data.currency) : '');
+  const failed = sales.isError && !data;
+  const common = { faded: sales.isPlaceholderData, failed, onRetry: () => void sales.refetch(), error: failed ? errorMessage(sales.error) : undefined };
+  const plural = (count: number, word: string) => `${count} ${word}${count > 1 ? 's' : ''}`;
+  const outstanding = data?.outstanding;
 
+  return (
+    <>
+      <MoneyCard
+        {...common}
+        index={index}
+        icon={Wallet}
+        label="Total servi"
+        amount={data ? money(data.current.totalMinor) : null}
+        detail={data ? `${plural(data.current.orders, 'commande')} servie${data.current.orders > 1 ? 's' : ''}` : ''}
+        trend={data ? salesTrend(data.current.totalMinor, data.previous.totalMinor) : { kind: 'none' }}
+        previousLabel={previousLabel}
+      />
+      <MoneyCard
+        {...common}
+        index={index + 1}
+        icon={HandCoins}
+        label="Total encaissé"
+        amount={data ? money(data.current.paidMinor) : null}
+        detail={data ? `${plural(data.current.paidOrders, 'commande')} réglée${data.current.paidOrders > 1 ? 's' : ''}` : ''}
+        trend={data ? salesTrend(data.current.paidMinor, data.previous.paidMinor) : { kind: 'none' }}
+        previousLabel={previousLabel}
+      />
+      <MoneyCard
+        {...common}
+        index={index + 2}
+        icon={Clock}
+        label="Reste à encaisser"
+        amount={outstanding ? money(outstanding.amountMinor) : null}
+        alert={(outstanding?.amountMinor ?? 0) > 0}
+        detail={outstanding ? (outstanding.orders === 0 ? 'Tout est réglé' : `${plural(outstanding.orders, 'commande')} · ${plural(outstanding.tables, 'table')}`) : ''}
+        trend={{ kind: 'none' }}
+      />
+    </>
+  );
+}
+
+function MoneyCard({
+  index, icon: Icon, label, amount, detail, trend, previousLabel, alert = false, faded, failed, error, onRetry,
+}: {
+  index: number;
+  icon: LucideIcon;
+  label: string;
+  amount: string | null;
+  detail: string;
+  trend: SalesTrend;
+  /** Absent : pas de comparaison (Reste à encaisser). */
+  previousLabel?: string;
+  alert?: boolean;
+  faded: boolean;
+  failed: boolean;
+  error?: string;
+  onRetry: () => void;
+}) {
+  const style = trend.kind === 'none' ? null : TREND_STYLE[trend.kind];
+  const shown = failed ? '—' : amount;
   return (
     <div
       className={cn(
         'stagger flex min-w-0 animate-item-in flex-col justify-between gap-3 rounded-(--radius-card) bg-surface p-4 ring-1 ring-line transition-opacity duration-300 ease-apple sm:p-5',
-        sales.isPlaceholderData && 'opacity-60',
+        faded && 'opacity-60',
       )}
       style={{ '--i': index } as CSSProperties}
     >
       <div className="flex items-start justify-between gap-2">
-        <dt className="text-[15px] font-medium text-ink">Total vendu</dt>
-        <Wallet className="size-5 shrink-0 text-ink-3" aria-hidden />
+        <dt className="text-[15px] font-medium text-ink">{label}</dt>
+        <Icon className={cn('size-5 shrink-0', alert ? 'text-late' : 'text-ink-3')} aria-hidden />
       </div>
       <div className="min-w-0">
-        <dd className="tabular text-lg leading-tight font-semibold tracking-tight text-ink sm:text-3xl">
-          {amount === null ? (
+        <dd className={cn('tabular text-lg leading-tight font-semibold tracking-tight sm:text-3xl', alert ? 'text-late' : 'text-ink')}>
+          {shown === null ? (
             <span className="inline-block h-8 w-28 animate-pulse rounded-md bg-sunken align-middle" aria-label="Chargement" />
           ) : (
-            <span key={amount} className="inline-block animate-number-in">
-              {amount}
+            <span key={shown} className="inline-block animate-number-in">
+              {shown}
             </span>
           )}
         </dd>
         <dd className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-ink-3">
-          {sales.isError && !data ? (
-            <button type="button" onClick={() => void sales.refetch()} className="inline-flex items-center gap-1 text-late" title={errorMessage(sales.error)}>
+          {failed ? (
+            <button type="button" onClick={onRetry} className="inline-flex items-center gap-1 text-late" title={error}>
               <RotateCw className="size-3.5" aria-hidden />
               Réessayer
             </button>
           ) : (
-            data && (
+            amount !== null && (
               <>
-                <span>
-                  {data.current.orders} commande{data.current.orders > 1 ? 's' : ''} servie{data.current.orders > 1 ? 's' : ''}
-                </span>
-                {style && trend.kind !== 'none' ? (
-                  <span className={cn('inline-flex items-center gap-0.5 font-semibold', style.className)}>
-                    <style.icon className="size-3.5" aria-hidden />
-                    {formatPercent(trend.percent)}
-                    <span className="font-normal text-ink-3"> vs {previousLabel.replace(/^(au|à l’)/, '').trim()}</span>
-                  </span>
-                ) : (
-                  <span>Pas de vente {previousLabel}</span>
-                )}
+                <span>{detail}</span>
+                {previousLabel &&
+                  (style && trend.kind !== 'none' ? (
+                    <span className={cn('inline-flex items-center gap-0.5 font-semibold', style.className)}>
+                      <style.icon className="size-3.5" aria-hidden />
+                      {formatPercent(trend.percent)}
+                      <span className="font-normal text-ink-3"> vs {previousLabel.replace(/^(au|à l’)/, '').trim()}</span>
+                    </span>
+                  ) : (
+                    <span>Rien {previousLabel}</span>
+                  ))}
               </>
             )
           )}

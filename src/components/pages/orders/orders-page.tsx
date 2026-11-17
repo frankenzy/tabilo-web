@@ -2,14 +2,15 @@
 
 import * as Menu from '@radix-ui/react-dropdown-menu';
 import { useQuery } from '@tanstack/react-query';
-import { BellRing, CheckCheck, ChevronDown, ClipboardList, CookingPot, Info, MoreHorizontal, Search, X, type LucideIcon } from 'lucide-react';
+import { Check, CheckCheck, ChevronDown, ClipboardList, CookingPot, Info, MoreHorizontal, Search, X, type LucideIcon } from 'lucide-react';
 import type { CSSProperties, ReactNode } from 'react';
 import { useMemo, useState } from 'react';
 import { CategoryImage } from '@/components/pages/menu/category-image';
 import { capabilitiesOf, type Viewer } from '@/components/pages/requests/capabilities';
 import { RequestDialogs, type RequestDialog } from '@/components/pages/requests/request-dialogs';
-import { useActiveRequests, useFloor, useRequestAction, useRequestTypes } from '@/components/pages/requests/use-requests';
+import { useActiveRequests, useFloor, useRequestAction, useRequestTypes, useUnpaidOrders } from '@/components/pages/requests/use-requests';
 import { Button, EmptyState, ErrorState, Spinner } from '@/components/ui';
+import { SlideToConfirm } from '@/components/ui/slide-to-confirm';
 import type { ServiceRequest } from '@/contracts';
 import { estKey, useEstablishmentId } from '@/hooks/use-establishment';
 import { useNow } from '@/hooks/use-now';
@@ -21,7 +22,7 @@ import { formatClock, secondsSince } from '@/utils/time';
 import { URGENCY_LABEL, URGENCY_TILE, urgencyOf } from '@/utils/urgency';
 import { PrecisionBanner, PrecisionFlags, precisionLabel } from '@/components/pages/requests/precisions';
 import {
-  COLUMN_LABELS, COLUMN_TONE, columnOf, columnsFor, dishImages, filterOrders, groupOrders, hasFilters, liveGrid, nextStep, NO_FILTERS, startOfToday, STATUS_PILL,
+  COLUMN_LABELS, COLUMN_TONE, columnOf, columnsFor, dishImages, filterOrders, groupOrders, hasFilters, liveGrid, nextStep, NO_FILTERS, slideTone, startOfToday, STATUS_PILL,
   type DishImage, type OrderFilters, type WhoFilter, type OrderColumn, type OrderStep, type StepTone,
 } from './orders-logic';
 
@@ -34,6 +35,7 @@ const STEP_STYLE: Record<StepTone, string> = {
   orange: 'bg-brand text-white hover:bg-brand-strong',
   violet: 'bg-ready text-white hover:brightness-95',
   green: 'bg-done text-white hover:brightness-95',
+  ink: 'bg-ink text-white hover:brightness-110',
 };
 
 const PILL_STYLE: Record<StepTone, string> = {
@@ -41,16 +43,17 @@ const PILL_STYLE: Record<StepTone, string> = {
   orange: 'bg-brand-soft text-brand-strong',
   violet: 'bg-ready-soft text-ready',
   green: 'bg-done-soft text-done',
+  ink: 'bg-ink text-white',
 };
 
-const DOT_STYLE: Record<StepTone, string> = { red: 'bg-late', orange: 'bg-brand', violet: 'bg-ready', green: 'bg-done' };
+const DOT_STYLE: Record<StepTone, string> = { red: 'bg-late', orange: 'bg-brand', violet: 'bg-ready', green: 'bg-done', ink: 'bg-white' };
 
-const STATUS_PILL_SHORT: Record<OrderColumn, string> = { todo: 'À préparer', preparing: 'En cours', ready: 'Prête' };
+const STATUS_PILL_SHORT: Record<OrderColumn, string> = { todo: 'À préparer', preparing: 'En cours', ready: 'Prête', unpaid: 'À régler' };
 
-const STEP_ICON: Record<OrderStep['label'], LucideIcon> = {
-  Préparer: CookingPot,
-  Prête: BellRing,
-  Servie: CheckCheck,
+/** Boutons à toucher (spec 025) : « prête » et « servie » se glissent et n'ont pas d'icône. */
+const STEP_ICON: Partial<Record<OrderStep['label'], LucideIcon>> = {
+  Accepter: Check,
+  Préparation: CookingPot,
 };
 
 export function OrdersPage() {
@@ -63,6 +66,8 @@ export function OrdersPage() {
     [me, membership],
   );
   const active = useActiveRequests();
+  // Spec 026, R2 : les commandes servies non réglées restent dans la grille « En cours ».
+  const unpaid = useUnpaidOrders();
   const establishment = useQuery({ queryKey: estKey(establishmentId, 'establishment'), queryFn: () => establishmentApi.get(establishmentId) });
   const menu = useQuery({ queryKey: estKey(establishmentId, 'menu'), queryFn: () => menuApi.overview(establishmentId) });
   const action = useRequestAction();
@@ -76,8 +81,8 @@ export function OrdersPage() {
   const columns = columnsFor(separateKitchen);
   // Compteurs du filtre « État » : calculés avec les autres filtres, mais sans lui.
   const groups = useMemo(
-    () => groupOrders(filterOrders(active.data?.items ?? [], filters, viewer.id), separateKitchen),
-    [active.data, separateKitchen, filters, viewer.id],
+    () => groupOrders(filterOrders([...(active.data?.items ?? []), ...(unpaid.data?.items ?? [])], filters, viewer.id), separateKitchen),
+    [active.data, unpaid.data, separateKitchen, filters, viewer.id],
   );
   const status = filters.status !== 'all' && !columns.includes(filters.status) ? 'all' : filters.status;
   const grid = useMemo(() => liveGrid(groups, status), [groups, status]);
@@ -119,7 +124,7 @@ export function OrdersPage() {
         <div className="min-w-0">
           <h1 className="text-xl font-semibold tracking-tight text-ink">Commandes</h1>
           <p className="mt-1 text-sm text-ink-2">
-            {view === 'served' ? 'Commandes servies aujourd’hui.' : separateKitchen ? 'Préparer, signaler prête, servir.' : 'Préparer, puis servir.'}
+            {view === 'served' ? 'Commandes servies aujourd’hui.' : separateKitchen ? 'Accepter, signaler prête, servir, régler.' : 'Accepter, servir, puis régler.'}
           </p>
         </div>
         <div role="tablist" aria-label="Affichage" className="relative mr-6 flex shrink-0 items-center gap-5 rounded-xl bg-sunken p-2 sm:mr-12 lg:mr-20">
@@ -283,7 +288,18 @@ function OrderCard({ request, now, viewer, images, step, busy, onStep, onAcknowl
           <Info className="size-4" aria-hidden />
           <span className="hidden sm:inline">Détail</span>
         </button>
-        {step && StepIcon ? (
+        {step?.gesture === 'slide' ? (
+          // Spec 025, R3 à R6 : « prête » et « servie » se glissent.
+          <SlideToConfirm
+            className="min-w-0 flex-1 sm:flex-[1.4]"
+            size="md"
+            tone={slideTone(step.action)}
+            label={step.label}
+            ariaLabel={`${step.label}, table ${request.table.label}`}
+            busy={busy}
+            onConfirm={() => onStep(step)}
+          />
+        ) : step && StepIcon ? (
           <button
             type="button"
             disabled={busy}
@@ -352,6 +368,10 @@ function ServedToday({
               {request.assignee && ` · ${request.assignee.firstName}`}
             </span>
           </div>
+          {/* Spec 026, R2 : réglée ou encore à régler. */}
+          <span className={cn('mt-1 inline-flex rounded-full px-2 py-0.5 text-[12px] font-semibold', request.paidAt ? 'bg-done-soft text-done' : 'bg-ink text-white')}>
+            {request.paidAt ? 'Réglée' : 'À régler'}
+          </span>
           <ul className="mt-2 flex flex-col gap-1.5">
             {request.items.map((line) => {
               const image = line.menuItemId ? images.get(line.menuItemId) : undefined;

@@ -69,6 +69,11 @@ export function servedTotal(requests: Pick<GuestRequest, 'status' | 'totalMinor'
   return requests.reduce((sum, r) => (r.type.kind === 'order' && r.status === 'resolved' ? sum + (r.totalMinor ?? 0) : sum), 0);
 }
 
+/** Spec 026, R8 : servi et pas encore réglé. */
+export function unpaidTotal(requests: Pick<GuestRequest, 'status' | 'totalMinor' | 'type' | 'paidAt'>[]): number {
+  return requests.reduce((sum, r) => (r.type.kind === 'order' && r.status === 'resolved' && !r.paidAt ? sum + (r.totalMinor ?? 0) : sum), 0);
+}
+
 /** R4 : ce que « Recommander » ajoute au panier — les plats encore disponibles, avec leur quantité. */
 export function reorderLines(
   request: Pick<GuestRequest, 'items'>,

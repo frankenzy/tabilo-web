@@ -14,7 +14,8 @@ import { errorMessage, toHttpError } from '@/services/http';
 import { formatMoney } from '@/utils/money';
 import { cartLines, MAX_QUANTITY, type Cart, type OrderDetails } from './cart';
 import { CART_BUMP, CART_TARGET_ATTR, flyToCart, haptic } from './fly-to-cart';
-import { CancelOrderButton, composeNote, OrderTracker, PrecisionChips, SlideToConfirm, SuccessCheck, TableBadge } from './order-flow';
+import { CancelOrderButton, composeNote, OrderTracker, PrecisionChips, SuccessCheck, TableBadge } from './order-flow';
+import { SlideToConfirm } from '@/components/ui/slide-to-confirm';
 import { prefersReducedMotion, usePhotoTint } from './photo-tint';
 import { guestRequestsKey, upsert } from './use-guest-requests';
 
@@ -968,6 +969,7 @@ function OrderBody({
             <SlideToConfirm
               label="Glisser pour commander"
               detail={total}
+              ariaLabel={`Commander pour ${total}`}
               disabled={count === 0 || hasInvalid || !context.orderingEnabled}
               busy={send.isPending}
               onConfirm={() => send.mutate()}

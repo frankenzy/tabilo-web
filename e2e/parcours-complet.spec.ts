@@ -294,8 +294,9 @@ test('la fermeture de session par le personnel coupe le téléphone du client', 
   // Spec 006, R12 : « Salle » est retirée, la fenêtre de la table dans « Tables » ferme les sessions.
   await owner.getByRole('link', { name: 'Tables' }).click();
   await owner.getByRole('button', { name: /^Table 12,/ }).click();
-  await owner.getByRole('button', { name: 'Fermer les sessions' }).click();
-  await expect(owner.getByText(/sessions? fermées?/)).toBeVisible();
+  // Spec 026, R5 : « Fermer les sessions » devient « Libérer la table ».
+  await owner.getByRole('button', { name: 'Libérer la table' }).click();
+  await expect(owner.getByText('Table 12 libérée')).toBeVisible();
   await expect(guest.getByRole('heading', { name: 'Session terminée' })).toBeVisible();
 
   await guest.getByRole('button', { name: 'Rouvrir une session' }).click();

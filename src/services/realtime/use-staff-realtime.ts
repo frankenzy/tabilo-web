@@ -62,6 +62,8 @@ export function useStaffRealtime(establishmentId: string): void {
       // Spec 008 : graphique par heure et top 3 du tableau de bord.
       void queryClient.invalidateQueries({ queryKey: estKey(establishmentId, 'today') });
       void queryClient.invalidateQueries({ queryKey: estKey(establishmentId, 'notifications') });
+      // Spec 026, R9 : un règlement fait ailleurs met à jour la fiche de table ouverte.
+      void queryClient.invalidateQueries({ queryKey: estKey(establishmentId, 'table-occupation') });
 
       const { me, establishmentId: current } = useAuthStore.getState();
       const permissions = me?.memberships.find((m) => m.establishment.id === current)?.permissions ?? [];

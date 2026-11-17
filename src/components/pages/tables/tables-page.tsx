@@ -314,6 +314,7 @@ export function TablesPage() {
           status={selected.status}
           requests={byTable.get(selected.id) ?? []}
           canClose={viewer.can("sessions.manage")}
+          canSettle={viewer.can("requests.handle")}
           onClose={() => setTableId(null)}
           onQr={canQr ? () => openFloor({ kind: "qr", table: selected }) : undefined}
           onEdit={canManage ? () => openFloor({ kind: "table", table: selected }) : undefined}
