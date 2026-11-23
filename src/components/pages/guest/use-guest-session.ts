@@ -1,9 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import type { GuestContext } from '@/contracts';
+import { guestContextSchema, guestSessionSchema, type GuestContext } from '@/contracts';
 import { guestApi, readStoredToken, storeToken } from '@/services/api/guest';
 import { toHttpError } from '@/services/http';
+import type { z } from 'zod';
+import { forgetPrefetchedSession, takePrefetchedSession } from './session-prefetch';
+
+type GuestSession = z.infer<typeof guestSessionSchema>;
 
 export type GuestSessionState =
   | { phase: 'loading' }
@@ -18,9 +22,17 @@ export type GuestSessionState =
 export function useGuestSession(code: string) {
   const [state, setState] = useState<GuestSessionState>({ phase: 'loading' });
 
-  const start = useCallback(async () => {
+  const start = useCallback(async (fresh = false) => {
     setState({ phase: 'loading' });
+    if (fresh) forgetPrefetchedSession();
     try {
+      // Réponse déjà en route depuis le HTML (session-prefetch.ts) ; sinon, chemin habituel.
+      const early = await fromPrefetch(code);
+      if (early === 'expired') storeToken(code, null);
+      else if (early) {
+        if (!early.reused) storeToken(code, early.token);
+        return setState({ phase: 'ready', token: early.token, context: early.context });
+      }
       const stored = readStoredToken(code);
       if (stored) {
         try {
@@ -31,9 +43,9 @@ export function useGuestSession(code: string) {
           storeToken(code, null);
         }
       }
-      const { token, establishment, table, requestTypes, menu, orderingEnabled, pairingsEnabled } = await guestApi.openSession(code);
+      const { token, context } = splitSession(await guestApi.openSession(code));
       storeToken(code, token);
-      setState({ phase: 'ready', token, context: { establishment, table, requestTypes, menu, orderingEnabled, pairingsEnabled } });
+      setState({ phase: 'ready', token, context });
     } catch (error) {
       const http = toHttpError(error);
       const kind = http.status === 404 || http.status === 400 ? 'invalid' : http.status === 429 ? 'busy' : 'network';
@@ -50,6 +62,9 @@ export function useGuestSession(code: string) {
   useEffect(() => {
     void start();
   }, [start]);
+
+  // « Réessayer » et « Rouvrir une session » repartent d'une vraie requête.
+  const retry = useCallback(() => start(true), [start]);
 
   /** La session a été fermée ou a expiré : on oublie le jeton. */
   const markClosed = useCallback(() => {
@@ -68,5 +83,27 @@ export function useGuestSession(code: string) {
     }
   }, [state]);
 
-  return { state, retry: start, markClosed, refresh };
+  return { state, retry, markClosed, refresh };
+}
+
+function splitSession({ token, establishment, table, requestTypes, menu, orderingEnabled, pairingsEnabled }: GuestSession) {
+  return { token, context: { establishment, table, requestTypes, menu, orderingEnabled, pairingsEnabled } satisfies GuestContext };
+}
+
+/**
+ * Exploite la requête anticipée : session prête, jeton mémorisé expiré, ou null (rien d'exploitable,
+ * le chemin habituel refait l'appel). Les schémas sont vérifiés comme pour un appel normal.
+ */
+export async function fromPrefetch(code: string): Promise<{ token: string; context: GuestContext; reused: boolean } | 'expired' | null> {
+  const pending = takePrefetchedSession(code);
+  if (!pending) return null;
+  const { stored, status, body } = await pending;
+  forgetPrefetchedSession();
+  if (stored) {
+    if (status === 401) return 'expired';
+    const context = status === 200 ? guestContextSchema.safeParse(body) : null;
+    return context?.success ? { token: stored, context: context.data, reused: true } : null;
+  }
+  const session = status === 200 || status === 201 ? guestSessionSchema.safeParse(body) : null;
+  return session?.success ? { ...splitSession(session.data), reused: false } : null;
 }

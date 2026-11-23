@@ -7,20 +7,22 @@ import { useMemo, useState, type CSSProperties } from 'react';
 import { RequestCard, type Viewer } from '@/components/pages/requests/request-card';
 import { RequestDialogs, type RequestDialog } from '@/components/pages/requests/request-dialogs';
 import { TableRequestsDialog } from '@/components/pages/requests/table-requests-dialog';
-import { SalesRow } from './sales-row';
+import { PrecisionFlags, precisionLabel } from '@/components/pages/requests/precisions';
+import { CashCards, SalesPeriodFilter } from './sales-row';
 import { TodaySection } from './today-charts';
 import { useActiveRequests, useFloor, useRequestAction } from '@/components/pages/requests/use-requests';
 import { Card, EmptyState, ErrorState, PageHeader, Spinner } from '@/components/ui';
 import { requestIcon } from '@/constants/requests';
-import type { ServiceRequest, Table } from '@/contracts';
+import { isServed, tableLook, TONE_CARD, TONE_LEGEND } from '@/components/pages/tables/tables-logic';
+import type { SalesPeriod, ServiceRequest, Table, TableStatusView } from '@/contracts';
 import { estKey, useEstablishmentId, useLiveRefetchInterval } from '@/hooks/use-establishment';
 import { useNow } from '@/hooks/use-now';
 import { cn } from '@/lib/utils';
-import { analyticsApi } from '@/services/api';
+import { analyticsApi, floorApi } from '@/services/api';
 import { errorMessage } from '@/services/http';
 import { useAuthStore, useMembership } from '@/stores/auth.store';
 import { formatClock, formatDuration, secondsSince } from '@/utils/time';
-import { URGENCY_TILE, urgencyOf, worstUrgency } from '@/utils/urgency';
+import { urgencyOf } from '@/utils/urgency';
 
 export function DashboardPage() {
   const establishmentId = useEstablishmentId();
@@ -40,6 +42,8 @@ export function DashboardPage() {
   const [tableId, setTableId] = useState<string | null>(null);
   // Filtre de zone du plan de salle (« Toutes les zones » par défaut).
   const [areaId, setAreaId] = useState<string>('all');
+  // Spec 024, R3 et spec 026, R7 : période de la rangée « Caisse », choisie dans l'en-tête.
+  const [salesPeriod, setSalesPeriod] = useState<SalesPeriod>('month');
   const planTables = useMemo(
     () => (floor.data ?? []).filter((area) => areaId === 'all' || area.id === areaId).flatMap((area) => area.tables),
     [floor.data, areaId],
@@ -49,6 +53,14 @@ export function DashboardPage() {
     () => ({ id: me?.id ?? '', can: (permission) => membership?.permissions.includes(permission) ?? false }),
     [me, membership],
   );
+  // Spec 023, R6 : occupation et montant des tables, pour « Occupée » et « Servie » (gérant et propriétaire).
+  const overview = useQuery({
+    queryKey: estKey(establishmentId, 'tables-overview'),
+    queryFn: () => floorApi.tablesOverview(establishmentId),
+    enabled: viewer.can('analytics.read'),
+    refetchInterval: Math.min(refetchInterval, 10_000),
+  });
+  const overviewById = useMemo(() => new Map((overview.data?.tables ?? []).map((table) => [table.id, table])), [overview.data]);
   const requests = useMemo(() => active.data?.items ?? [], [active.data]);
   const byTable = useMemo(() => {
     const map = new Map<string, ServiceRequest[]>();
@@ -86,17 +98,16 @@ export function DashboardPage() {
 
   return (
     <>
-      <PageHeader title="Tableau de bord" description="La salle, en ce moment." />
+      <PageHeader title="Tableau de bord" description="La salle, en ce moment." actions={<SalesPeriodFilter period={salesPeriod} onChange={setSalesPeriod} />} />
 
-      <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+      {/* Spec 026, R7 : activité puis caisse, trois cartes par ligne sur grand écran, deux sur téléphone. */}
+      <dl className="grid grid-cols-2 gap-3 lg:grid-cols-3">
         <Stat index={0} label="En attente" value={stats.pending + stats.assigned} hint={stats.oldestPendingSeconds ? `plus ancienne : ${formatDuration(stats.oldestPendingSeconds)}` : 'aucune attente'} />
         <Stat index={1} label="Prises en charge" value={stats.accepted + stats.inProgress} hint={`${stats.inProgress} en cours de traitement`} />
         <Stat index={2} label="En retard" value={stats.late} tone={stats.late > 0 ? 'late' : undefined} hint="délai cible dépassé" />
-        <Stat index={3} label="Escaladées" value={stats.escalated} tone={stats.escalated > 0 ? 'late' : undefined} hint="à acquitter" />
-        <Stat index={4} className="col-span-2 sm:col-span-1" label="Prise en charge médiane" value={formatDuration(stats.today.medianAcceptSeconds)} hint={`aujourd’hui · ${stats.today.total} demandes`} />
+        <CashCards index={3} period={salesPeriod} />
       </dl>
 
-      <SalesRow />
       <TodaySection />
 
       {/* Plan de salle sur deux tiers de la ligne, priorités et équipe sur le tiers restant. */}
@@ -148,7 +159,7 @@ export function DashboardPage() {
               <ul className="mt-4 grid grid-cols-4 gap-2 sm:grid-cols-6 md:grid-cols-8 xl:grid-cols-10">
                 {planTables.map((table, index) => (
                   <li key={table.id} className="stagger animate-item-in" style={{ '--i': Math.min(index, 20) } as CSSProperties}>
-                    <TableTile table={table} requests={byTable.get(table.id) ?? []} now={now} onOpen={() => setTableId(table.id)} />
+                    <TableTile table={table} overview={overviewById.get(table.id)} requests={byTable.get(table.id) ?? []} now={now} onOpen={() => setTableId(table.id)} />
                   </li>
                 ))}
               </ul>
@@ -209,6 +220,7 @@ export function DashboardPage() {
           status={selectedTable.openSessions > 0 || (byTable.get(selectedTable.id)?.length ?? 0) > 0 ? 'occupied' : 'free'}
           requests={byTable.get(selectedTable.id) ?? []}
           canClose={viewer.can('sessions.manage')}
+          canSettle={viewer.can('requests.handle')}
           onClose={() => setTableId(null)}
         >
           {(request) => card(request)}
@@ -239,19 +251,13 @@ function Stat({ label, value, hint, tone, className, index = 0 }: { label: strin
   );
 }
 
+/** Spec 023, R5 et R6 : même légende que la vue « Tables ». */
 function Legend() {
-  const items = [
-    { label: 'Nouvelle', className: 'bg-calm ring-1 ring-line' },
-    { label: 'En attente', className: 'bg-wait' },
-    { label: 'En retard', className: 'bg-late' },
-    { label: 'Prise en charge', className: 'bg-progress-soft ring-1 ring-progress/30' },
-    { label: 'Prête', className: 'bg-done' },
-  ];
   return (
     <ul className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-ink-2" aria-label="Légende">
-      {items.map((item) => (
-        <li key={item.label} className="flex items-center gap-1.5">
-          <span className={cn('size-2.5 rounded-sm', item.className)} aria-hidden />
+      {TONE_LEGEND.map((item) => (
+        <li key={item.tone} className="flex items-center gap-1.5">
+          <span className={cn('size-2.5 rounded-sm', item.swatch)} aria-hidden />
           {item.label}
         </li>
       ))}
@@ -259,21 +265,39 @@ function Legend() {
   );
 }
 
-function TableTile({ table, requests, now, onOpen }: { table: Table; requests: ServiceRequest[]; now: number; onOpen: () => void }) {
-  const urgency = worstUrgency(requests.map((r) => urgencyOf(r, now)));
+function TableTile({
+  table,
+  overview,
+  requests,
+  now,
+  onOpen,
+}: {
+  table: Table;
+  /** Absent pour un serveur (pas d'accès à la vue des tables) : l'occupation se lit alors aux téléphones connectés. */
+  overview?: TableStatusView;
+  requests: ServiceRequest[];
+  now: number;
+  onOpen: () => void;
+}) {
+  const status = overview?.status ?? (table.openSessions > 0 || requests.length > 0 ? 'occupied' : 'free');
+  const look = tableLook(status, requests, now, overview ? isServed(overview, requests.length) : false);
   const oldest = requests.reduce<ServiceRequest | null>((min, r) => (!min || r.createdAt < min.createdAt ? r : min), null);
-  const escalated = requests.some((r) => r.escalationStatus === 'escalated');
+  const escalated = look.escalated;
   return (
     <button
       type="button"
       onClick={onOpen}
-      aria-label={`Table ${table.label}, ${requests.length} demande${requests.length > 1 ? 's' : ''} en cours`}
+      data-tone={look.tone}
+      aria-label={`Table ${table.label}, ${look.label.toLowerCase()}, ${requests.length} demande${requests.length > 1 ? 's' : ''} en cours${precisionLabel(requests.map((request) => request.note).filter(Boolean).join(' · ') || null)}`}
       className={cn(
-        'flex aspect-square w-full flex-col items-center justify-center rounded-lg p-0.5 text-center transition-transform duration-200 ease-apple hover:scale-[1.04] active:scale-95',
-        urgency ? URGENCY_TILE[urgency] : 'bg-surface text-ink-2 ring-1 ring-line ring-inset',
+        'relative flex aspect-square w-full flex-col items-center justify-center rounded-lg p-0.5 text-center transition-transform duration-200 ease-apple hover:scale-[1.04] active:scale-95',
+        // Spec 023, R6 : mêmes fonds que les cartes de la vue « Tables ».
+        TONE_CARD[look.tone],
         escalated && 'animate-attention',
       )}
     >
+      {/* Spec 022, R5 : une demande en cours porte une précision (à emporter, piment). */}
+      <PrecisionFlags notes={requests.map((request) => request.note)} size="sm" className="absolute -top-1.5 -right-1.5 drop-shadow-sm" />
       <span className="tabular max-w-full truncate font-mono text-base leading-none font-semibold">{table.label}</span>
       {oldest ? (
         <>
@@ -286,7 +310,7 @@ function TableTile({ table, requests, now, onOpen }: { table: Table; requests: S
           <span className="tabular mt-0.5 font-mono text-[10px] leading-none opacity-80">{formatClock(secondsSince(oldest.createdAt, now))}</span>
         </>
       ) : (
-        table.openSessions > 0 && <Smartphone className="mt-1 size-3 text-ink-3" aria-label="Client connecté" />
+        table.openSessions > 0 && <Smartphone className="mt-1 size-3 opacity-60" aria-label="Client connecté" />
       )}
     </button>
   );

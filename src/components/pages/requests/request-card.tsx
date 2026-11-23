@@ -9,9 +9,13 @@ import { cn } from '@/lib/utils';
 import type { RequestAction } from '@/services/api';
 import { formatClock, secondsSince } from '@/utils/time';
 import { URGENCY_TILE, urgencyOf } from '@/utils/urgency';
+import { SlideToConfirm } from '@/components/ui/slide-to-confirm';
+import { isUnpaid, slideTone } from '@/components/pages/orders/orders-logic';
 import { capabilitiesOf, type Viewer } from './capabilities';
 import { OrderLines } from './order-lines';
+import { PrecisionBanner, PrecisionFlags, precisionLabel } from './precisions';
 import type { RequestDialog } from './request-dialogs';
+import { useSeparateKitchen } from './use-requests';
 
 export { capabilitiesOf, type Viewer };
 
@@ -26,7 +30,8 @@ interface RequestCardProps {
 
 export function RequestCard({ request, now, viewer, busy, onAction, onDialog }: RequestCardProps) {
   const urgency = urgencyOf(request, now);
-  const caps = capabilitiesOf(request, viewer);
+  const separateKitchen = useSeparateKitchen();
+  const caps = capabilitiesOf(request, viewer, separateKitchen);
   const Icon = requestIcon(request.type.icon);
   const escalated = request.escalationStatus === 'escalated';
   const mine = request.assignee?.id === viewer.id;
@@ -34,7 +39,7 @@ export function RequestCard({ request, now, viewer, busy, onAction, onDialog }: 
 
   return (
     <article
-      aria-label={`Table ${request.table.label}, ${request.type.label}, ${STATUS_LABELS[request.status]}`}
+      aria-label={`Table ${request.table.label}, ${request.type.label}, ${STATUS_LABELS[request.status]}${precisionLabel(request.note)}`}
       className="flex gap-3 rounded-(--radius-card) bg-surface p-3 ring-1 ring-line"
     >
       <div
@@ -59,6 +64,8 @@ export function RequestCard({ request, now, viewer, busy, onAction, onDialog }: 
                 {request.type.label}
                 {request.quantity !== null && <span className="tabular"> × {request.quantity}</span>}
               </span>
+              {/* Spec 022, R4 : repérable sans ouvrir. */}
+              <PrecisionFlags notes={[request.note]} />
             </h3>
             <p className="mt-0.5 truncate text-[13px] text-ink-2">
               {request.area.name}
@@ -75,8 +82,9 @@ export function RequestCard({ request, now, viewer, busy, onAction, onDialog }: 
           </button>
         </div>
 
+        {/* Spec 022, R2 : les précisions avant les plats. */}
+        <PrecisionBanner note={request.note} className="mt-2" />
         {request.type.kind === 'order' && <OrderLines items={request.items} totalMinor={request.totalMinor} compact />}
-        {request.note && <p className="mt-1.5 line-clamp-2 text-sm text-ink">« {request.note} »</p>}
 
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-ink-2">
           {escalated && (
@@ -88,7 +96,7 @@ export function RequestCard({ request, now, viewer, busy, onAction, onDialog }: 
           {request.assignee ? (
             <span className="inline-flex items-center gap-1">
               <UserRound className="size-3.5" aria-hidden />
-              {mine ? 'Vous' : request.assignee.firstName} · {STATUS_LABELS[request.status].toLowerCase()}
+              {mine ? 'Vous' : request.assignee.firstName} · {isUnpaid(request) ? 'servie, à régler' : STATUS_LABELS[request.status].toLowerCase()}
             </span>
           ) : (
             <span>Personne ne s’en occupe encore</span>
@@ -97,15 +105,23 @@ export function RequestCard({ request, now, viewer, busy, onAction, onDialog }: 
 
         {(caps.primary || hasMenu) && (
           <div className="mt-3 flex items-center gap-2">
-            {caps.primary && (
-              <Button
-                className="flex-1 sm:flex-none sm:min-w-36"
-                variant={caps.primary.action === 'resolve' ? 'primary' : 'primary'}
-                loading={busy}
-                onClick={() => onAction(caps.primary!.action)}
-              >
-                {caps.primary.label}
-              </Button>
+            {caps.primary?.gesture === 'slide' ? (
+              // Spec 025, R3 à R6 : prête ou servie se glisse, un toucher ne suffit pas.
+              <SlideToConfirm
+                className="min-w-0 flex-1 sm:max-w-xs"
+                size="md"
+                tone={slideTone(caps.primary.action)}
+                label={caps.primary.label}
+                ariaLabel={`${caps.primary.label}, table ${request.table.label}`}
+                busy={busy}
+                onConfirm={() => onAction(caps.primary!.action)}
+              />
+            ) : (
+              caps.primary && (
+                <Button className="flex-1 sm:flex-none sm:min-w-36" variant="primary" loading={busy} onClick={() => onAction(caps.primary!.action)}>
+                  {caps.primary.label}
+                </Button>
+              )
             )}
             {hasMenu && (
               <Menu.Root>

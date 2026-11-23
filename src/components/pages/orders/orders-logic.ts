@@ -1,18 +1,35 @@
 import type { MenuCategory, ServiceRequest } from '@/contracts';
 import type { RequestAction } from '@/services/api';
 import type { Viewer } from '@/components/pages/requests/capabilities';
+import type { SlideTone } from '@/components/ui/slide-to-confirm';
 
-/** Spec 007 : étapes d'une commande en cours. « Prêtes » n'existe qu'avec une cuisine séparée. */
-export type OrderColumn = 'todo' | 'preparing' | 'ready';
+/** Couleur de la barre à glisser : violet « prête », sombre « régler », vert « servir » (specs 025 et 026). */
+export function slideTone(action: RequestAction): SlideTone {
+  if (action === 'ready') return 'ready';
+  if (action === 'settle') return 'ink';
+  return 'done';
+}
+
+/**
+ * Spec 007 : étapes d'une commande en cours. « Prêtes » n'existe qu'avec une cuisine séparée.
+ * Spec 026, R2 : une commande servie et non réglée reste « À régler ».
+ */
+export type OrderColumn = 'todo' | 'preparing' | 'ready' | 'unpaid';
 
 export const COLUMN_LABELS: Record<OrderColumn, string> = {
   todo: 'À préparer',
   preparing: 'En préparation',
   ready: 'Prêtes',
+  unpaid: 'À régler',
 };
 
 export function columnsFor(separateKitchen: boolean): OrderColumn[] {
-  return separateKitchen ? ['todo', 'preparing', 'ready'] : ['todo', 'preparing'];
+  return separateKitchen ? ['todo', 'preparing', 'ready', 'unpaid'] : ['todo', 'preparing', 'unpaid'];
+}
+
+/** Spec 026, R1 : commande servie et pas encore réglée. */
+export function isUnpaid(request: Pick<ServiceRequest, 'status' | 'type' | 'paidAt'>): boolean {
+  return request.status === 'resolved' && request.type?.kind === 'order' && !request.paidAt;
 }
 
 /** Spec 007, R2 : seulement les commandes passées depuis la carte, pas les appels. */
@@ -20,7 +37,7 @@ export function isOrder(request: Pick<ServiceRequest, 'type'>): boolean {
   return request.type.kind === 'order';
 }
 
-export function columnOf(request: Pick<ServiceRequest, 'status'>): OrderColumn | null {
+export function columnOf(request: Pick<ServiceRequest, 'status'> & Partial<Pick<ServiceRequest, 'paidAt'>>): OrderColumn | null {
   switch (request.status) {
     case 'pending':
     case 'assigned':
@@ -30,6 +47,8 @@ export function columnOf(request: Pick<ServiceRequest, 'status'>): OrderColumn |
       return 'preparing';
     case 'ready':
       return 'ready';
+    case 'resolved':
+      return request.paidAt ? null : 'unpaid';
     default:
       return null;
   }
@@ -37,7 +56,7 @@ export function columnOf(request: Pick<ServiceRequest, 'status'>): OrderColumn |
 
 /** Commandes actives rangées par étape, la plus ancienne en premier : sert aux compteurs du filtre « État ». */
 export function groupOrders(requests: ServiceRequest[], separateKitchen: boolean): Record<OrderColumn, ServiceRequest[]> {
-  const groups: Record<OrderColumn, ServiceRequest[]> = { todo: [], preparing: [], ready: [] };
+  const groups: Record<OrderColumn, ServiceRequest[]> = { todo: [], preparing: [], ready: [], unpaid: [] };
   requests
     .filter(isOrder)
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
@@ -50,32 +69,45 @@ export function groupOrders(requests: ServiceRequest[], separateKitchen: boolean
   return groups;
 }
 
-/** Spec 007, R5 : la couleur suit l'état de la commande (rouge à préparer, orange en préparation, vert prête). */
-export type StepTone = 'red' | 'orange' | 'green';
+/** Spec 007, R5 : la couleur suit l'état de la commande (rouge à préparer, orange en préparation, vert prête). Spec 026 : sombre à régler. */
+export type StepTone = 'red' | 'orange' | 'violet' | 'green' | 'ink';
 
 export interface OrderStep {
   action: RequestAction;
-  label: 'Préparer' | 'Prête' | 'Servie';
+  label: 'Accepter' | 'Préparation' | 'Glisser : prête' | 'Glisser pour servir' | 'Glisser pour régler';
   tone: StepTone;
+  /** Spec 025, R3 à R5 : « prête » et « servie » se glissent ; un toucher ne suffit pas. */
+  gesture: 'tap' | 'slide';
 }
 
+const ACCEPT: OrderStep = { action: 'prepare', label: 'Accepter', tone: 'red', gesture: 'tap' };
+const SERVE: OrderStep = { action: 'resolve', label: 'Glisser pour servir', tone: 'green', gesture: 'slide' };
+
+/**
+ * Étape suivante d'une commande, la même sur l'écran « Commandes » et sur les cartes de « Service » (spec 025).
+ * « Accepter » accepte et démarre en un geste (R1) ; une commande déjà acceptée se démarre par « Préparation » (R2).
+ */
 export function nextStep(request: ServiceRequest, separateKitchen: boolean, viewer: Viewer): OrderStep | null {
   if (!viewer.can('requests.handle')) return null;
   const mine = request.assignee?.id === viewer.id;
   const supervise = viewer.can('requests.assign');
   switch (request.status) {
     case 'pending':
-      return { action: 'prepare', label: 'Préparer', tone: 'red' };
+      return ACCEPT;
     case 'assigned':
-    case 'accepted':
       // Déjà prise par un autre : le serveur répondrait « Déjà prise par … ».
-      return mine ? { action: 'prepare', label: 'Préparer', tone: 'red' } : null;
+      return mine ? ACCEPT : null;
+    case 'accepted':
+      return mine || supervise ? { action: 'start', label: 'Préparation', tone: 'red', gesture: 'tap' } : null;
     case 'in_progress':
       if (!mine && !supervise) return null;
-      return separateKitchen ? { action: 'ready', label: 'Prête', tone: 'orange' } : { action: 'resolve', label: 'Servie', tone: 'orange' };
+      return separateKitchen ? { action: 'ready', label: 'Glisser : prête', tone: 'violet', gesture: 'slide' } : SERVE;
     case 'ready':
       // Le serveur qui sert n'est pas forcément celui qui a préparé.
-      return { action: 'resolve', label: 'Servie', tone: 'green' };
+      return SERVE;
+    case 'resolved':
+      // Spec 026, R2 : n'importe quel membre qui traite les demandes encaisse.
+      return isUnpaid(request) ? { action: 'settle', label: 'Glisser pour régler', tone: 'ink', gesture: 'slide' } : null;
     default:
       return null;
   }
@@ -103,8 +135,9 @@ export function startOfToday(now: number): string {
 }
 
 /** Pastille d'état de la carte (R4), même couleur que le bouton d'étape (R5). */
-export const COLUMN_TONE: Record<OrderColumn, StepTone> = { todo: 'red', preparing: 'orange', ready: 'green' };
-export const STATUS_PILL: Record<OrderColumn, string> = { todo: 'À préparer', preparing: 'En préparation', ready: 'Prête' };
+/** Spec 023, Q2 : « Prête » en violet ; le vert reste au bouton « Servie », qui mène à l'état « Servie ». */
+export const COLUMN_TONE: Record<OrderColumn, StepTone> = { todo: 'red', preparing: 'orange', ready: 'violet', unpaid: 'ink' };
+export const STATUS_PILL: Record<OrderColumn, string> = { todo: 'À préparer', preparing: 'En préparation', ready: 'Prête', unpaid: 'Servie · À régler' };
 
 /** Spec 007, R11 : recherche et filtres de l'écran « Commandes ». */
 export type WhoFilter = 'all' | 'mine' | 'nobody';
@@ -148,5 +181,5 @@ export function filterOrders<T extends Pick<ServiceRequest, 'table' | 'area' | '
  */
 export function liveGrid(groups: Record<OrderColumn, ServiceRequest[]>, status: OrderColumn | 'all'): ServiceRequest[] {
   if (status !== 'all') return groups[status];
-  return [...groups.todo, ...groups.preparing, ...groups.ready].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  return [...groups.todo, ...groups.preparing, ...groups.ready, ...groups.unpaid].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }

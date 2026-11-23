@@ -77,6 +77,8 @@ export interface ServiceRequest {
   resolvedAt: string | null;
   cancelledAt: string | null;
   escalatedAt: string | null;
+  /** Spec 026 : commande servie réglée ; null = à régler (ou pas encore servie). */
+  paidAt?: string | null;
 }
 
 export interface RequestEvent {
@@ -121,6 +123,8 @@ export interface TableStatusView {
   status: TableStatus;
   /** Commandes non annulées depuis l'arrivée des clients, en unité mineure. NULL si la table est libre. */
   amountMinor: number | null;
+  /** Spec 026 : commandes servies non réglées de l'occupation. NULL si la table est libre. */
+  unpaidMinor?: number | null;
 }
 
 /** Spec 020 : une commande de l'occupation en cours. */
@@ -129,7 +133,10 @@ export interface OccupationOrder {
   status: RequestStatus;
   createdAt: string;
   resolvedAt: string | null;
+  /** Spec 026 : commande servie réglée, sinon null. */
+  paidAt?: string | null;
   totalMinor: number;
+  note: string | null;
   items: { menuItemId: string; name: string; quantity: number; unitPriceMinor: number; imageId: string | null }[];
 }
 
@@ -140,6 +147,8 @@ export interface TableOccupation {
   occupiedSince: string | null;
   openSessions: number;
   amountMinor: number | null;
+  /** Spec 026, R4 : servi et non réglé pendant l'occupation. */
+  unpaidMinor?: number | null;
   lastOccupiedAt: string | null;
   orders: OccupationOrder[];
 }
@@ -311,6 +320,9 @@ export interface SalesFigures {
   orders: number;
   passages: number;
   averageMinor: number | null;
+  /** Spec 026, R7 : réglé pendant la période. */
+  paidMinor: number;
+  paidOrders: number;
 }
 
 export interface SalesOverview {
@@ -319,6 +331,8 @@ export interface SalesOverview {
   from: string;
   current: SalesFigures;
   previous: SalesFigures;
+  /** Spec 026, R7 : servi et non réglé, toutes dates. */
+  outstanding: { amountMinor: number; orders: number; tables: number };
 }
 
 export interface TodayOverview {
@@ -438,6 +452,8 @@ export const guestRequestSchema = z.object({
   startedAt: z.string().nullable(),
   resolvedAt: z.string().nullable(),
   cancelledAt: z.string().nullable(),
+  /** Spec 026, R8 : commande réglée. */
+  paidAt: z.string().nullable().optional(),
 });
 export const guestRequestListSchema = z.array(guestRequestSchema);
 export const guestCreateResultSchema = z.object({ request: guestRequestSchema, deduplicated: z.boolean() });

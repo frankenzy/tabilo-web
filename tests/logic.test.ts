@@ -59,6 +59,15 @@ describe('actions proposées sur une demande', () => {
     expect(capabilitiesOf(request({ status: 'assigned', assignee: colleague }), waiter).primary).toBeNull();
   });
 
+  it('CA-025-06 — une commande acceptée se démarre par « Préparation » ; une autre demande garde Commencer puis Terminer', () => {
+    const me = { ...colleague, id: 'w1' };
+    const type = (kind: 'order' | 'service') => ({ id: 't', label: 'x', icon: 'x', kind });
+    expect(capabilitiesOf(request({ status: 'accepted', assignee: me, type: type('order') }), waiter).primary).toMatchObject({ action: 'start', label: 'Préparation', gesture: 'tap' });
+    expect(capabilitiesOf(request({ status: 'pending', type: type('service') }), waiter).primary).toEqual({ action: 'accept', label: 'Accepter', gesture: 'tap' });
+    expect(capabilitiesOf(request({ status: 'accepted', assignee: me, type: type('service') }), waiter).primary).toEqual({ action: 'start', label: 'Commencer', gesture: 'tap' });
+    expect(capabilitiesOf(request({ status: 'in_progress', assignee: me, type: type('service') }), waiter).primary).toEqual({ action: 'resolve', label: 'Terminer', gesture: 'tap' });
+  });
+
   it('réserve affectation, annulation et acquittement à la supervision', () => {
     const escalated = request({ escalationStatus: 'escalated' });
     expect(capabilitiesOf(escalated, waiter)).toMatchObject({ assign: false, cancel: false, acknowledge: false });

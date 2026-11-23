@@ -6,7 +6,7 @@ import { io } from 'socket.io-client';
 import type { RequestChangedEvent } from '@/contracts';
 import { estKey } from '@/hooks/use-establishment';
 import { getAccessToken, onAccessTokenChange, refreshAccessToken } from '@/services/auth/auth-token';
-import { API_URL } from '@/services/http';
+import { REALTIME_URL } from '@/services/http';
 import { useAuthStore } from '@/stores/auth.store';
 import { useRealtimeStore } from '@/stores/realtime.store';
 import { toast } from '@/stores/toast.store';
@@ -27,7 +27,7 @@ export function useStaffRealtime(establishmentId: string): void {
 
   useEffect(() => {
     const seen = new Set<string>();
-    const socket = io(API_URL, {
+    const socket = io(REALTIME_URL, {
       transports: ['websocket', 'polling'],
       auth: (callback) => callback({ token: getAccessToken(), establishmentId }),
       reconnectionDelay: 1000,
@@ -62,6 +62,8 @@ export function useStaffRealtime(establishmentId: string): void {
       // Spec 008 : graphique par heure et top 3 du tableau de bord.
       void queryClient.invalidateQueries({ queryKey: estKey(establishmentId, 'today') });
       void queryClient.invalidateQueries({ queryKey: estKey(establishmentId, 'notifications') });
+      // Spec 026, R9 : un règlement fait ailleurs met à jour la fiche de table ouverte.
+      void queryClient.invalidateQueries({ queryKey: estKey(establishmentId, 'table-occupation') });
 
       const { me, establishmentId: current } = useAuthStore.getState();
       const permissions = me?.memberships.find((m) => m.establishment.id === current)?.permissions ?? [];

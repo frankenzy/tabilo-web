@@ -69,6 +69,11 @@ export function servedTotal(requests: Pick<GuestRequest, 'status' | 'totalMinor'
   return requests.reduce((sum, r) => (r.type.kind === 'order' && r.status === 'resolved' ? sum + (r.totalMinor ?? 0) : sum), 0);
 }
 
+/** Spec 026, R8 : servi et pas encore réglé. */
+export function unpaidTotal(requests: Pick<GuestRequest, 'status' | 'totalMinor' | 'type' | 'paidAt'>[]): number {
+  return requests.reduce((sum, r) => (r.type.kind === 'order' && r.status === 'resolved' && !r.paidAt ? sum + (r.totalMinor ?? 0) : sum), 0);
+}
+
 /** R4 : ce que « Recommander » ajoute au panier — les plats encore disponibles, avec leur quantité. */
 export function reorderLines(
   request: Pick<GuestRequest, 'items'>,
@@ -87,4 +92,50 @@ export function mergeIntoCart(cart: Record<string, number>, lines: { itemId: str
   const next = { ...cart };
   for (const { itemId, quantity } of lines) next[itemId] = (next[itemId] ?? 0) + quantity;
   return next;
+}
+
+// ------------------------------------------------------------- spec 022 : précisions côté personnel
+
+export type Precision = (typeof PRECISIONS)[number];
+/** Spec 022, R3 et R3 bis : « À emporter » ressort en bleu, le piment en rouge, le reste en ambré. */
+export type PrecisionTone = 'takeaway' | 'spicy' | 'default';
+
+export function precisionTone(key: string): PrecisionTone {
+  if (key === 'a-emporter') return 'takeaway';
+  if (key === 'sans-piment' || key === 'peu-pimente') return 'spicy';
+  return 'default';
+}
+
+export interface ParsedNote {
+  /** Pastilles reconnues (spec 013), dans l'ordre de la note. */
+  precisions: Precision[];
+  /** Texte libre restant, ou null. */
+  free: string | null;
+  takeaway: boolean;
+  spicy: boolean;
+}
+
+/**
+ * Spec 022, R1 : la note composée « Sans piment · À emporter · sauce à part » redevient des pastilles et un texte libre.
+ * Une note sans pastille reconnue (écrite avant la spec 013) reste entièrement du texte libre.
+ */
+export function parseNote(note: string | null | undefined): ParsedNote | null {
+  const text = note?.trim();
+  if (!text) return null;
+  const byLabel = new Map(PRECISIONS.map((precision) => [precision.label.toLowerCase(), precision]));
+  const precisions: Precision[] = [];
+  const rest: string[] = [];
+  for (const part of text.split('·').map((piece) => piece.trim()).filter(Boolean)) {
+    const match = byLabel.get(part.toLowerCase());
+    if (match && !precisions.includes(match)) precisions.push(match);
+    else if (!match) rest.push(part);
+  }
+  const tones = precisions.map((precision) => precisionTone(precision.key));
+  return { precisions, free: rest.length > 0 ? rest.join(' · ') : null, takeaway: tones.includes('takeaway'), spicy: tones.includes('spicy') };
+}
+
+/** Spec 022, R4 et R5 : ce que l'on signale sur une commande ou une table (plusieurs notes réunies). */
+export function noteFlags(notes: (string | null | undefined)[]): { any: boolean; takeaway: boolean; spicy: boolean } {
+  const parsed = notes.map(parseNote).filter((value): value is ParsedNote => value !== null);
+  return { any: parsed.length > 0, takeaway: parsed.some((value) => value.takeaway), spicy: parsed.some((value) => value.spicy) };
 }

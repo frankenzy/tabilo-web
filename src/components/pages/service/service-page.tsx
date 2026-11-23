@@ -4,7 +4,7 @@ import { CheckCheck, Plus } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { RequestCard, type Viewer } from '@/components/pages/requests/request-card';
 import { RequestDialogs, type RequestDialog } from '@/components/pages/requests/request-dialogs';
-import { useActiveRequests, useRequestAction } from '@/components/pages/requests/use-requests';
+import { useActiveRequests, useRequestAction, useUnpaidOrders } from '@/components/pages/requests/use-requests';
 import { Button, EmptyState, ErrorState, PageHeader, Spinner, Tabs } from '@/components/ui';
 import type { ServiceRequest } from '@/contracts';
 import { useNow } from '@/hooks/use-now';
@@ -12,7 +12,7 @@ import { cn } from '@/lib/utils';
 import { errorMessage } from '@/services/http';
 import { useAuthStore, useMembership } from '@/stores/auth.store';
 
-type Tab = 'todo' | 'mine' | 'all';
+type Tab = 'todo' | 'mine' | 'all' | 'unpaid';
 
 /** Ordre de traitement : prioritaires d'abord, puis les plus anciennes. */
 function byUrgency(a: ServiceRequest, b: ServiceRequest): number {
@@ -24,6 +24,8 @@ export function ServicePage() {
   const me = useAuthStore((state) => state.me);
   const membership = useMembership();
   const { data, isPending, isError, error, refetch } = useActiveRequests();
+  // Spec 026, R3 : commandes servies et non réglées.
+  const unpaid = useUnpaidOrders();
   const action = useRequestAction();
   const now = useNow();
   const [tab, setTab] = useState<Tab>('todo');
@@ -41,14 +43,15 @@ export function ServicePage() {
       todo: requests.filter((r) => r.status === 'pending' || (r.status === 'assigned' && r.assignee?.id === viewer.id)),
       mine: requests.filter((r) => r.assignee?.id === viewer.id && (r.status === 'accepted' || r.status === 'in_progress')),
       all: requests,
+      unpaid: unpaid.data?.items ?? [],
     }),
-    [requests, viewer.id],
+    [requests, unpaid.data, viewer.id],
   );
   const areas = useMemo(() => {
     const map = new Map<string, string>();
-    requests.forEach((r) => map.set(r.area.id, r.area.name));
+    [...requests, ...(unpaid.data?.items ?? [])].forEach((r) => map.set(r.area.id, r.area.name));
     return [...map].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
-  }, [requests]);
+  }, [requests, unpaid.data]);
 
   const visible = groups[tab].filter((r) => !areaId || r.area.id === areaId);
   const truncated = (data?.total ?? 0) > requests.length;
@@ -76,6 +79,7 @@ export function ServicePage() {
           { value: 'todo', label: 'À prendre', count: groups.todo.length },
           { value: 'mine', label: 'Les miennes', count: groups.mine.length },
           { value: 'all', label: 'Toutes', count: groups.all.length },
+          { value: 'unpaid', label: 'À régler', count: groups.unpaid.length },
         ]}
       />
 
@@ -106,7 +110,9 @@ export function ServicePage() {
         ) : visible.length === 0 ? (
           <EmptyState
             icon={<CheckCheck className="size-6" aria-hidden />}
-            title={tab === 'mine' ? 'Vous n’avez aucune demande en cours' : tab === 'todo' ? 'Rien à prendre pour l’instant' : 'Aucune demande en cours'}
+            title={
+              tab === 'unpaid' ? 'Tout est réglé' : tab === 'mine' ? 'Vous n’avez aucune demande en cours' : tab === 'todo' ? 'Rien à prendre pour l’instant' : 'Aucune demande en cours'
+            }
             description={tab === 'todo' ? 'Les nouvelles demandes apparaissent ici dès qu’un client en fait une.' : undefined}
           />
         ) : (

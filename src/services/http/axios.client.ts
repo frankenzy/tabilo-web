@@ -21,6 +21,12 @@ function resolveApiUrl(): string {
 export const API_URL = resolveApiUrl();
 export const API_BASE = `${API_URL}/api/v1`;
 
+/**
+ * Adresse du temps réel (Socket.IO). Par défaut celle de l'API. Elle diffère quand l'API passe par le proxy
+ * du frontend (hébergement Vercel : `/api` relayé vers l'API, mais pas les WebSockets).
+ */
+export const REALTIME_URL = (process.env.NEXT_PUBLIC_REALTIME_URL ?? '').replace(/\/$/, '') || API_URL;
+
 /** Erreur normalisée : tout appelant reçoit un message lisible et un code stable. */
 export class HttpError extends Error {
   constructor(

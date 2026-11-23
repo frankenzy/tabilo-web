@@ -7,14 +7,15 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Button, FormError, Textarea } from '@/components/ui';
 import type { GuestContext, GuestRequest, MenuCategory, MenuItem, OrderLine } from '@/contracts';
 import { CategoryImage } from '@/components/pages/menu/category-image';
-import { cn } from '@/lib/utils';
+import { cn, randomId } from '@/lib/utils';
 import { menuImageUrl } from '@/services/api';
 import { guestApi } from '@/services/api/guest';
 import { errorMessage, toHttpError } from '@/services/http';
 import { formatMoney } from '@/utils/money';
 import { cartLines, MAX_QUANTITY, type Cart, type OrderDetails } from './cart';
 import { CART_BUMP, CART_TARGET_ATTR, flyToCart, haptic } from './fly-to-cart';
-import { CancelOrderButton, composeNote, OrderTracker, PrecisionChips, SlideToConfirm, SuccessCheck, TableBadge } from './order-flow';
+import { CancelOrderButton, composeNote, OrderTracker, PrecisionChips, SuccessCheck, TableBadge } from './order-flow';
+import { SlideToConfirm } from '@/components/ui/slide-to-confirm';
 import { prefersReducedMotion, usePhotoTint } from './photo-tint';
 import { guestRequestsKey, upsert } from './use-guest-requests';
 
@@ -215,65 +216,65 @@ export function MenuView({ context, cart, onQuantity, action, banner, leadingTil
         <nav aria-label="Rubriques de la carte" className="flex items-stretch">
           {/* Rangée défilante, prête pour beaucoup de rubriques : fondus sur les bords, molette, arrêt net sur une tuile, flèches au survol. */}
           <div className="group/row relative min-w-0 flex-1">
-          <div
-            ref={row}
-            onScroll={measureRow}
-            className="-mx-1 flex snap-x snap-proximity scroll-px-1 gap-1 overflow-x-auto overscroll-x-contain scroll-smooth px-1 pt-3 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&>*]:snap-start"
-            style={{
-              maskImage: `linear-gradient(to right, ${edges.left ? 'transparent 0, black 28px' : 'black 0'}, ${edges.right ? 'black calc(100% - 28px), transparent 100%' : 'black 100%'})`,
-              WebkitMaskImage: `linear-gradient(to right, ${edges.left ? 'transparent 0, black 28px' : 'black 0'}, ${edges.right ? 'black calc(100% - 28px), transparent 100%' : 'black 100%'})`,
-            }}
-          >
-            {leadingTile}
-            {context.menu.map((category) => (
-              <button
-                key={category.id}
-                ref={(element) => {
-                  if (element) chips.current.set(category.id, element);
-                }}
-                type="button"
-                aria-current={active === category.id ? 'true' : undefined}
-                onClick={() => {
-                  setQuery('');
-                  setActive(category.id);
-                  // Après l'effacement de la recherche, la rubrique est de nouveau dans la page.
-                  requestAnimationFrame(() => sections.current.get(category.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
-                }}
-                aria-label={category.name}
-                className="flex w-16 shrink-0 flex-col items-center gap-1"
-              >
-                {/* Image d'abord : beaucoup de clients ne lisent pas (spec 003). */}
-                <span
+            <div
+              ref={row}
+              onScroll={measureRow}
+              className="-mx-1 flex snap-x snap-proximity scroll-px-1 gap-1 overflow-x-auto overscroll-x-contain scroll-smooth px-1 pt-3 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&>*]:snap-start"
+              style={{
+                maskImage: `linear-gradient(to right, ${edges.left ? 'transparent 0, black 28px' : 'black 0'}, ${edges.right ? 'black calc(100% - 28px), transparent 100%' : 'black 100%'})`,
+                WebkitMaskImage: `linear-gradient(to right, ${edges.left ? 'transparent 0, black 28px' : 'black 0'}, ${edges.right ? 'black calc(100% - 28px), transparent 100%' : 'black 100%'})`,
+              }}
+            >
+              {leadingTile}
+              {context.menu.map((category) => (
+                <button
+                  key={category.id}
+                  ref={(element) => {
+                    if (element) chips.current.set(category.id, element);
+                  }}
+                  type="button"
+                  aria-current={active === category.id ? 'true' : undefined}
+                  onClick={() => {
+                    setQuery('');
+                    setActive(category.id);
+                    // Après l'effacement de la recherche, la rubrique est de nouveau dans la page.
+                    requestAnimationFrame(() => sections.current.get(category.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+                  }}
+                  aria-label={category.name}
+                  className="flex w-16 shrink-0 flex-col items-center gap-1"
+                >
+                  {/* Image d'abord : beaucoup de clients ne lisent pas (spec 003). */}
+                  <span
+                    className={cn(
+                      'grid size-12 place-items-center overflow-hidden rounded-xl bg-surface shadow-sm transition-shadow',
+                      active === category.id ? 'ring-2 ring-ink ring-offset-2 ring-offset-paper' : 'ring-1 ring-line',
+                    )}
+                  >
+                    <CategoryImage icon={category.icon} imageId={category.imageId} name="" className="size-full bg-surface" iconClassName="size-6" />
+                  </span>
+                  <span className={cn('w-full truncate text-center text-[11px] leading-tight', active === category.id ? 'font-semibold text-ink' : 'text-ink-2')}>
+                    {category.name}
+                  </span>
+                </button>
+              ))}
+            </div>
+            {(['left', 'right'] as const).map((side) =>
+              edges[side] ? (
+                <button
+                  key={side}
+                  type="button"
+                  tabIndex={-1}
+                  aria-hidden
+                  onClick={() => row.current?.scrollBy({ left: (side === 'left' ? -1 : 1) * row.current.clientWidth * 0.8, behavior: 'smooth' })}
                   className={cn(
-                    'grid size-12 place-items-center overflow-hidden rounded-xl bg-surface shadow-sm transition-shadow',
-                    active === category.id ? 'ring-2 ring-ink ring-offset-2 ring-offset-paper' : 'ring-1 ring-line',
+                    'absolute top-[1.35rem] z-10 hidden size-8 place-items-center rounded-full bg-surface/95 text-ink shadow-md ring-1 ring-line opacity-0 transition-opacity duration-300 ease-apple group-hover/row:opacity-100 [@media(hover:hover)]:grid',
+                    side === 'left' ? 'left-0' : 'right-0',
                   )}
                 >
-                  <CategoryImage icon={category.icon} imageId={category.imageId} name="" className="size-full bg-surface" iconClassName="size-6" />
-                </span>
-                <span className={cn('w-full truncate text-center text-[11px] leading-tight', active === category.id ? 'font-semibold text-ink' : 'text-ink-2')}>
-                  {category.name}
-                </span>
-              </button>
-            ))}
-          </div>
-          {(['left', 'right'] as const).map((side) =>
-            edges[side] ? (
-              <button
-                key={side}
-                type="button"
-                tabIndex={-1}
-                aria-hidden
-                onClick={() => row.current?.scrollBy({ left: (side === 'left' ? -1 : 1) * row.current.clientWidth * 0.8, behavior: 'smooth' })}
-                className={cn(
-                  'absolute top-[1.35rem] z-10 hidden size-8 place-items-center rounded-full bg-surface/95 text-ink shadow-md ring-1 ring-line opacity-0 transition-opacity duration-300 ease-apple group-hover/row:opacity-100 [@media(hover:hover)]:grid',
-                  side === 'left' ? 'left-0' : 'right-0',
-                )}
-              >
-                {side === 'left' ? <ChevronLeft className="size-4" /> : <ChevronRight className="size-4" />}
-              </button>
-            ) : null,
-          )}
+                  {side === 'left' ? <ChevronLeft className="size-4" /> : <ChevronRight className="size-4" />}
+                </button>
+              ) : null,
+            )}
           </div>
           {trailingTile && (
             // Isolée des rubriques par un trait fin, et fixe pendant leur défilement.
@@ -581,126 +582,126 @@ function ItemSheet({
               )}
             </div>
             <div className="relative flex min-h-0 flex-1 flex-col">
-            <DialogPrimitive.Close
-              className="absolute top-3 right-3 z-10 hidden size-9 place-items-center rounded-full bg-sunken text-ink-2 transition-transform duration-200 ease-apple active:scale-90 lg:grid"
-              aria-label="Fermer"
-            >
-              <X className="size-5" aria-hidden />
-            </DialogPrimitive.Close>
-            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain" onScroll={(event) => !calm && setScroll(event.currentTarget.scrollTop)}>
-              {/* Photo : zone de saisie du geste « tirer pour fermer ». */}
-              <div
-                ref={photo}
-                className="relative touch-none overflow-hidden select-none lg:hidden"
-                onPointerDown={onPointerDown}
-                onPointerMove={onPointerMove}
-                onPointerUp={onPointerUp}
-                onPointerCancel={onPointerUp}
-                onDragStart={(event) => event.preventDefault()}
+              <DialogPrimitive.Close
+                className="absolute top-3 right-3 z-10 hidden size-9 place-items-center rounded-full bg-sunken text-ink-2 transition-transform duration-200 ease-apple active:scale-90 lg:grid"
+                aria-label="Fermer"
               >
-                <div style={{ transform: `translateY(${scroll * 0.4}px) scale(${1 + Math.min(scroll, 200) / 2000})` }}>
-                  <ItemPhoto item={item} dimmed={!item.isAvailable} className="aspect-[4/3] max-h-[46dvh] w-full text-5xl" />
-                </div>
-                <span className="absolute top-2 left-1/2 h-1.5 w-10 -translate-x-1/2 rounded-full bg-white/80 shadow-sm" aria-hidden />
-                <DialogPrimitive.Close
-                  className="absolute top-3 right-3 grid size-9 place-items-center rounded-full bg-black/35 text-white backdrop-blur-md transition-transform duration-200 ease-apple active:scale-90"
-                  aria-label="Fermer"
-                  onPointerDown={(event) => event.stopPropagation()}
+                <X className="size-5" aria-hidden />
+              </DialogPrimitive.Close>
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain" onScroll={(event) => !calm && setScroll(event.currentTarget.scrollTop)}>
+                {/* Photo : zone de saisie du geste « tirer pour fermer ». */}
+                <div
+                  ref={photo}
+                  className="relative touch-none overflow-hidden select-none lg:hidden"
+                  onPointerDown={onPointerDown}
+                  onPointerMove={onPointerMove}
+                  onPointerUp={onPointerUp}
+                  onPointerCancel={onPointerUp}
+                  onDragStart={(event) => event.preventDefault()}
                 >
-                  <X className="size-5" aria-hidden />
-                </DialogPrimitive.Close>
-                {inCart > 0 && item.isAvailable && (
-                  <span className="absolute bottom-3 left-3 inline-flex animate-pop-in items-center gap-1.5 rounded-full bg-done px-3 py-1 text-[13px] font-semibold text-white shadow-md">
-                    <Check className="size-4" strokeWidth={3} aria-hidden />
-                    {inCart} dans votre commande
-                  </span>
-                )}
-                {!item.isAvailable && (
-                  <span className="absolute inset-0 grid place-items-center" aria-hidden>
-                    <span className="grid size-20 place-items-center rounded-full bg-black/45 text-white backdrop-blur-md">
-                      <Ban className="size-10" />
+                  <div style={{ transform: `translateY(${scroll * 0.4}px) scale(${1 + Math.min(scroll, 200) / 2000})` }}>
+                    <ItemPhoto item={item} dimmed={!item.isAvailable} className="aspect-[4/3] max-h-[46dvh] w-full text-5xl" />
+                  </div>
+                  <span className="absolute top-2 left-1/2 h-1.5 w-10 -translate-x-1/2 rounded-full bg-white/80 shadow-sm" aria-hidden />
+                  <DialogPrimitive.Close
+                    className="absolute top-3 right-3 grid size-9 place-items-center rounded-full bg-black/35 text-white backdrop-blur-md transition-transform duration-200 ease-apple active:scale-90"
+                    aria-label="Fermer"
+                    onPointerDown={(event) => event.stopPropagation()}
+                  >
+                    <X className="size-5" aria-hidden />
+                  </DialogPrimitive.Close>
+                  {inCart > 0 && item.isAvailable && (
+                    <span className="absolute bottom-3 left-3 inline-flex animate-pop-in items-center gap-1.5 rounded-full bg-done px-3 py-1 text-[13px] font-semibold text-white shadow-md">
+                      <Check className="size-4" strokeWidth={3} aria-hidden />
+                      {inCart} dans votre commande
                     </span>
-                  </span>
-                )}
+                  )}
+                  {!item.isAvailable && (
+                    <span className="absolute inset-0 grid place-items-center" aria-hidden>
+                      <span className="grid size-20 place-items-center rounded-full bg-black/45 text-white backdrop-blur-md">
+                        <Ban className="size-10" />
+                      </span>
+                    </span>
+                  )}
+                </div>
+
+                <div
+                  className="relative px-5 pt-4 pb-6 lg:pt-6 lg:pr-14"
+                  // Dégradé : la couleur de la photo se prolonge sous le titre, puis s'efface.
+                  style={{ background: tint ? `linear-gradient(to bottom, color-mix(in srgb, ${tint} 16%, var(--color-surface)), transparent 70%)` : undefined }}
+                >
+                  <div className="flex items-baseline justify-between gap-3">
+                    <DialogPrimitive.Title className="min-w-0 text-[22px] leading-tight font-semibold tracking-tight text-ink">{item.name}</DialogPrimitive.Title>
+                    <p className="tabular shrink-0 text-[19px] font-semibold text-brand-strong">{formatMoney(item.priceMinor, currency)}</p>
+                  </div>
+                  {item.description && <p className="mt-2 text-sm leading-relaxed text-ink-3">{item.description}</p>}
+                  {canOrder && (
+                    <div className="mt-5 flex min-h-12 items-center justify-between gap-3 rounded-2xl bg-sunken/70 py-2 pr-2 pl-3">
+                      <QuantityThumbnails item={item} quantity={quantity} />
+                      <div className="flex shrink-0 items-center gap-1 rounded-full bg-surface p-1 shadow-sm ring-1 ring-line">
+                        <button
+                          type="button"
+                          onClick={() => change(quantity - 1)}
+                          disabled={quantity <= (inCart > 0 ? 0 : 1)}
+                          aria-label={`Retirer un ${item.name}`}
+                          className="grid size-10 place-items-center rounded-full text-ink transition-[transform,background-color] duration-200 ease-apple hover:bg-sunken active:scale-90 disabled:opacity-30"
+                        >
+                          <Minus className="size-5" aria-hidden />
+                        </button>
+                        <span className="tabular grid w-8 place-items-center overflow-hidden text-lg font-semibold text-ink" aria-live="polite" aria-label={`${quantity} ${item.name}`}>
+                          <span key={quantity} className="animate-number-in">
+                            {quantity}
+                          </span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => change(quantity + 1)}
+                          disabled={quantity >= MAX_QUANTITY}
+                          aria-label={`Ajouter un ${item.name}`}
+                          className="grid size-10 place-items-center rounded-full bg-ink text-white transition-transform duration-200 ease-apple active:scale-90 disabled:opacity-30"
+                        >
+                          <Plus className="size-5" aria-hidden />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {/* R7 : après le choix du plat principal, les plats souvent pris avec lui. */}
+                  {canOrder && pairings}
+                </div>
               </div>
 
+              {/* R3 : barre d'action, toujours visible, au-dessus des barres du téléphone. */}
               <div
-                className="relative px-5 pt-4 pb-6 lg:pt-6 lg:pr-14"
-                // Dégradé : la couleur de la photo se prolonge sous le titre, puis s'efface.
-                style={{ background: tint ? `linear-gradient(to bottom, color-mix(in srgb, ${tint} 16%, var(--color-surface)), transparent 70%)` : undefined }}
+                className="border-t border-line/70 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur-md"
+                style={{ backgroundColor: tint ? `color-mix(in srgb, color-mix(in srgb, ${tint} 8%, var(--color-surface)) 90%, transparent)` : 'color-mix(in srgb, var(--color-surface) 90%, transparent)' }}
               >
-                <div className="flex items-baseline justify-between gap-3">
-                  <DialogPrimitive.Title className="min-w-0 text-[22px] leading-tight font-semibold tracking-tight text-ink">{item.name}</DialogPrimitive.Title>
-                  <p className="tabular shrink-0 text-[19px] font-semibold text-brand-strong">{formatMoney(item.priceMinor, currency)}</p>
-                </div>
-                {item.description && <p className="mt-2 text-sm leading-relaxed text-ink-3">{item.description}</p>}
-                {canOrder && (
-                  <div className="mt-5 flex min-h-12 items-center justify-between gap-3 rounded-2xl bg-sunken/70 py-2 pr-2 pl-3">
-                    <QuantityThumbnails item={item} quantity={quantity} />
-                    <div className="flex shrink-0 items-center gap-1 rounded-full bg-surface p-1 shadow-sm ring-1 ring-line">
-                      <button
-                        type="button"
-                        onClick={() => change(quantity - 1)}
-                        disabled={quantity <= (inCart > 0 ? 0 : 1)}
-                        aria-label={`Retirer un ${item.name}`}
-                        className="grid size-10 place-items-center rounded-full text-ink transition-[transform,background-color] duration-200 ease-apple hover:bg-sunken active:scale-90 disabled:opacity-30"
-                      >
-                        <Minus className="size-5" aria-hidden />
-                      </button>
-                      <span className="tabular grid w-8 place-items-center overflow-hidden text-lg font-semibold text-ink" aria-live="polite" aria-label={`${quantity} ${item.name}`}>
-                        <span key={quantity} className="animate-number-in">
-                          {quantity}
+                {!item.isAvailable ? (
+                  <p className="flex h-14 items-center justify-center gap-2 rounded-full bg-sunken text-[15px] font-semibold text-ink-2">
+                    <Ban className="size-5" aria-hidden />
+                    Épuisé pour le moment
+                  </p>
+                ) : canOrder ? (
+                  <button
+                    type="button"
+                    onClick={save}
+                    className={cn(
+                      'flex h-14 w-full items-center justify-center gap-2 rounded-full px-5 text-[17px] font-semibold text-white shadow-[0_10px_24px_-10px_rgb(27_25_23/0.6)] transition-[transform,background-color] duration-300 ease-apple active:scale-[0.98]',
+                      label === 'Retirer' ? 'bg-late' : 'bg-ink',
+                    )}
+                  >
+                    {label === 'Retirer' && <Trash2 className="size-5 shrink-0" aria-hidden />}
+                    <span>{label}</span>
+                    {quantity > 0 && (
+                      <span className="tabular overflow-hidden font-normal opacity-85">
+                        ·{' '}
+                        <span key={total} className="inline-block animate-number-in">
+                          {total}
                         </span>
                       </span>
-                      <button
-                        type="button"
-                        onClick={() => change(quantity + 1)}
-                        disabled={quantity >= MAX_QUANTITY}
-                        aria-label={`Ajouter un ${item.name}`}
-                        className="grid size-10 place-items-center rounded-full bg-ink text-white transition-transform duration-200 ease-apple active:scale-90 disabled:opacity-30"
-                      >
-                        <Plus className="size-5" aria-hidden />
-                      </button>
-                    </div>
-                  </div>
-                )}
-                {/* R7 : après le choix du plat principal, les plats souvent pris avec lui. */}
-                {canOrder && pairings}
+                    )}
+                  </button>
+                ) : null}
               </div>
-            </div>
-
-            {/* R3 : barre d'action, toujours visible, au-dessus des barres du téléphone. */}
-            <div
-              className="border-t border-line/70 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur-md"
-              style={{ backgroundColor: tint ? `color-mix(in srgb, color-mix(in srgb, ${tint} 8%, var(--color-surface)) 90%, transparent)` : 'color-mix(in srgb, var(--color-surface) 90%, transparent)' }}
-            >
-              {!item.isAvailable ? (
-                <p className="flex h-14 items-center justify-center gap-2 rounded-full bg-sunken text-[15px] font-semibold text-ink-2">
-                  <Ban className="size-5" aria-hidden />
-                  Épuisé pour le moment
-                </p>
-              ) : canOrder ? (
-                <button
-                  type="button"
-                  onClick={save}
-                  className={cn(
-                    'flex h-14 w-full items-center justify-center gap-2 rounded-full px-5 text-[17px] font-semibold text-white shadow-[0_10px_24px_-10px_rgb(27_25_23/0.6)] transition-[transform,background-color] duration-300 ease-apple active:scale-[0.98]',
-                    label === 'Retirer' ? 'bg-late' : 'bg-ink',
-                  )}
-                >
-                  {label === 'Retirer' && <Trash2 className="size-5 shrink-0" aria-hidden />}
-                  <span>{label}</span>
-                  {quantity > 0 && (
-                    <span className="tabular overflow-hidden font-normal opacity-85">
-                      ·{' '}
-                      <span key={total} className="inline-block animate-number-in">
-                        {total}
-                      </span>
-                    </span>
-                  )}
-                </button>
-              ) : null}
-            </div>
             </div>
           </div>
         </DialogPrimitive.Content>
@@ -815,94 +816,94 @@ export function CartBar({ token, context, cart, precisionCount, onOpen, onAdd, s
   return (
     <div className="pointer-events-none fixed inset-x-0 bottom-0 z-30 px-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
       <div className="pointer-events-auto mx-auto w-full max-w-md animate-sheet-up md:max-w-[480px]">
-      <div ref={card} onAnimationEnd={(event) => event.currentTarget.classList.remove('animate-cart-bump')} className="rounded-[28px] bg-ink p-2 text-white shadow-pop">
-        {error && (
-          <p role="alert" className="px-3 pt-1 pb-2 text-[13px] text-[#ffb4ab]">
-            {error}
-          </p>
-        )}
-        {/* Premier étage : vignettes, précisions, total — tout ouvre la feuille. */}
-        <div className="flex h-12 items-center gap-1.5 pr-1 pl-1">
-          <button type="button" onClick={onOpen} tabIndex={-1} aria-hidden className="relative flex shrink-0 items-center" {...{ [CART_TARGET_ATTR]: '' }}>
-            {shown.map((line, index) => (
-              <span key={line.itemId} className={cn('relative animate-pop-in rounded-full ring-2 ring-ink', index > 0 && '-ml-3')} style={{ zIndex: 4 - index }}>
-                <ItemPhoto item={line.item ?? { name: '?', imageId: null }} dimmed={line.invalid} className="size-9 rounded-full text-[11px]" />
-                {line.invalid && (
-                  <span className="absolute inset-0 grid place-items-center rounded-full bg-black/45">
-                    <Ban className="size-4" />
-                  </span>
-                )}
-              </span>
-            ))}
-            {extra > 0 && (
-              <span className="tabular relative z-10 -ml-2 grid h-6 min-w-6 place-items-center rounded-full bg-white/15 px-1.5 text-[11px] font-semibold ring-2 ring-ink">+{extra}</span>
-            )}
-            {/* Nombre d'articles : une pastille, comme le sac de l'ancienne barre — compris sans lire. */}
-            <span key={count} className="tabular absolute -top-1.5 -left-1 z-20 grid h-5 min-w-5 animate-pop-in place-items-center rounded-full bg-brand px-1 text-[11px] font-bold text-white ring-2 ring-ink">
-              {count}
-            </span>
-          </button>
-          {suggestion && (
-            <button
-              type="button"
-              onClick={(event) => {
-                haptic(10);
-                flyToCart(event.currentTarget.getBoundingClientRect(), suggestion.imageId ? menuImageUrl(suggestion.imageId) : null);
-                onAdd(suggestion.id);
-              }}
-              aria-label={`Ajouter ${suggestion.name}`}
-              title={`Souvent pris avec : ${suggestion.name}`}
-              className="relative ml-1 shrink-0 animate-pop-in rounded-full p-0.5 ring-1 ring-dashed ring-white/30"
-            >
-              <ItemPhoto item={suggestion} className="size-8 rounded-full text-[10px] opacity-90" />
-              <span className="absolute -right-1 -bottom-1 grid size-4 place-items-center rounded-full bg-brand ring-2 ring-ink" aria-hidden>
-                <Plus className="size-3" strokeWidth={3} />
+        <div ref={card} onAnimationEnd={(event) => event.currentTarget.classList.remove('animate-cart-bump')} className="rounded-[28px] bg-ink p-2 text-white shadow-pop">
+          {error && (
+            <p role="alert" className="px-3 pt-1 pb-2 text-[13px] text-[#ffb4ab]">
+              {error}
+            </p>
+          )}
+          {/* Premier étage : vignettes, précisions, total — tout ouvre la feuille. */}
+          <div className="flex h-12 items-center gap-1.5 pr-1 pl-1">
+            <button type="button" onClick={onOpen} tabIndex={-1} aria-hidden className="relative flex shrink-0 items-center" {...{ [CART_TARGET_ATTR]: '' }}>
+              {shown.map((line, index) => (
+                <span key={line.itemId} className={cn('relative animate-pop-in rounded-full ring-2 ring-ink', index > 0 && '-ml-3')} style={{ zIndex: 4 - index }}>
+                  <ItemPhoto item={line.item ?? { name: '?', imageId: null }} dimmed={line.invalid} className="size-9 rounded-full text-[11px]" />
+                  {line.invalid && (
+                    <span className="absolute inset-0 grid place-items-center rounded-full bg-black/45">
+                      <Ban className="size-4" />
+                    </span>
+                  )}
+                </span>
+              ))}
+              {extra > 0 && (
+                <span className="tabular relative z-10 -ml-2 grid h-6 min-w-6 place-items-center rounded-full bg-white/15 px-1.5 text-[11px] font-semibold ring-2 ring-ink">+{extra}</span>
+              )}
+              {/* Nombre d'articles : une pastille, comme le sac de l'ancienne barre — compris sans lire. */}
+              <span key={count} className="tabular absolute -top-1.5 -left-1 z-20 grid h-5 min-w-5 animate-pop-in place-items-center rounded-full bg-brand px-1 text-[11px] font-bold text-white ring-2 ring-ink">
+                {count}
               </span>
             </button>
-          )}
-          <button
-            type="button"
-            onClick={onOpen}
-            aria-label={precisionCount > 0 ? `Précisions pour la cuisine, ${precisionCount} choisie${precisionCount > 1 ? 's' : ''}` : 'Précisions pour la cuisine'}
-            className="relative ml-1 grid size-9 shrink-0 place-items-center rounded-[10px] bg-gradient-to-b from-[#ffb53d] to-[#f08c00] text-white shadow-[inset_0_1px_0_rgb(255_255_255/0.35)] active:scale-95"
-          >
-            <TriangleAlert className="size-[18px]" strokeWidth={2.4} aria-hidden />
-            {precisionCount > 0 && (
-              <span key={precisionCount} className="tabular absolute -top-1.5 -right-1.5 grid size-5 animate-pop-in place-items-center rounded-full bg-white text-[11px] font-bold text-ink ring-2 ring-ink">
-                {precisionCount}
-              </span>
+            {suggestion && (
+              <button
+                type="button"
+                onClick={(event) => {
+                  haptic(10);
+                  flyToCart(event.currentTarget.getBoundingClientRect(), suggestion.imageId ? menuImageUrl(suggestion.imageId) : null);
+                  onAdd(suggestion.id);
+                }}
+                aria-label={`Ajouter ${suggestion.name}`}
+                title={`Souvent pris avec : ${suggestion.name}`}
+                className="relative ml-1 shrink-0 animate-pop-in rounded-full p-0.5 ring-1 ring-dashed ring-white/30"
+              >
+                <ItemPhoto item={suggestion} className="size-8 rounded-full text-[10px] opacity-90" />
+                <span className="absolute -right-1 -bottom-1 grid size-4 place-items-center rounded-full bg-brand ring-2 ring-ink" aria-hidden>
+                  <Plus className="size-3" strokeWidth={3} />
+                </span>
+              </button>
             )}
-          </button>
-          <button
-            type="button"
-            onClick={onOpen}
-            aria-label={`Voir la commande, ${count} article${count > 1 ? 's' : ''}, ${total}`}
-            className="flex h-12 min-w-0 flex-1 items-center justify-end gap-2 rounded-2xl pl-2 text-right active:bg-white/[0.06]"
-          >
-            <span className="tabular overflow-hidden text-[16px] font-semibold tracking-tight whitespace-nowrap">
-              <span key={total} className="inline-block animate-number-in">
-                {total}
-              </span>
-            </span>
-            <ChevronUp className="size-4 shrink-0 text-white/60" aria-hidden />
-          </button>
-        </div>
-        {/* Second étage : glisser pour commander, sans ouvrir la feuille (R2) ; bloqué → un toucher sur l'étage du haut explique (R3). */}
-        <div className="mt-1.5">
-          {blocked ? (
             <button
               type="button"
               onClick={onOpen}
-              className="flex h-14 w-full items-center justify-center gap-2 rounded-full bg-white/[0.08] text-[15px] font-semibold text-white/80 active:bg-white/[0.12]"
+              aria-label={precisionCount > 0 ? `Précisions pour la cuisine, ${precisionCount} choisie${precisionCount > 1 ? 's' : ''}` : 'Précisions pour la cuisine'}
+              className="relative ml-1 grid size-9 shrink-0 place-items-center rounded-[10px] bg-gradient-to-b from-[#ffb53d] to-[#f08c00] text-white shadow-[inset_0_1px_0_rgb(255_255_255/0.35)] active:scale-95"
             >
-              <Ban className="size-5" aria-hidden />
-              {context.orderingEnabled ? 'Un plat est épuisé : ouvrir la commande' : 'Commande en ligne suspendue'}
+              <TriangleAlert className="size-[18px]" strokeWidth={2.4} aria-hidden />
+              {precisionCount > 0 && (
+                <span key={precisionCount} className="tabular absolute -top-1.5 -right-1.5 grid size-5 animate-pop-in place-items-center rounded-full bg-white text-[11px] font-bold text-ink ring-2 ring-ink">
+                  {precisionCount}
+                </span>
+              )}
             </button>
-          ) : (
-            <SlideToConfirm label="Glisser pour commander" detail={total} disabled={false} busy={sending} onConfirm={onConfirm} variant="bar" />
-          )}
+            <button
+              type="button"
+              onClick={onOpen}
+              aria-label={`Voir la commande, ${count} article${count > 1 ? 's' : ''}, ${total}`}
+              className="flex h-12 min-w-0 flex-1 items-center justify-end gap-2 rounded-2xl pl-2 text-right active:bg-white/[0.06]"
+            >
+              <span className="tabular overflow-hidden text-[16px] font-semibold tracking-tight whitespace-nowrap">
+                <span key={total} className="inline-block animate-number-in">
+                  {total}
+                </span>
+              </span>
+              <ChevronUp className="size-4 shrink-0 text-white/60" aria-hidden />
+            </button>
+          </div>
+          {/* Second étage : glisser pour commander, sans ouvrir la feuille (R2) ; bloqué → un toucher sur l'étage du haut explique (R3). */}
+          <div className="mt-1.5">
+            {blocked ? (
+              <button
+                type="button"
+                onClick={onOpen}
+                className="flex h-14 w-full items-center justify-center gap-2 rounded-full bg-white/[0.08] text-[15px] font-semibold text-white/80 active:bg-white/[0.12]"
+              >
+                <Ban className="size-5" aria-hidden />
+                {context.orderingEnabled ? 'Un plat est épuisé : ouvrir la commande' : 'Commande en ligne suspendue'}
+              </button>
+            ) : (
+              <SlideToConfirm label="Glisser pour commander" detail={total} disabled={false} busy={sending} onConfirm={onConfirm} variant="bar" />
+            )}
+          </div>
         </div>
-      </div>
       </div>
     </div>
   );
@@ -994,6 +995,8 @@ function OrderBody({
   // Spec 013, R2 : précisions à toucher, et texte libre replié derrière « Autre ».
   const { precisions, note } = details;
   const [freeOpen, setFreeOpen] = useState(() => details.note.trim() !== '');
+  // Une clé par intention de commander : un double appui ou une reprise réseau ne crée qu'une commande.
+  const [idempotencyKey] = useState(() => randomId());
   // R5 : après l'envoi, la même feuille montre la confirmation et le suivi.
   // Spec 021, R2 : commande envoyée depuis la barre → la feuille s'ouvre directement sur la confirmation.
   const [sent, setSent] = useState<GuestRequest | null>(initialSent ?? null);
@@ -1153,6 +1156,7 @@ function OrderBody({
             <SlideToConfirm
               label="Glisser pour commander"
               detail={total}
+              ariaLabel={`Commander pour ${total}`}
               disabled={count === 0 || hasInvalid || !context.orderingEnabled}
               busy={send.isPending}
               onConfirm={() => send.mutate()}
@@ -1476,11 +1480,11 @@ export function GuestOrderLines({ items, totalMinor, currency, menu }: { items: 
           style={
             scrollable
               ? {
-                  maxHeight: ORDER_ROW_PX * 2,
-                  // Fondu du bas tant qu'il reste des plats à voir.
-                  maskImage: atEnd ? undefined : 'linear-gradient(to bottom, #000 calc(100% - 22px), transparent)',
-                  WebkitMaskImage: atEnd ? undefined : 'linear-gradient(to bottom, #000 calc(100% - 22px), transparent)',
-                }
+                maxHeight: ORDER_ROW_PX * 2,
+                // Fondu du bas tant qu'il reste des plats à voir.
+                maskImage: atEnd ? undefined : 'linear-gradient(to bottom, #000 calc(100% - 22px), transparent)',
+                WebkitMaskImage: atEnd ? undefined : 'linear-gradient(to bottom, #000 calc(100% - 22px), transparent)',
+              }
               : undefined
           }
         >

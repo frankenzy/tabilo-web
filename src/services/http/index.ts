@@ -1,7 +1,7 @@
 import { getAccessToken, httpAuth, refreshAccessToken } from '@/services/auth/auth-token';
 import { createClient } from './axios.client';
 
-export { API_BASE, API_URL, errorMessage, HttpError, toHttpError } from './axios.client';
+export { API_BASE, API_URL, REALTIME_URL, errorMessage, HttpError, toHttpError } from './axios.client';
 
 /**
  * Point d'entrée unique des appels API.

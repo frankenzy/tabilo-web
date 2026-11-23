@@ -354,6 +354,7 @@ function TimelineChart({
           kind={kind}
           rows={data}
           series={HOUR_SERIES}
+          height={360}
           ariaLabel={`${title} : ${total} au total, réparties par état actuel`}
         />
       </div>

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { visibleNav } from '@/components/layouts/navigation';
 import { capabilitiesOf } from '@/components/pages/requests/capabilities';
-import { columnsFor, dishImages, filterOrders, groupOrders, hasFilters, liveGrid, nextStep, NO_FILTERS } from '@/components/pages/orders/orders-logic';
+import { columnsFor, dishImages, filterOrders, groupOrders, hasFilters, isUnpaid, liveGrid, nextStep, NO_FILTERS } from '@/components/pages/orders/orders-logic';
 import { tableLook } from '@/components/pages/tables/tables-logic';
 import type { MenuCategory, ServiceRequest } from '@/contracts';
 import { URGENCY_LABEL, URGENCY_TILE, urgencyOf } from '@/utils/urgency';
@@ -42,23 +42,46 @@ describe('Spec 007 — écran Commandes', () => {
     expect(groups.todo.map((r) => r.id)).toEqual([order.id]);
   });
 
-  it('CA-007-07 — sans cuisine séparée, le filtre « État » propose deux étapes ; avec, trois', () => {
-    expect(columnsFor(false)).toEqual(['todo', 'preparing']);
-    expect(columnsFor(true)).toEqual(['todo', 'preparing', 'ready']);
+  it('CA-007-07 / spec 026, R2 — le filtre « État » : « Prêtes » seulement avec une cuisine séparée, « À régler » toujours', () => {
+    expect(columnsFor(false)).toEqual(['todo', 'preparing', 'unpaid']);
+    expect(columnsFor(true)).toEqual(['todo', 'preparing', 'ready', 'unpaid']);
   });
 
-  it('CA-007-04 — maquis : Préparer (rouge), puis Servie (orange)', () => {
-    const me = viewer('koffi');
-    expect(nextStep(request('pending'), false, me)).toEqual({ action: 'prepare', label: 'Préparer', tone: 'red' });
-    const mine = request('in_progress', { assignee: { id: 'koffi', firstName: 'Koffi', lastName: 'Yao' } });
-    expect(nextStep(mine, false, me)).toEqual({ action: 'resolve', label: 'Servie', tone: 'orange' });
-  });
-
-  it('CA-007-05 — cuisine séparée : Prête (orange), puis Servie (vert) par n’importe quel serveur', () => {
+  it('CA-026-01 — une commande servie non réglée reste « À régler » avec « Glisser pour régler », pour tout serveur', () => {
     const koffi = { id: 'koffi', firstName: 'Koffi', lastName: 'Yao' };
-    expect(nextStep(request('in_progress', { assignee: koffi }), true, viewer('koffi'))).toEqual({ action: 'ready', label: 'Prête', tone: 'orange' });
-    expect(nextStep(request('ready', { assignee: koffi }), true, viewer('fatou'))).toEqual({ action: 'resolve', label: 'Servie', tone: 'green' });
-    expect(capabilitiesOf(request('ready', { assignee: koffi }), viewer('fatou')).primary).toEqual({ action: 'resolve', label: 'Servie' });
+    const served = request('resolved', { assignee: koffi, paidAt: null });
+    expect(nextStep(served, false, viewer('fatou'))).toEqual({ action: 'settle', label: 'Glisser pour régler', tone: 'ink', gesture: 'slide' });
+    expect(capabilitiesOf(served, viewer('fatou')).primary).toMatchObject({ action: 'settle', gesture: 'slide' });
+    const groups = groupOrders([served, request('resolved', { paidAt: new Date(T0).toISOString() })], false);
+    expect(groups.unpaid.map((r) => r.id)).toEqual([served.id]);
+    expect(liveGrid(groups, 'all').map((r) => r.id)).toEqual([served.id]);
+    // Une commande réglée ne propose plus rien.
+    expect(nextStep(request('resolved', { paidAt: new Date(T0).toISOString() }), false, viewer('fatou'))).toBeNull();
+    // Une demande de service terminée n'est jamais « à régler ».
+    const water = request('resolved', { type: { id: 'eau', label: 'De l’eau', icon: 'droplet', kind: 'service' }, totalMinor: null, paidAt: null });
+    expect(isUnpaid(water)).toBe(false);
+  });
+
+  it('CA-025-01 / CA-007-04 — maquis : Accepter (rouge, accepte et démarre), puis glisser pour servir', () => {
+    const me = viewer('koffi');
+    expect(nextStep(request('pending'), false, me)).toEqual({ action: 'prepare', label: 'Accepter', tone: 'red', gesture: 'tap' });
+    const mine = request('in_progress', { assignee: { id: 'koffi', firstName: 'Koffi', lastName: 'Yao' } });
+    expect(nextStep(mine, false, me)).toEqual({ action: 'resolve', label: 'Glisser pour servir', tone: 'green', gesture: 'slide' });
+  });
+
+  it('CA-025-02 — la carte de « Service » propose la même étape que l’écran « Commandes »', () => {
+    const me = viewer('koffi');
+    const koffi = { id: 'koffi', firstName: 'Koffi', lastName: 'Yao' };
+    expect(capabilitiesOf(request('pending'), me).primary).toMatchObject({ action: 'prepare', label: 'Accepter', gesture: 'tap' });
+    expect(capabilitiesOf(request('in_progress', { assignee: koffi }), me).primary).toMatchObject({ action: 'resolve', label: 'Glisser pour servir', gesture: 'slide' });
+  });
+
+  it('CA-025-05 / CA-007-05 — cuisine séparée : glisser « prête » (violet), puis glisser pour servir, par n’importe quel serveur', () => {
+    const koffi = { id: 'koffi', firstName: 'Koffi', lastName: 'Yao' };
+    expect(nextStep(request('in_progress', { assignee: koffi }), true, viewer('koffi'))).toEqual({ action: 'ready', label: 'Glisser : prête', tone: 'violet', gesture: 'slide' });
+    expect(nextStep(request('ready', { assignee: koffi }), true, viewer('fatou'))).toEqual({ action: 'resolve', label: 'Glisser pour servir', tone: 'green', gesture: 'slide' });
+    expect(capabilitiesOf(request('in_progress', { assignee: koffi }), viewer('koffi'), true).primary).toMatchObject({ action: 'ready', gesture: 'slide' });
+    expect(capabilitiesOf(request('ready', { assignee: koffi }), viewer('fatou'), true).primary).toMatchObject({ action: 'resolve', gesture: 'slide' });
   });
 
   it('CA-007-09 — pas de bouton sur une commande que quelqu’un d’autre prépare', () => {
@@ -100,11 +123,11 @@ describe('Spec 007 — écran Commandes', () => {
     expect(images.get('alloco')).toEqual({ imageId: null, icon: 'fish' });
   });
 
-  it('CA-007-06 — une commande prête est verte « Prête » sur le tableau de bord et la vue Tables', () => {
+  it('CA-007-06 — une commande prête est violette « Prête » (spec 023) sur le tableau de bord et la vue Tables', () => {
     const ready = request('ready');
     expect(urgencyOf(ready, T0)).toBe('ready');
     expect(URGENCY_LABEL.ready).toBe('Prête');
-    expect(URGENCY_TILE.ready).toContain('bg-done');
+    expect(URGENCY_TILE.ready).toContain('bg-ready'); // spec 023, Q2 : violet, le vert est réservé à « Servie »
     expect(tableLook('occupied', [ready], T0)).toMatchObject({ tone: 'ready', label: 'Prête' });
   });
 
