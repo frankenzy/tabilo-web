@@ -900,7 +900,7 @@ export function CartBar({ token, context, cart, precisionCount, onOpen, onAdd, s
                 {context.orderingEnabled ? 'Un plat est épuisé : ouvrir la commande' : 'Commande en ligne suspendue'}
               </button>
             ) : (
-              <SlideToConfirm label="Glisser pour commander" detail={total} disabled={false} busy={sending} onConfirm={onConfirm} variant="bar" />
+              <SlideToConfirm label="Glisser pour commander" ariaLabel={`Commander pour ${total}`} busy={sending} onConfirm={onConfirm} size="bar" tone="bar" />
             )}
           </div>
         </div>
@@ -947,7 +947,7 @@ export function useSendOrder({
   const queryClient = useQueryClient();
   const { lines } = cartLines(cart, context.menu);
   // Une clé par intention de commander : un double appui ou une reprise réseau ne crée qu'une commande.
-  const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
+  const [idempotencyKey, setIdempotencyKey] = useState(() => randomId());
   const send = useMutation({
     mutationFn: () =>
       guestApi.order(
@@ -968,7 +968,7 @@ export function useSendOrder({
     },
   });
   /** Nouvelle intention (la barre reste affichée après un envoi) : la commande suivante aura sa propre clé. */
-  const renew = () => setIdempotencyKey(crypto.randomUUID());
+  const renew = () => setIdempotencyKey(randomId());
   return { send, renew };
 }
 
@@ -995,8 +995,6 @@ function OrderBody({
   // Spec 013, R2 : précisions à toucher, et texte libre replié derrière « Autre ».
   const { precisions, note } = details;
   const [freeOpen, setFreeOpen] = useState(() => details.note.trim() !== '');
-  // Une clé par intention de commander : un double appui ou une reprise réseau ne crée qu'une commande.
-  const [idempotencyKey] = useState(() => randomId());
   // R5 : après l'envoi, la même feuille montre la confirmation et le suivi.
   // Spec 021, R2 : commande envoyée depuis la barre → la feuille s'ouvre directement sur la confirmation.
   const [sent, setSent] = useState<GuestRequest | null>(initialSent ?? null);

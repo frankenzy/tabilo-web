@@ -13,19 +13,26 @@ function haptic(pattern: number | number[]): void {
   }
 }
 
-/** Couleur de la barre : `ink` côté client (spec 013), `done` pour servir et `ready` pour « prête » (spec 025). */
-export type SlideTone = 'ink' | 'done' | 'ready';
+/**
+ * Couleur de la barre : `ink` côté client (spec 013), `done` pour servir et `ready` pour « prête » (spec 025),
+ * `bar` posée sur la barre sombre du bas de la carte (spec 021, R1).
+ */
+export type SlideTone = 'ink' | 'done' | 'ready' | 'bar';
 
 const TRACK: Record<SlideTone, string> = {
   ink: 'bg-ink shadow-[0_12px_28px_-12px_rgb(27_25_23/0.7)]',
   done: 'bg-done',
   ready: 'bg-ready',
+  bar: 'bg-white/[0.12]',
 };
-const FILL: Record<SlideTone, string> = { ink: 'bg-done/90', done: 'bg-white/25', ready: 'bg-white/25' };
+const FILL: Record<SlideTone, string> = { ink: 'bg-done/90', done: 'bg-white/25', ready: 'bg-white/25', bar: 'bg-done/90' };
+/** Barre désactivée : grisée sur fond clair, à peine visible sur la barre sombre. */
+const DISABLED = (tone: SlideTone) => (tone === 'bar' ? { track: 'bg-white/[0.06]', text: 'text-white/40' } : { track: 'bg-line', text: 'text-ink-3' });
 
 const SIZE = {
   lg: { track: 'h-16', knob: 56, label: 'text-[16px]', icon: 'size-6' },
   md: { track: 'h-12', knob: 40, label: 'text-[14px]', icon: 'size-5' },
+  bar: { track: 'h-14', knob: 48, label: 'text-[16px]', icon: 'size-6' },
 } as const;
 
 /**
@@ -61,6 +68,7 @@ export function SlideToConfirm({
   const [drag, setDrag] = useState<{ start: number; x: number } | null>(null);
   const [done, setDone] = useState(false);
   const { knob, ...look } = SIZE[size];
+  const off = DISABLED(tone);
   const max = () => Math.max(0, (track.current?.clientWidth ?? 300) - knob - 8);
   const x = done || busy ? max() : (drag?.x ?? 0);
 
@@ -113,7 +121,7 @@ export function SlideToConfirm({
   return (
     <div
       ref={track}
-      className={cn('relative w-full overflow-hidden rounded-full p-1 transition-colors duration-300', look.track, disabled ? 'bg-line' : TRACK[tone], className)}
+      className={cn('relative w-full overflow-hidden rounded-full p-1 transition-colors duration-300', look.track, disabled ? off.track : TRACK[tone], className)}
     >
       {/* Remplissage qui suit la pastille. */}
       <span
@@ -123,12 +131,12 @@ export function SlideToConfirm({
       />
       <span
         aria-hidden
-        className={cn('pointer-events-none absolute inset-0 flex flex-col items-center justify-center pr-4 leading-tight whitespace-nowrap', disabled ? 'text-ink-3' : 'text-white')}
+        className={cn('pointer-events-none absolute inset-0 flex flex-col items-center justify-center pr-4 leading-tight whitespace-nowrap', disabled ? off.text : 'text-white')}
         style={{ opacity: busy ? 0 : 1 - progress * 1.2, paddingLeft: knob + 8 }}
       >
         <span className={cn('font-semibold', look.label)}>{label}</span>
         {/* Le détail (total) sur sa propre ligne : rien ne passe sous la pastille, même sur un petit écran. */}
-        {detail && <span className={cn('tabular text-[13px] font-medium', disabled ? 'text-ink-3' : 'text-white/70')}>{detail}</span>}
+        {detail && <span className={cn('tabular text-[13px] font-medium', disabled ? off.text : 'text-white/70')}>{detail}</span>}
       </span>
       {busy && (
         <span className={cn('absolute inset-0 flex items-center justify-center gap-2 font-semibold text-white', look.label)} role="status">
