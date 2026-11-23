@@ -6,7 +6,7 @@ import { io } from 'socket.io-client';
 import type { RequestChangedEvent } from '@/contracts';
 import { estKey } from '@/hooks/use-establishment';
 import { getAccessToken, onAccessTokenChange, refreshAccessToken } from '@/services/auth/auth-token';
-import { API_URL } from '@/services/http';
+import { REALTIME_URL } from '@/services/http';
 import { useAuthStore } from '@/stores/auth.store';
 import { useRealtimeStore } from '@/stores/realtime.store';
 import { toast } from '@/stores/toast.store';
@@ -27,7 +27,7 @@ export function useStaffRealtime(establishmentId: string): void {
 
   useEffect(() => {
     const seen = new Set<string>();
-    const socket = io(API_URL, {
+    const socket = io(REALTIME_URL, {
       transports: ['websocket', 'polling'],
       auth: (callback) => callback({ token: getAccessToken(), establishmentId }),
       reconnectionDelay: 1000,

@@ -1,7 +1,13 @@
 import type { NextConfig } from 'next';
 
 const apiOrigin = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3090';
-const wsOrigin = apiOrigin.replace(/^http/, 'ws');
+// Temps réel : par défaut sur l'API ; distinct quand l'API passe par le proxy ci-dessous.
+const realtimeOrigin = (process.env.NEXT_PUBLIC_REALTIME_URL || apiOrigin).replace(/\/$/, '');
+const wsOrigin = realtimeOrigin.replace(/^http/, 'ws');
+// Hébergement Vercel + Render : `/api/*` est relayé vers l'API, qui devient du même site que la page.
+// Le cookie de rafraîchissement (SameSite=Strict) est alors envoyé ; sinon *.vercel.app et *.onrender.com
+// sont deux sites distincts et la session tombe à l'expiration du jeton d'accès.
+const apiProxyTarget = process.env.API_PROXY_TARGET?.replace(/\/$/, '');
 const isDev = process.env.NODE_ENV !== 'production';
 // En développement, la page peut être ouverte depuis un téléphone du réseau local (http://192.168.x.x:3004) :
 // l'API est alors jointe sur la même adresse, port 3090 (voir services/http/axios.client.ts).
@@ -16,7 +22,7 @@ const csp = [
   // Photos de la carte servies par l'API (spec 001/002).
   `img-src 'self' data: blob: ${apiOrigin}${isDev ? ' http://*:3090' : ''}`,
   "font-src 'self'",
-  `connect-src 'self' ${apiOrigin} ${wsOrigin}${devApi}`,
+  `connect-src 'self' ${apiOrigin} ${realtimeOrigin} ${wsOrigin}${devApi}`,
   "frame-ancestors 'none'",
   "base-uri 'self'",
   "form-action 'self'",
@@ -33,6 +39,9 @@ const nextConfig: NextConfig = {
   // Sortie autonome pour l'image Docker uniquement ; `next start` sert le build en local.
   output: process.env.BUILD_STANDALONE === '1' ? 'standalone' : undefined,
   // Les erreurs de types et de lint bloquent le build : pas de ignoreBuildErrors.
+  async rewrites() {
+    return apiProxyTarget ? [{ source: '/api/:path*', destination: `${apiProxyTarget}/api/:path*` }] : [];
+  },
   async headers() {
     return [
       {

@@ -8,7 +8,7 @@ import { upsert } from './upsert';
 
 export { upsert };
 import { guestApi } from '@/services/api/guest';
-import { API_URL, HttpError } from '@/services/http';
+import { HttpError, REALTIME_URL } from '@/services/http';
 
 export const guestRequestsKey = (token: string) => ['guest', token, 'requests'];
 
@@ -35,7 +35,7 @@ export function useGuestRequests(token: string, onSessionClosed: () => void) {
 
   useEffect(() => {
     const seen = new Set<string>();
-    const socket = io(API_URL, { transports: ['websocket', 'polling'], auth: { sessionToken: token }, reconnectionDelayMax: 10_000 });
+    const socket = io(REALTIME_URL, { transports: ['websocket', 'polling'], auth: { sessionToken: token }, reconnectionDelayMax: 10_000 });
     socket.on('connect', () => {
       setLive(true);
       void queryClient.invalidateQueries({ queryKey: guestRequestsKey(token) });
