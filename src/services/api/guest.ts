@@ -29,7 +29,17 @@ export const guestApi = {
     });
     return guestCreateResultSchema.parse(response.data);
   },
-  async order(token: string, body: { items: { menuItemId: string; quantity: number }[]; note?: string }, idempotencyKey: string) {
+  async order(
+    token: string,
+    body: {
+      items: { menuItemId: string; quantity: number }[];
+      note?: string;
+      /** Spec 027, R8 : position au moment de commander, ou raison de son absence. */
+      location?: { latitude: number; longitude: number; accuracyM: number };
+      locationStatus?: 'denied' | 'unavailable';
+    },
+    idempotencyKey: string,
+  ) {
     const response = await httpGuest.post('/guest/orders', body, {
       headers: { ...headers(token), 'idempotency-key': idempotencyKey },
     });

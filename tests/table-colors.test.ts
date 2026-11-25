@@ -75,12 +75,14 @@ describe('Spec 023 — cartes des tables colorées selon leur état', () => {
     Object.values(TONE_CARD).forEach((classes) => expect(classes).not.toContain('text-brand'));
   });
 
-  it('CA-023-08 — la légende reprend les huit états, sans action puis à traiter', () => {
+  // Spec 027, R7 : « À régler » rejoint les états sans action, après « Servie ».
+  it('CA-023-08 — la légende reprend les états, sans action puis à traiter', () => {
     expect(TONE_LEGEND.map((item) => item.label)).toEqual([
       'Libre',
       'Occupée',
       'Prise en charge',
       'Servie',
+      'À régler',
       'Nouvelle',
       'En attente',
       'En retard',

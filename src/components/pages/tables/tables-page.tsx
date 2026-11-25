@@ -434,7 +434,7 @@ function TableCard({
   currency: string;
   onOpen: () => void;
 }) {
-  const look = tableLook(table.status, requests, now, isServed(table, requests.length));
+  const look = tableLook(table.status, requests, now, isServed(table, requests.length), (table.unpaidMinor ?? 0) > 0);
   return (
     <li
       className="stagger animate-item-in"

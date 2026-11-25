@@ -12,6 +12,7 @@ import { URGENCY_TILE, urgencyOf } from '@/utils/urgency';
 import { SlideToConfirm } from '@/components/ui/slide-to-confirm';
 import { isUnpaid, slideTone } from '@/components/pages/orders/orders-logic';
 import { capabilitiesOf, type Viewer } from './capabilities';
+import { RequestMarker, ZoneFlag, zoneLabel } from './client-tags';
 import { OrderLines } from './order-lines';
 import { PrecisionBanner, PrecisionFlags, precisionLabel } from './precisions';
 import type { RequestDialog } from './request-dialogs';
@@ -39,7 +40,7 @@ export function RequestCard({ request, now, viewer, busy, onAction, onDialog }: 
 
   return (
     <article
-      aria-label={`Table ${request.table.label}, ${request.type.label}, ${STATUS_LABELS[request.status]}${precisionLabel(request.note)}`}
+      aria-label={`Table ${request.table.label}, ${request.type.label}, ${STATUS_LABELS[request.status]}${precisionLabel(request.note)}${zoneLabel(request.zone) ? `, ${zoneLabel(request.zone)}` : ''}`}
       className="flex gap-3 rounded-(--radius-card) bg-surface p-3 ring-1 ring-line"
     >
       <div
@@ -50,6 +51,8 @@ export function RequestCard({ request, now, viewer, busy, onAction, onDialog }: 
         )}
       >
         <span className="tabular max-w-full truncate font-mono text-2xl leading-none font-semibold">{request.table.label}</span>
+        {/* Spec 027, R2 : le repère du client, le même que sur son téléphone. */}
+        <RequestMarker request={request} size="sm" className="mt-1.5 ring-2 ring-white/70" />
         <span className="tabular mt-1.5 font-mono text-xs opacity-80" aria-label="Ancienneté">
           {formatClock(secondsSince(request.createdAt, now))}
         </span>
@@ -87,6 +90,8 @@ export function RequestCard({ request, now, viewer, busy, onAction, onDialog }: 
         {request.type.kind === 'order' && <OrderLines items={request.items} totalMinor={request.totalMinor} compact />}
 
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-ink-2">
+          {/* Spec 027, R8 : commande hors de l'établissement, à vérifier. */}
+          <ZoneFlag zone={request.zone} />
           {escalated && (
             <span className="inline-flex items-center gap-1 font-medium text-late">
               <AlertTriangle className="size-3.5" aria-hidden />

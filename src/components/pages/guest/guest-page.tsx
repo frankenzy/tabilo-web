@@ -22,12 +22,14 @@ import { TrackingPager } from './tracking-card';
 import { useLandscape } from './use-layout';
 import { guestRequestsKey, upsert, useGuestRequests } from './use-guest-requests';
 import { useGuestSession } from './use-guest-session';
+import { LocationExplanation, SettledScreen } from './session-screens';
+import { SessionMarker } from '@/components/ui/session-marker';
 
 const NOTE_MAX = 280;
 const ACTIVE = ['pending', 'assigned', 'accepted', 'in_progress'];
 
 export function GuestPage({ code }: { code: string }) {
-  const { state, retry, markClosed, refresh } = useGuestSession(code);
+  const { state, retry, markClosed, markSettled, refresh } = useGuestSession(code);
 
   if (state.phase === 'loading') {
     return (
@@ -50,6 +52,7 @@ export function GuestPage({ code }: { code: string }) {
       </Screen>
     );
   }
+  if (state.phase === 'settled') return <SettledScreen marker={state.marker} onOrderAgain={retry} />;
   if (state.phase === 'error') {
     return (
       <Screen>
@@ -67,7 +70,7 @@ export function GuestPage({ code }: { code: string }) {
       </Screen>
     );
   }
-  return <GuestTable token={state.token} context={state.context} onSessionClosed={markClosed} onContextStale={refresh} />;
+  return <GuestTable token={state.token} context={state.context} onSessionClosed={markClosed} onSettled={markSettled} onContextStale={refresh} />;
 }
 
 function Screen({ children }: { children: React.ReactNode }) {
@@ -78,6 +81,8 @@ interface GuestTableProps {
   token: string;
   context: GuestContext;
   onSessionClosed: () => void;
+  /** Spec 027, R4 : toutes les commandes du client sont servies et réglées. */
+  onSettled: () => void;
   onContextStale: () => void;
 }
 
@@ -85,8 +90,8 @@ interface GuestTableProps {
  * Page de table (spec 004) : la carte occupe l'écran, la commande passe par la barre du bas,
  * l'appel au personnel par le bouton « Serveur » en haut. Sans carte, les demandes restent à l'écran.
  */
-function GuestTable({ token, context, onSessionClosed, onContextStale }: GuestTableProps) {
-  const { data: requests = [], live, isError, isPending } = useGuestRequests(token, onSessionClosed);
+function GuestTable({ token, context, onSessionClosed, onSettled, onContextStale }: GuestTableProps) {
+  const { data: requests = [], live, isError, isPending } = useGuestRequests(token, onSessionClosed, onSettled);
   const [selected, setSelected] = useState<GuestRequestType | null>(null);
   const [serverOpen, setServerOpen] = useState(false);
   const [cartOpen, setCartOpen] = useState(false);
@@ -158,13 +163,18 @@ function GuestTable({ token, context, onSessionClosed, onContextStale }: GuestTa
       <header>
         {hasMenu ? (
           // Repères discrets : l'en-tête de la carte (recherche, tuiles, cloche) prend le haut de l'écran (spec 005).
-          <h1 className="truncate text-[13px] text-ink-2">
-            <span className="font-semibold text-ink">Table {context.table.label}</span> · {context.table.area} · {context.establishment.name}
+          <h1 className="flex items-center gap-2 text-[13px] text-ink-2">
+            {/* Spec 027, R2 : le repère du client, celui que le serveur voit sur ses commandes. */}
+            <SessionMarker index={context.marker} size="sm" />
+            <span className="truncate">
+              <span className="font-semibold text-ink">Table {context.table.label}</span> · {context.table.area} · {context.establishment.name}
+            </span>
           </h1>
         ) : (
           <>
             <p className="text-sm text-ink-2">{context.establishment.name}</p>
-            <h1 className="mt-0.5 text-2xl font-semibold tracking-tight text-ink">
+            <h1 className="mt-0.5 flex items-center gap-2 text-2xl font-semibold tracking-tight text-ink">
+              <SessionMarker index={context.marker} size="md" />
               Table {context.table.label}
               <span className="ml-2 text-base font-normal text-ink-3">{context.table.area}</span>
             </h1>
@@ -325,6 +335,8 @@ function GuestTable({ token, context, onSessionClosed, onContextStale }: GuestTa
         </Dialog>
       )}
       {selected && <ConfirmRequest key={selected.id} type={selected} token={token} onClose={() => setSelected(null)} onSessionClosed={onSessionClosed} />}
+      {/* Spec 027, R8 : explication avant la première demande de position. */}
+      {context.zone && <LocationExplanation />}
     </main>
   );
 }

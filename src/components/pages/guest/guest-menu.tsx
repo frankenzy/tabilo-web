@@ -18,6 +18,7 @@ import { CancelOrderButton, composeNote, OrderTracker, PrecisionChips, SuccessCh
 import { SlideToConfirm } from '@/components/ui/slide-to-confirm';
 import { prefersReducedMotion, usePhotoTint } from './photo-tint';
 import { guestRequestsKey, upsert } from './use-guest-requests';
+import { orderLocation } from './use-order-location';
 
 /**
  * Carte et commande du client à table (spec 002) : on choisit par l'image, on vérifie sa commande
@@ -949,10 +950,15 @@ export function useSendOrder({
   // Une clé par intention de commander : un double appui ou une reprise réseau ne crée qu'une commande.
   const [idempotencyKey, setIdempotencyKey] = useState(() => randomId());
   const send = useMutation({
-    mutationFn: () =>
+    mutationFn: async () =>
       guestApi.order(
         token,
-        { items: lines.filter((line) => !line.invalid).map((line) => ({ menuItemId: line.itemId, quantity: line.quantity })), note: composeNote(details.precisions, details.note, NOTE_MAX) },
+        {
+          items: lines.filter((line) => !line.invalid).map((line) => ({ menuItemId: line.itemId, quantity: line.quantity })),
+          note: composeNote(details.precisions, details.note, NOTE_MAX),
+          // Spec 027, R8 : position demandée seulement si l'établissement a une zone ; la commande part dans tous les cas.
+          ...(context.zone ? await orderLocation() : {}),
+        },
         idempotencyKey,
       ),
     onSuccess: ({ request }) => {

@@ -13,6 +13,8 @@ export type GuestSessionState =
   | { phase: 'loading' }
   | { phase: 'ready'; token: string; context: GuestContext }
   | { phase: 'closed' }
+  /** Spec 027, R4 : toutes les commandes du client sont servies et réglées. */
+  | { phase: 'settled'; marker: number }
   | { phase: 'error'; kind: 'invalid' | 'busy' | 'network'; message: string };
 
 /**
@@ -72,6 +74,12 @@ export function useGuestSession(code: string) {
     setState({ phase: 'closed' });
   }, [code]);
 
+  /** Spec 027, R4 : la session est réglée — « Réglé · Merci », puis « Commander encore » rouvre une session. */
+  const markSettled = useCallback(() => {
+    storeToken(code, null);
+    setState((current) => ({ phase: 'settled', marker: current.phase === 'ready' ? current.context.marker : 0 }));
+  }, [code]);
+
   /** Relit le contexte (carte, commande ouverte ou non) sans rouvrir de session. */
   const refresh = useCallback(async () => {
     if (state.phase !== 'ready') return;
@@ -83,11 +91,11 @@ export function useGuestSession(code: string) {
     }
   }, [state]);
 
-  return { state, retry, markClosed, refresh };
+  return { state, retry, markClosed, markSettled, refresh };
 }
 
-function splitSession({ token, establishment, table, requestTypes, menu, orderingEnabled, pairingsEnabled }: GuestSession) {
-  return { token, context: { establishment, table, requestTypes, menu, orderingEnabled, pairingsEnabled } satisfies GuestContext };
+function splitSession({ token, establishment, table, requestTypes, menu, orderingEnabled, pairingsEnabled, marker, zone }: GuestSession) {
+  return { token, context: { establishment, table, requestTypes, menu, orderingEnabled, pairingsEnabled, marker, zone } satisfies GuestContext };
 }
 
 /**

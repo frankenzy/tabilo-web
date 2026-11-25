@@ -1,8 +1,8 @@
 'use client';
 
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { Clock, HandCoins, Minus, RotateCw, TrendingDown, TrendingUp, Wallet, type LucideIcon } from 'lucide-react';
-import type { CSSProperties } from 'react';
+import { Clock, HandCoins, Minus, RotateCw, TrendingDown, TrendingUp, UserX, Wallet, type LucideIcon } from 'lucide-react';
+import { useState, type CSSProperties } from 'react';
 import { useSlidingIndicator } from '@/components/ui';
 import type { SalesPeriod } from '@/contracts';
 import { estKey, useEstablishmentId, useLiveRefetchInterval } from '@/hooks/use-establishment';
@@ -11,6 +11,7 @@ import { analyticsApi } from '@/services/api';
 import { errorMessage } from '@/services/http';
 import { formatMoney } from '@/utils/money';
 import { formatPercent, salesTrend, type SalesTrend } from './today-logic';
+import { WrittenOffDialog } from './unpaid-alerts';
 
 const PERIODS: { value: SalesPeriod; label: string; previous: string }[] = [
   { value: 'month', label: 'Mensuel', previous: 'au mois dernier' },
@@ -52,6 +53,7 @@ const TREND_STYLE: Record<Exclude<SalesTrend['kind'], 'none'>, { icon: LucideIco
 /**
  * Spec 026, R7 : rangée « Caisse » — Total servi (règles de la spec 009), Total encaissé (daté du règlement)
  * et Reste à encaisser (toutes dates). Les deux premiers suivent le filtre Mensuel · Annuel.
+ * Spec 027, R13 : quatrième carte « Impayés » (période), qui ouvre la liste des clients partis sans payer.
  */
 export function CashCards({ period, index = 0 }: { period: SalesPeriod; index?: number }) {
   const establishmentId = useEstablishmentId();
@@ -70,6 +72,9 @@ export function CashCards({ period, index = 0 }: { period: SalesPeriod; index?: 
   const common = { faded: sales.isPlaceholderData, failed, onRetry: () => void sales.refetch(), error: failed ? errorMessage(sales.error) : undefined };
   const plural = (count: number, word: string) => `${count} ${word}${count > 1 ? 's' : ''}`;
   const outstanding = data?.outstanding;
+  const [listOpen, setListOpen] = useState(false);
+  const writtenOff = data?.current.writtenOffMinor ?? 0;
+  const customers = data?.current.writtenOffCustomers ?? 0;
 
   return (
     <>
@@ -103,12 +108,26 @@ export function CashCards({ period, index = 0 }: { period: SalesPeriod; index?: 
         detail={outstanding ? (outstanding.orders === 0 ? 'Tout est réglé' : `${plural(outstanding.orders, 'commande')} · ${plural(outstanding.tables, 'table')}`) : ''}
         trend={{ kind: 'none' }}
       />
+      <MoneyCard
+        {...common}
+        index={index + 3}
+        icon={UserX}
+        label="Impayés"
+        amount={data ? money(writtenOff) : null}
+        alert={writtenOff > 0}
+        detail={data ? (customers === 0 ? 'Aucun départ sans payer' : plural(customers, 'client')) : ''}
+        trend={data ? salesTrend(writtenOff, data.previous.writtenOffMinor ?? 0) : { kind: 'none' }}
+        previousLabel={previousLabel}
+        onOpen={() => setListOpen(true)}
+        openLabel="Voir les impayés"
+      />
+      <WrittenOffDialog period={period} currency={data?.currency ?? 'XOF'} open={listOpen} onOpenChange={setListOpen} />
     </>
   );
 }
 
 function MoneyCard({
-  index, icon: Icon, label, amount, detail, trend, previousLabel, alert = false, faded, failed, error, onRetry,
+  index, icon: Icon, label, amount, detail, trend, previousLabel, alert = false, faded, failed, error, onRetry, onOpen, openLabel,
 }: {
   index: number;
   icon: LucideIcon;
@@ -123,17 +142,22 @@ function MoneyCard({
   failed: boolean;
   error?: string;
   onRetry: () => void;
+  /** Carte ouvrable (spec 027, R13 : liste des impayés). */
+  onOpen?: () => void;
+  openLabel?: string;
 }) {
   const style = trend.kind === 'none' ? null : TREND_STYLE[trend.kind];
   const shown = failed ? '—' : amount;
   return (
     <div
       className={cn(
-        'stagger flex min-w-0 animate-item-in flex-col justify-between gap-3 rounded-(--radius-card) bg-surface p-4 ring-1 ring-line transition-opacity duration-300 ease-apple sm:p-5',
+        'stagger relative flex min-w-0 animate-item-in flex-col justify-between gap-3 rounded-(--radius-card) bg-surface p-4 ring-1 ring-line transition-opacity duration-300 ease-apple sm:p-5',
         faded && 'opacity-60',
+        onOpen && 'transition-[transform,box-shadow] hover:-translate-y-0.5 hover:shadow-lg',
       )}
       style={{ '--i': index } as CSSProperties}
     >
+      {onOpen && <button type="button" onClick={onOpen} aria-label={openLabel ?? label} className="absolute inset-0 z-10 rounded-(--radius-card)" />}
       <div className="flex items-start justify-between gap-2">
         <dt className="text-[15px] font-medium text-ink">{label}</dt>
         <Icon className={cn('size-5 shrink-0', alert ? 'text-late' : 'text-ink-3')} aria-hidden />

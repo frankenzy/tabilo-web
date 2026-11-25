@@ -1,6 +1,6 @@
 import type {
   AppNotification, Area, AuditEntry, EscalationRule, Establishment, LiveOverview, Me, MenuCategory, MenuItem, Page, QrCode, SalesOverview, SalesPeriod, TableOccupation, TablesOverview, Timeline, TimelineQuery, TodayOverview,
-  Report, RequestType, Role, ServiceRequest, ServiceRequestDetail, StaffMember, Table,
+  Report, RequestType, Role, ServiceRequest, ServiceRequestDetail, StaffMember, Table, UnpaidAlert, UnpaidAlertResolution, WrittenOff,
 } from '@/contracts';
 import { API_BASE, http, httpAuth } from '@/services/http';
 import { setAccessToken } from '@/services/auth/auth-token';
@@ -58,6 +58,9 @@ export const requestsApi = {
   /** Spec 026, R4 : régler toutes les commandes servies non réglées de l'occupation d'une table. */
   settleTable: (e: string, tableId: string) =>
     data(http.post<{ settled: number; amountMinor: number }>(`${est(e)}/requests/settle-table`, { tableId })),
+  /** Spec 027, R3 : régler un client (sa session). */
+  settleSession: (e: string, sessionId: string) =>
+    data(http.post<{ settled: number; amountMinor: number }>(`${est(e)}/requests/settle-session`, { sessionId })),
   act: (e: string, id: string, action: RequestAction, body: object = {}) =>
     data(http.post<ServiceRequest>(`${est(e)}/requests/${id}/${action}`, body)),
 };
@@ -163,10 +166,19 @@ export const analyticsApi = {
   live: (e: string) => data(http.get<LiveOverview>(`${est(e)}/analytics/live`)),
   today: (e: string) => data(http.get<TodayOverview>(`${est(e)}/analytics/today`)),
   sales: (e: string, period: SalesPeriod) => data(http.get<SalesOverview>(`${est(e)}/analytics/sales`, { params: { period } })),
+  /** Spec 027, R13 : clients partis sans payer pendant la période en cours. */
+  unpaid: (e: string, period: SalesPeriod) => data(http.get<WrittenOff[]>(`${est(e)}/analytics/unpaid`, { params: { period } })),
   timeline: (e: string, query: TimelineQuery) =>
     data(http.get<Timeline>(`${est(e)}/analytics/timeline`, { params: query })),
   report: (e: string, params: { from: string; to: string; areaId?: string; assigneeId?: string }) =>
     data(http.get<Report>(`${est(e)}/analytics/report`, { params: clean(params) })),
+};
+
+/** Spec 027, R9 : alertes de départ sans payer. */
+export const unpaidAlertsApi = {
+  list: (e: string) => data(http.get<UnpaidAlert[]>(`${est(e)}/unpaid-alerts`)),
+  resolve: (e: string, alertId: string, resolution: UnpaidAlertResolution) =>
+    data(http.post<{ resolution: UnpaidAlertResolution }>(`${est(e)}/unpaid-alerts/${alertId}/resolve`, { resolution })),
 };
 
 export const notificationsApi = {

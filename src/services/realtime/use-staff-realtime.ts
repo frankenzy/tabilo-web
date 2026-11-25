@@ -85,6 +85,22 @@ export function useStaffRealtime(establishmentId: string): void {
       }
     });
 
+    // Spec 027, R4 : un client réglé quitte la table — vue « Tables » et fiche de table.
+    socket.on('session.changed', () => {
+      void queryClient.invalidateQueries({ queryKey: estKey(establishmentId, 'tables-overview') });
+      void queryClient.invalidateQueries({ queryKey: estKey(establishmentId, 'table-occupation') });
+      void queryClient.invalidateQueries({ queryKey: estKey(establishmentId, 'live') });
+    });
+    // Spec 027, R9 : alerte de départ sans payer créée ou traitée — le tableau de bord relit ses alertes et sa caisse.
+    socket.on('alert.changed', (event: { eventId: string }) => {
+      if (seen.has(event.eventId)) return;
+      seen.add(event.eventId);
+      void queryClient.invalidateQueries({ queryKey: estKey(establishmentId, 'today') });
+      const { me, establishmentId: current } = useAuthStore.getState();
+      const permissions = me?.memberships.find((m) => m.establishment.id === current)?.permissions ?? [];
+      if (permissions.includes('analytics.read')) chime('alert');
+    });
+
     // Après un renouvellement de jeton, une connexion coupée repart tout de suite.
     const unsubscribe = onAccessTokenChange((token) => {
       if (token && !socket.connected) socket.connect();

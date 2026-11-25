@@ -12,6 +12,9 @@ const context = {
   menu: [],
   orderingEnabled: true,
   pairingsEnabled: false,
+  // Spec 027 : repère de la session et présence d'une zone.
+  marker: 3,
+  zone: false,
 };
 const session = { ...context, token: 't'.repeat(43), expiresAt: '2026-11-17T14:00:00.000Z' };
 

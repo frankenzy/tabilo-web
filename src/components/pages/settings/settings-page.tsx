@@ -15,6 +15,7 @@ import { errorMessage } from '@/services/http';
 import { useMembership } from '@/stores/auth.store';
 import { toast } from '@/stores/toast.store';
 import { formatDuration } from '@/utils/time';
+import { SessionSecuritySettings } from './session-security';
 
 type Section = 'establishment' | 'types' | 'escalation';
 const SECTIONS: { value: Section; label: string; permission: string }[] = [
@@ -75,59 +76,63 @@ function EstablishmentSettings() {
   const timezones = typeof Intl.supportedValuesOf === 'function' ? Intl.supportedValuesOf('timeZone') : [data.timezone];
 
   return (
-    <form onSubmit={submit} noValidate className="flex max-w-xl flex-col gap-8">
-      <fieldset className="flex flex-col gap-4">
-        <legend className="mb-3 text-[15px] font-semibold text-ink">Informations</legend>
-        <Input label="Nom de l’établissement" name="name" defaultValue={data.name} error={errors.name} hint="Affiché à vos clients." />
-        <Select label="Fuseau horaire" name="timezone" defaultValue={data.timezone} hint="Sert à afficher les heures et à calculer « aujourd’hui ».">
-          {timezones.map((zone) => (
-            <option key={zone} value={zone}>
-              {zone}
-            </option>
-          ))}
-        </Select>
-        <Select label="Devise" name="currency" defaultValue={data.currency} error={errors.currency} hint="Devise des prix de la carte et des montants des commandes.">
-          {CURRENCIES.map((code) => (
-            <option key={code} value={code}>
-              {code} — {currencyName(code)}
-            </option>
-          ))}
-        </Select>
-        <Input label="Adresse" name="address" defaultValue={data.address ?? ''} error={errors.address} />
-        <Input label="Téléphone" name="phone" type="tel" defaultValue={data.phone ?? ''} error={errors.phone} />
-      </fieldset>
-      <fieldset className="flex flex-col gap-4">
-        <legend className="mb-1 text-[15px] font-semibold text-ink">Demandes des clients</legend>
-        <p className="-mt-1 text-[13px] text-ink-2">Ces limites protègent votre équipe d’un usage abusif d’un QR code.</p>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Input label="Durée d’une session (minutes)" name="sessionTtlMinutes" type="number" min={15} max={720} defaultValue={data.sessionTtlMinutes} error={errors.sessionTtlMinutes && 'Entre 15 et 720.'} />
-          <Input label="Demandes simultanées par table" name="maxActiveRequestsPerTable" type="number" min={1} max={20} defaultValue={data.maxActiveRequestsPerTable} error={errors.maxActiveRequestsPerTable && 'Entre 1 et 20.'} />
-          <Input label="Demandes par session" name="maxRequestsPerSession" type="number" min={1} max={200} defaultValue={data.maxRequestsPerSession} error={errors.maxRequestsPerSession && 'Entre 1 et 200.'} />
-          <Input label="Délai entre deux demandes (secondes)" name="requestCooldownSeconds" type="number" min={0} max={300} defaultValue={data.requestCooldownSeconds} error={errors.requestCooldownSeconds && 'Entre 0 et 300.'} />
+    <>
+      <form onSubmit={submit} noValidate className="flex max-w-xl flex-col gap-8">
+        <fieldset className="flex flex-col gap-4">
+          <legend className="mb-3 text-[15px] font-semibold text-ink">Informations</legend>
+          <Input label="Nom de l’établissement" name="name" defaultValue={data.name} error={errors.name} hint="Affiché à vos clients." />
+          <Select label="Fuseau horaire" name="timezone" defaultValue={data.timezone} hint="Sert à afficher les heures et à calculer « aujourd’hui ».">
+            {timezones.map((zone) => (
+              <option key={zone} value={zone}>
+                {zone}
+              </option>
+            ))}
+          </Select>
+          <Select label="Devise" name="currency" defaultValue={data.currency} error={errors.currency} hint="Devise des prix de la carte et des montants des commandes.">
+            {CURRENCIES.map((code) => (
+              <option key={code} value={code}>
+                {code} — {currencyName(code)}
+              </option>
+            ))}
+          </Select>
+          <Input label="Adresse" name="address" defaultValue={data.address ?? ''} error={errors.address} />
+          <Input label="Téléphone" name="phone" type="tel" defaultValue={data.phone ?? ''} error={errors.phone} />
+        </fieldset>
+        <fieldset className="flex flex-col gap-4">
+          <legend className="mb-1 text-[15px] font-semibold text-ink">Demandes des clients</legend>
+          <p className="-mt-1 text-[13px] text-ink-2">Ces limites protègent votre équipe d’un usage abusif d’un QR code.</p>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Input label="Durée d’une session (minutes)" name="sessionTtlMinutes" type="number" min={15} max={720} defaultValue={data.sessionTtlMinutes} error={errors.sessionTtlMinutes && 'Entre 15 et 720.'} />
+            <Input label="Demandes simultanées par table" name="maxActiveRequestsPerTable" type="number" min={1} max={20} defaultValue={data.maxActiveRequestsPerTable} error={errors.maxActiveRequestsPerTable && 'Entre 1 et 20.'} />
+            <Input label="Demandes par session" name="maxRequestsPerSession" type="number" min={1} max={200} defaultValue={data.maxRequestsPerSession} error={errors.maxRequestsPerSession && 'Entre 1 et 200.'} />
+            <Input label="Délai entre deux demandes (secondes)" name="requestCooldownSeconds" type="number" min={0} max={300} defaultValue={data.requestCooldownSeconds} error={errors.requestCooldownSeconds && 'Entre 0 et 300.'} />
+          </div>
+        </fieldset>
+        <fieldset className="flex flex-col gap-3">
+          <legend className="mb-1 text-[15px] font-semibold text-ink">Commandes</legend>
+          <Checkbox
+            label="Cuisine séparée : signaler les commandes prêtes au serveur"
+            hint="Ajoute l’étape « Prête » sur l’écran Commandes. Laissez décoché si la même personne prépare et sert."
+            name="separateKitchen"
+            defaultChecked={data.separateKitchen}
+          />
+          <Checkbox
+            label="Afficher « Souvent pris avec » dans la fiche d’un plat"
+            hint="Propose au client, sous la quantité, les plats souvent commandés avec celui qu’il regarde."
+            name="pairingsEnabled"
+            defaultChecked={data.pairingsEnabled}
+          />
+        </fieldset>
+        <FormError message={save.isError ? errorMessage(save.error) : null} />
+        <div>
+          <Button type="submit" loading={save.isPending}>
+            Enregistrer
+          </Button>
         </div>
-      </fieldset>
-      <fieldset className="flex flex-col gap-3">
-        <legend className="mb-1 text-[15px] font-semibold text-ink">Commandes</legend>
-        <Checkbox
-          label="Cuisine séparée : signaler les commandes prêtes au serveur"
-          hint="Ajoute l’étape « Prête » sur l’écran Commandes. Laissez décoché si la même personne prépare et sert."
-          name="separateKitchen"
-          defaultChecked={data.separateKitchen}
-        />
-        <Checkbox
-          label="Afficher « Souvent pris avec » dans la fiche d’un plat"
-          hint="Propose au client, sous la quantité, les plats souvent commandés avec celui qu’il regarde."
-          name="pairingsEnabled"
-          defaultChecked={data.pairingsEnabled}
-        />
-      </fieldset>
-      <FormError message={save.isError ? errorMessage(save.error) : null} />
-      <div>
-        <Button type="submit" loading={save.isPending}>
-          Enregistrer
-        </Button>
-      </div>
-    </form>
+      </form>
+      {/* Spec 027, R12 : zone, rayon et délai d'alerte. */}
+      <SessionSecuritySettings data={data} />
+    </>
   );
 }
 

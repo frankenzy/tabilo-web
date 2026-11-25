@@ -9,6 +9,7 @@ import { RequestDialogs, type RequestDialog } from '@/components/pages/requests/
 import { TableRequestsDialog } from '@/components/pages/requests/table-requests-dialog';
 import { PrecisionFlags, precisionLabel } from '@/components/pages/requests/precisions';
 import { CashCards, SalesPeriodFilter } from './sales-row';
+import { UnpaidAlertsPanel } from './unpaid-alerts';
 import { TodaySection } from './today-charts';
 import { useActiveRequests, useFloor, useRequestAction } from '@/components/pages/requests/use-requests';
 import { Card, EmptyState, ErrorState, PageHeader, Spinner } from '@/components/ui';
@@ -100,11 +101,16 @@ export function DashboardPage() {
     <>
       <PageHeader title="Tableau de bord" description="La salle, en ce moment." actions={<SalesPeriodFilter period={salesPeriod} onChange={setSalesPeriod} />} />
 
-      {/* Spec 026, R7 : activité puis caisse, trois cartes par ligne sur grand écran, deux sur téléphone. */}
+      {/* Spec 027, R9 : départs sans payer probables, avant tout le reste. */}
+      {viewer.can('analytics.read') && <UnpaidAlertsPanel currency={overview.data?.currency ?? 'XOF'} />}
+
+      {/* Spec 026, R7 : activité (trois cartes) puis caisse ; spec 027, R13 : la caisse passe à quatre cartes. */}
       <dl className="grid grid-cols-2 gap-3 lg:grid-cols-3">
         <Stat index={0} label="En attente" value={stats.pending + stats.assigned} hint={stats.oldestPendingSeconds ? `plus ancienne : ${formatDuration(stats.oldestPendingSeconds)}` : 'aucune attente'} />
         <Stat index={1} label="Prises en charge" value={stats.accepted + stats.inProgress} hint={`${stats.inProgress} en cours de traitement`} />
         <Stat index={2} label="En retard" value={stats.late} tone={stats.late > 0 ? 'late' : undefined} hint="délai cible dépassé" />
+      </dl>
+      <dl className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <CashCards index={3} period={salesPeriod} />
       </dl>
 
@@ -280,7 +286,7 @@ function TableTile({
   onOpen: () => void;
 }) {
   const status = overview?.status ?? (table.openSessions > 0 || requests.length > 0 ? 'occupied' : 'free');
-  const look = tableLook(status, requests, now, overview ? isServed(overview, requests.length) : false);
+  const look = tableLook(status, requests, now, overview ? isServed(overview, requests.length) : false, (overview?.unpaidMinor ?? 0) > 0);
   const oldest = requests.reduce<ServiceRequest | null>((min, r) => (!min || r.createdAt < min.createdAt ? r : min), null);
   const escalated = look.escalated;
   return (

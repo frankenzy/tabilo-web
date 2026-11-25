@@ -18,7 +18,7 @@ export const guestRequestsKey = (token: string) => ['guest', token, 'requests'];
  * resynchronisation HTTP à chaque (re)connexion, puis interrogation régulière
  * (toutes les 5 s si le temps réel est coupé).
  */
-export function useGuestRequests(token: string, onSessionClosed: () => void) {
+export function useGuestRequests(token: string, onSessionClosed: () => void, onSettled: () => void = onSessionClosed) {
   const queryClient = useQueryClient();
   const [live, setLive] = useState(false);
 
@@ -29,9 +29,12 @@ export function useGuestRequests(token: string, onSessionClosed: () => void) {
   });
 
   const unauthorized = query.error instanceof HttpError && query.error.status === 401;
+  // Spec 027, R4 : une session réglée affiche « Réglé · Merci », pas « Session terminée ».
+  const settled = unauthorized && query.error instanceof HttpError && query.error.code === 'TABLE_SESSION_SETTLED';
   useEffect(() => {
-    if (unauthorized) onSessionClosed();
-  }, [unauthorized, onSessionClosed]);
+    if (settled) onSettled();
+    else if (unauthorized) onSessionClosed();
+  }, [unauthorized, settled, onSessionClosed, onSettled]);
 
   useEffect(() => {
     const seen = new Set<string>();
@@ -43,6 +46,7 @@ export function useGuestRequests(token: string, onSessionClosed: () => void) {
     socket.on('disconnect', () => setLive(false));
     socket.on('connect_error', () => setLive(false));
     socket.on('session.closed', onSessionClosed);
+    socket.on('session.settled', onSettled);
     socket.on('request.changed', (event: { eventId: string; request: unknown }) => {
       if (seen.has(event.eventId)) return;
       seen.add(event.eventId);
@@ -53,7 +57,7 @@ export function useGuestRequests(token: string, onSessionClosed: () => void) {
     return () => {
       socket.close();
     };
-  }, [token, queryClient, onSessionClosed]);
+  }, [token, queryClient, onSessionClosed, onSettled]);
 
   return { ...query, live };
 }

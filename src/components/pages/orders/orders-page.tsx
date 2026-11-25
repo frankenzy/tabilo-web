@@ -25,6 +25,7 @@ import {
   COLUMN_LABELS, COLUMN_TONE, columnOf, columnsFor, dishImages, filterOrders, groupOrders, hasFilters, liveGrid, nextStep, NO_FILTERS, slideTone, startOfToday, STATUS_PILL,
   type DishImage, type OrderFilters, type WhoFilter, type OrderColumn, type OrderStep, type StepTone,
 } from './orders-logic';
+import { RequestMarker, ZoneFlag, zoneLabel } from '@/components/pages/requests/client-tags';
 
 /** Spec 007 : écran « Commandes », pensé pour une tablette en cuisine ou au comptoir. */
 
@@ -202,7 +203,7 @@ function OrderCard({ request, now, viewer, images, step, busy, onStep, onAcknowl
 
   return (
     <article
-      aria-label={`Table ${request.table.label}, commande, ${STATUS_PILL[column].toLowerCase()}${precisionLabel(request.note)}`}
+      aria-label={`Table ${request.table.label}, commande, ${STATUS_PILL[column].toLowerCase()}${precisionLabel(request.note)}${zoneLabel(request.zone) ? `, ${zoneLabel(request.zone)}` : ''}`}
       className="flex flex-col overflow-hidden rounded-(--radius-card) bg-surface ring-1 ring-line transition-[transform,box-shadow] duration-300 ease-apple hover:-translate-y-0.5 hover:shadow-lg"
       data-testid={`order-${request.id}`}
       data-column={column}
@@ -210,10 +211,12 @@ function OrderCard({ request, now, viewer, images, step, busy, onStep, onAcknowl
       {/* En-tête clair (R4) : table colorée par l'urgence, pastille d'état, heure, menu. */}
       <header className="flex items-start gap-2 bg-sunken/70 p-2 sm:gap-3 sm:p-3">
         <span
-          className={cn('grid size-10 shrink-0 place-items-center rounded-xl sm:size-12', URGENCY_TILE[urgency], escalated && 'animate-attention')}
+          className={cn('relative grid size-10 shrink-0 place-items-center rounded-xl sm:size-12', URGENCY_TILE[urgency], escalated && 'animate-attention')}
           title={URGENCY_LABEL[urgency]}
         >
           <span className="tabular max-w-full truncate px-1 font-mono text-xl leading-none font-bold">{request.table.label}</span>
+          {/* Spec 027, R2 : repère du client, posé sur le coin de la table. */}
+          <RequestMarker request={request} className="absolute -right-1.5 -bottom-1.5 ring-2 ring-surface" />
         </span>
         <span className="min-w-0 flex-1">
           <span className={cn('inline-flex max-w-full items-center gap-1 rounded-full px-2 py-0.5 text-[11px] leading-tight font-semibold whitespace-nowrap sm:gap-1.5 sm:px-2.5 sm:text-[12px]', PILL_STYLE[tone])}>
@@ -224,6 +227,8 @@ function OrderCard({ request, now, viewer, images, step, busy, onStep, onAcknowl
           </span>
           {/* Spec 022, R4 : précision, à emporter, piment — visibles avant d'ouvrir. */}
           <PrecisionFlags notes={[request.note]} className="ml-1.5 align-middle" />
+          {/* Spec 027, R8 : signalement de zone, à vérifier avant d'accepter. */}
+          <ZoneFlag zone={request.zone} className="mt-1 flex w-fit" />
           <span className="mt-1 flex items-center gap-1 truncate text-[11px] text-ink-3 sm:text-[12px]">
             <span className="font-medium text-ink-2">{new Date(request.createdAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</span>
             <span aria-hidden>·</span>
@@ -362,7 +367,10 @@ function ServedToday({
       {items.map((request) => (
         <li key={request.id} className="rounded-(--radius-card) bg-surface p-4 ring-1 ring-line">
           <div className="flex items-baseline justify-between gap-2">
-            <span className="tabular font-mono text-2xl font-bold text-ink">{request.table.label}</span>
+            <span className="flex items-center gap-2">
+              <span className="tabular font-mono text-2xl font-bold text-ink">{request.table.label}</span>
+              <RequestMarker request={request} size="sm" />
+            </span>
             <span className="text-[13px] text-ink-3">
               Servie à {request.resolvedAt ? new Date(request.resolvedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : '—'}
               {request.assignee && ` · ${request.assignee.firstName}`}

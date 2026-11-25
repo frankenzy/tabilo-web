@@ -79,6 +79,18 @@ export interface ServiceRequest {
   escalatedAt: string | null;
   /** Spec 026 : commande servie réglée ; null = à régler (ou pas encore servie). */
   paidAt?: string | null;
+  /** Spec 027, R2 : repère de la session du client ; null pour une demande créée par le personnel. */
+  marker?: number | null;
+  /** Spec 027, R8 : signalement de zone ; null sans zone. */
+  zone?: ZoneSignal | null;
+  /** Spec 027, R9 : marquée « Parti sans payer ». */
+  writtenOffAt?: string | null;
+}
+
+/** Spec 027, R8 : position du client par rapport à la zone de l'établissement, au moment de commander. */
+export interface ZoneSignal {
+  status: 'inside' | 'outside' | 'imprecise' | 'denied';
+  distanceM: number | null;
 }
 
 export interface RequestEvent {
@@ -138,6 +150,18 @@ export interface OccupationOrder {
   totalMinor: number;
   note: string | null;
   items: { menuItemId: string; name: string; quantity: number; unitPriceMinor: number; imageId: string | null }[];
+  /** Spec 027 : session du client ; null pour une commande saisie par le personnel. */
+  sessionId?: string | null;
+  /** Spec 027, R9 : marquée « Parti sans payer ». */
+  writtenOffAt?: string | null;
+}
+
+/** Spec 027, R3 : un client de la table, avec son repère et ce qu'il reste à régler. */
+export interface OccupationSession {
+  id: string;
+  marker: number;
+  status: 'open' | 'settled' | 'closed' | 'expired';
+  unpaidMinor: number;
 }
 
 /** Spec 020, R2 et R4 : occupation d'une table pour sa fiche. */
@@ -151,6 +175,8 @@ export interface TableOccupation {
   unpaidMinor?: number | null;
   lastOccupiedAt: string | null;
   orders: OccupationOrder[];
+  /** Spec 027, R3 : clients de l'occupation, dans l'ordre d'arrivée. */
+  sessions?: OccupationSession[];
 }
 
 export interface TablesOverview {
@@ -239,6 +265,13 @@ export interface Establishment {
   separateKitchen: boolean;
   /** Spec 012, R7 : « Souvent pris avec » dans la fiche d'un plat. */
   pairingsEnabled: boolean;
+  /** Spec 027, R12 : centre de la zone ; null = pas de zone. */
+  zoneLatitude?: number | null;
+  zoneLongitude?: number | null;
+  /** Rayon de la zone, en mètres (50 à 500). */
+  zoneRadiusM?: number;
+  /** Délai avant l'alerte de départ sans payer, en minutes (10 à 60). */
+  unpaidAlertMinutes?: number;
 }
 
 export interface AppNotification {
@@ -323,6 +356,33 @@ export interface SalesFigures {
   /** Spec 026, R7 : réglé pendant la période. */
   paidMinor: number;
   paidOrders: number;
+  /** Spec 027, R13 : marqué « Parti sans payer » pendant la période. */
+  writtenOffMinor?: number;
+  writtenOffCustomers?: number;
+}
+
+/** Spec 027, R9 : alerte de départ sans payer. */
+export interface UnpaidAlert {
+  id: string;
+  table: { id: string; label: string };
+  sessionId: string;
+  marker: number;
+  amountMinor: number;
+  reason: 'inactivity' | 'released' | 'expired';
+  createdAt: string;
+  lastActivityAt: string;
+}
+
+export type UnpaidAlertResolution = 'paid' | 'still_here' | 'walked_out';
+
+/** Spec 027, R13 : un client parti sans payer. */
+export interface WrittenOff {
+  sessionId: string | null;
+  table: { id: string; label: string };
+  marker: number | null;
+  amountMinor: number;
+  writtenOffAt: string;
+  writtenOffBy: string | null;
 }
 
 export interface SalesOverview {
@@ -436,6 +496,10 @@ export const guestContextSchema = z.object({
   orderingEnabled: z.boolean(),
   /** Spec 012, R7 : rangée « Souvent pris avec » dans la fiche d'un plat. */
   pairingsEnabled: z.boolean().default(false),
+  /** Spec 027, R2 : repère de la session. */
+  marker: z.number().int().min(0).default(0),
+  /** Spec 027, R8 : une zone existe, le téléphone donne sa position au moment de commander. */
+  zone: z.boolean().default(false),
 });
 export const guestSessionSchema = guestContextSchema.extend({ token: z.string().min(32), expiresAt: z.string() });
 

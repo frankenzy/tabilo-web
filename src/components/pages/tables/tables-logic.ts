@@ -46,9 +46,9 @@ export function areasOf(tables: TableStatusView[]): { id: string; name: string }
 
 /**
  * Spec 006, R2 bis, et spec 023 : couleur d'une table, avec le code du plan de salle du tableau de bord.
- * Les demandes en cours priment ; sinon servie (vert), occupée (orange) ou libre (blanc).
+ * Les demandes en cours priment ; sinon à régler (bleu canard, spec 027), servie (vert), occupée (orange) ou libre (blanc).
  */
-export type TableTone = Urgency | 'served' | 'occupied' | 'free';
+export type TableTone = Urgency | 'toSettle' | 'served' | 'occupied' | 'free';
 
 export interface TableLook {
   tone: TableTone;
@@ -60,15 +60,18 @@ export interface TableLook {
 
 type ActiveRequest = Pick<ServiceRequest, 'status' | 'createdAt' | 'dueAt' | 'escalationStatus'>;
 
-const QUIET_LABEL = { served: 'Servie', occupied: 'Occupée', free: 'Libre' } as const;
+const QUIET_LABEL = { toSettle: 'À régler', served: 'Servie', occupied: 'Occupée', free: 'Libre' } as const;
 
-/** Spec 023, R2 et R3 : `served` vaut vrai quand une commande de l'occupation a été servie. */
-export function tableLook(status: TableStatus, requests: ActiveRequest[], now: number, served = false): TableLook {
+/**
+ * Spec 023, R2 et R3 : `served` vaut vrai quand une commande de l'occupation a été servie.
+ * Spec 027, R7 : `toSettle` vaut vrai quand une commande servie n'est pas encore réglée.
+ */
+export function tableLook(status: TableStatus, requests: ActiveRequest[], now: number, served = false, toSettle = false): TableLook {
   const urgency = worstUrgency(requests.map((request) => urgencyOf(request, now)));
   const oldestCreatedAt = requests.reduce<string | null>((min, r) => (!min || r.createdAt < min ? r.createdAt : min), null);
   const escalated = requests.some((request) => request.escalationStatus === 'escalated');
   if (urgency && urgency !== 'done') return { tone: urgency, label: URGENCY_LABEL[urgency], oldestCreatedAt, escalated };
-  const tone = status === 'free' ? 'free' : served ? 'served' : 'occupied';
+  const tone = status === 'free' ? 'free' : toSettle ? 'toSettle' : served ? 'served' : 'occupied';
   return { tone, label: QUIET_LABEL[tone], oldestCreatedAt: null, escalated: false };
 }
 
@@ -88,6 +91,7 @@ export function isActionTone(tone: TableTone): boolean {
 /** Pastille et plateau posés sur un fond blanc (fiche d'une table). */
 export const TONE_BADGE: Record<TableTone, string> = {
   ...URGENCY_TILE,
+  toSettle: 'bg-pay-soft text-pay',
   served: 'bg-done-soft text-done',
   occupied: 'bg-brand-soft text-brand',
   free: 'bg-sunken text-ink-2',
@@ -95,6 +99,7 @@ export const TONE_BADGE: Record<TableTone, string> = {
 
 export const TONE_PLATE: Record<TableTone, string> = {
   ...URGENCY_TILE,
+  toSettle: 'bg-pay-soft text-ink',
   served: 'bg-done-soft text-ink',
   occupied: 'bg-brand-soft text-ink',
   free: 'bg-sunken text-ink',
@@ -106,6 +111,7 @@ export const TONE_CARD: Record<TableTone, string> = {
   occupied: 'bg-brand-soft text-ink ring-1 ring-brand/25',
   progress: 'bg-progress-soft text-ink ring-1 ring-progress/25',
   served: 'bg-done-soft text-ink ring-1 ring-done/25',
+  toSettle: 'bg-pay-soft text-ink ring-1 ring-pay/25',
   done: 'bg-done-soft text-ink ring-1 ring-done/25',
   calm: 'bg-ink-2 text-white',
   waiting: 'bg-wait text-wait-ink ring-1 ring-wait-ink/20',
@@ -119,6 +125,7 @@ export const CARD_BADGE: Record<TableTone, string> = {
   occupied: 'bg-brand text-white',
   progress: 'bg-progress text-white',
   served: 'bg-done text-white',
+  toSettle: 'bg-pay text-white',
   done: 'bg-done text-white',
   calm: 'bg-white/20 text-white',
   waiting: 'bg-white/60 text-wait-ink',
@@ -132,6 +139,7 @@ export const CARD_PLATE: Record<TableTone, string> = {
   occupied: 'bg-surface text-ink',
   progress: 'bg-surface text-ink',
   served: 'bg-surface text-ink',
+  toSettle: 'bg-surface text-ink',
   done: 'bg-surface text-ink',
   calm: 'bg-white/20 text-white',
   waiting: 'bg-white/60 text-wait-ink',
@@ -145,6 +153,7 @@ export const TONE_LEGEND: { tone: TableTone; label: string; swatch: string }[] =
   { tone: 'occupied', label: 'Occupée', swatch: 'bg-brand-soft ring-1 ring-brand/30' },
   { tone: 'progress', label: URGENCY_LABEL.progress, swatch: 'bg-progress-soft ring-1 ring-progress/30' },
   { tone: 'served', label: 'Servie', swatch: 'bg-done-soft ring-1 ring-done/30' },
+  { tone: 'toSettle', label: 'À régler', swatch: 'bg-pay-soft ring-1 ring-pay/30' },
   { tone: 'calm', label: URGENCY_LABEL.calm, swatch: 'bg-ink-2' },
   { tone: 'waiting', label: URGENCY_LABEL.waiting, swatch: 'bg-wait' },
   { tone: 'late', label: URGENCY_LABEL.late, swatch: 'bg-late' },
@@ -158,6 +167,7 @@ export const TONE_TINT: Record<TableTone, string> = {
   free: 'var(--color-ink-3)',
   occupied: 'var(--color-brand)',
   served: 'var(--color-done)',
+  toSettle: 'var(--color-pay)',
   calm: 'var(--color-ink-2)',
   waiting: '#e9a300',
   late: 'var(--color-late)',

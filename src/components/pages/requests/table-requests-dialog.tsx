@@ -5,9 +5,11 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronDown, Coffee, HandCoins, Pencil, Power, QrCode, Receipt, Smartphone, Timer, X } from 'lucide-react';
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { Button, ConfirmDialog } from '@/components/ui';
+import { SessionMarker } from '@/components/ui/session-marker';
 import { SlideToConfirm } from '@/components/ui/slide-to-confirm';
 import { occupiedFor, orderStateLabel, orderSummary, tableLook, tableSize, TONE_BADGE, TONE_PLATE, TONE_TINT } from '@/components/pages/tables/tables-logic';
-import type { OccupationOrder, ServiceRequest, TableStatus } from '@/contracts';
+import type { OccupationOrder, OccupationSession, ServiceRequest, TableStatus } from '@/contracts';
+import { markerInfo } from '@/contracts/session-markers';
 import { estKey, useEstablishmentId } from '@/hooks/use-establishment';
 import { useNow } from '@/hooks/use-now';
 import { cn } from '@/lib/utils';
@@ -91,14 +93,34 @@ export function TableRequestsDialog({ table, areaName, status, requests, canClos
     },
   });
 
+  // Spec 027, R3 : régler un client de la table.
+  const settleClient = useMutation({
+    mutationFn: (session: OccupationSession) => requestsApi.settleSession(establishmentId, session.id),
+    onSuccess: ({ amountMinor }, session) => {
+      toast.success(`Client ${markerInfo(session.marker).name} réglé`, formatMoney(amountMinor, currency));
+      void queryClient.invalidateQueries({ queryKey: estKey(establishmentId, 'requests') });
+      void queryClient.invalidateQueries({ queryKey: estKey(establishmentId, 'tables-overview') });
+      void queryClient.invalidateQueries({ queryKey: estKey(establishmentId, 'today') });
+      void refetch();
+    },
+    onError: (error) => {
+      toast.error('Règlement impossible', errorMessage(error));
+      void refetch();
+    },
+  });
+
   const data = occupation.data;
   const currency = data?.currency ?? 'XOF';
+  // Spec 027, R3 : les clients qui ont commandé, avec leur repère ; leurs commandes portent le même repère.
+  const sessions = (data?.sessions ?? []).filter((session) => data?.orders.some((order) => order.sessionId === session.id));
+  const markers = new Map((data?.sessions ?? []).map((session) => [session.id, session.marker]));
+  const owing = sessions.filter((session) => session.unpaidMinor > 0);
   const unpaid = data?.unpaidMinor ?? 0;
   // R5 : libérer avec un reste demande confirmation.
   const free = () => (unpaid > 0 ? setConfirmFree(true) : close.mutate());
   const occupied = status === 'occupied' || (data?.occupiedSince ?? null) !== null;
   // Spec 023, R3 : une commande de l'occupation déjà servie.
-  const look = tableLook(status, requests, now, (data?.orders ?? []).some((order) => order.status === 'resolved'));
+  const look = tableLook(status, requests, now, (data?.orders ?? []).some((order) => order.status === 'resolved'), (data?.unpaidMinor ?? 0) > 0);
   const tint = TONE_TINT[look.tone];
   const details = [areaName, tableSize(table.seats), `${table.seats} couvert${table.seats > 1 ? 's' : ''}`].filter(Boolean).join(' · ');
   // Cascade d'entrée (R7) : chaque bloc arrive 40 ms après le précédent.
@@ -237,14 +259,35 @@ export function TableRequestsDialog({ table, areaName, status, requests, canClos
                 </div>
                 <ul className="mt-2 flex flex-col">
                   {data.orders.map((order) => (
-                    <OrderRow key={order.id} order={order} currency={currency} />
+                    <OrderRow key={order.id} order={order} currency={currency} marker={order.sessionId ? markers.get(order.sessionId) : undefined} />
                   ))}
                 </ul>
               </section>
             )}
 
-            {/* Spec 026, R4 : régler la table à l'addition. Ne la libère pas (R6). */}
-            {canSettle && occupied && unpaid > 0 && (
+            {/* Spec 027, R3 : chaque client règle sa part. */}
+            {occupied && sessions.length > 0 && (
+              <section aria-labelledby="table-clients-title" className="stagger mt-7 animate-item-in" style={next()}>
+                <SectionTitle id="table-clients-title" count={sessions.length}>
+                  Clients
+                </SectionTitle>
+                <ul className="mt-2 flex flex-col gap-2">
+                  {sessions.map((session) => (
+                    <ClientRow
+                      key={session.id}
+                      session={session}
+                      currency={currency}
+                      canSettle={canSettle}
+                      busy={settleClient.isPending && settleClient.variables?.id === session.id}
+                      onSettle={() => settleClient.mutate(session)}
+                    />
+                  ))}
+                </ul>
+              </section>
+            )}
+
+            {/* Spec 026, R4 : régler toute la table à l'addition — utile quand plusieurs clients doivent encore. */}
+            {canSettle && occupied && unpaid > 0 && owing.length !== 1 && (
               <div className="stagger mt-7 animate-item-in rounded-2xl bg-sunken/70 p-4" style={next()}>
                 <div className="flex items-start gap-3">
                   <span className="grid size-10 shrink-0 place-items-center rounded-full bg-ink text-white shadow-sm" aria-hidden>
@@ -252,7 +295,7 @@ export function TableRequestsDialog({ table, areaName, status, requests, canClos
                   </span>
                   <div className="min-w-0 flex-1">
                     <p className="text-[15px] font-semibold text-ink">Régler la table</p>
-                    <p className="mt-0.5 text-[13px] text-ink-2">Toutes les commandes servies et non réglées. La table reste occupée.</p>
+                    <p className="mt-0.5 text-[13px] text-ink-2">Toutes les commandes servies et non réglées, de tous les clients.</p>
                   </div>
                 </div>
                 <SlideToConfirm
@@ -387,8 +430,50 @@ function useCountUp(target: number | null, duration = 600): number | null {
   return value;
 }
 
+/** Spec 027, R3 : un client de la table — repère, ce qu'il doit, et son geste « Glisser pour régler ». */
+function ClientRow({
+  session,
+  currency,
+  canSettle,
+  busy,
+  onSettle,
+}: {
+  session: OccupationSession;
+  currency: string;
+  canSettle: boolean;
+  busy: boolean;
+  onSettle: () => void;
+}) {
+  const name = markerInfo(session.marker).name;
+  const owes = session.unpaidMinor > 0;
+  return (
+    <li className="rounded-2xl bg-sunken/60 p-3">
+      <div className="flex items-center gap-3">
+        <SessionMarker index={session.marker} size="md" decorative />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[14px] font-semibold text-ink capitalize">{name}</span>
+          <span className="text-[12px] text-ink-3">{owes ? 'À régler' : session.status === 'settled' ? 'Réglé' : 'Rien à régler'}</span>
+        </span>
+        <span className={cn('tabular shrink-0 text-[15px] font-semibold', owes ? 'text-pay' : 'text-ink-3')}>{formatMoney(session.unpaidMinor, currency)}</span>
+      </div>
+      {canSettle && owes && (
+        <SlideToConfirm
+          className="mt-3"
+          size="md"
+          tone="ink"
+          label={`Glisser pour régler · ${formatMoney(session.unpaidMinor, currency)}`}
+          ariaLabel={`Régler le client ${name}, ${formatMoney(session.unpaidMinor, currency)}`}
+          busyLabel="Règlement…"
+          busy={busy}
+          onConfirm={onSettle}
+        />
+      )}
+    </li>
+  );
+}
+
 /** R4 : une commande — vignettes, plats et articles, heure, état, montant ; le détail se déplie. */
-function OrderRow({ order, currency }: { order: OccupationOrder; currency: string }) {
+function OrderRow({ order, currency, marker }: { order: OccupationOrder; currency: string; marker?: number }) {
   const [open, setOpen] = useState(false);
   const { dishes, articles } = orderSummary(order.items);
   const state = orderStateLabel(order.status);
@@ -418,12 +503,19 @@ function OrderRow({ order, currency }: { order: OccupationOrder; currency: strin
             <PrecisionFlags notes={[order.note]} size="sm" />
           </span>
           <span className="mt-0.5 flex items-center gap-2">
+            {/* Spec 027, R3 : le client qui a commandé. */}
+            {marker !== undefined && <SessionMarker index={marker} size="xs" />}
             <span className="tabular text-[12px] text-ink-3">{formatTime(order.createdAt)}</span>
             <StatePill state={state} />
-            {/* Spec 026, R4 : une commande servie est réglée ou à régler. */}
+            {/* Spec 026, R4 : une commande servie est réglée ou à régler ; spec 027, R9 : ou partie sans payer. */}
             {order.status === 'resolved' && (
-              <span className={cn('rounded-full px-1.5 py-px text-[11px] font-semibold', order.paidAt ? 'bg-done-soft text-done' : 'bg-ink text-white')}>
-                {order.paidAt ? 'Réglée' : 'À régler'}
+              <span
+                className={cn(
+                  'rounded-full px-1.5 py-px text-[11px] font-semibold',
+                  order.writtenOffAt ? 'bg-late-soft text-late' : order.paidAt ? 'bg-done-soft text-done' : 'bg-pay text-white',
+                )}
+              >
+                {order.writtenOffAt ? 'Impayée' : order.paidAt ? 'Réglée' : 'À régler'}
               </span>
             )}
           </span>

@@ -34,6 +34,9 @@
   /* Spec 023 : « Prête » en violet, le vert est réservé à « Servie ». */
   --color-ready: #6941c6;
   --color-ready-soft: #f0ebfb;
+  /* Spec 027, R7 : « À régler » (servie, pas encore réglée), distinct de « Servie » et de « En préparation ». */
+  --color-pay: #0e7490;
+  --color-pay-soft: #e1f3f7;
 
   --radius-card: 14px;
   --shadow-pop: 0 12px 40px -12px rgb(27 25 23 / 0.25);
