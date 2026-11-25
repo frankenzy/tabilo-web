@@ -2,7 +2,7 @@
 
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, ChevronDown, Clock, Coffee, HandCoins, Pencil, Power, QrCode, Receipt, Smartphone, Timer, X } from 'lucide-react';
+import { Check, ChevronDown, Clock, Coffee, Footprints, HandCoins, MessageCircle, Pencil, Phone, Power, QrCode, Receipt, Smartphone, Timer, X } from 'lucide-react';
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { Button, ConfirmDialog } from '@/components/ui';
 import { SessionMarker } from '@/components/ui/session-marker';
@@ -14,9 +14,10 @@ import { estKey, useEstablishmentId } from '@/hooks/use-establishment';
 import { useNow } from '@/hooks/use-now';
 import { cn } from '@/lib/utils';
 import { PrecisionBanner, PrecisionFlags } from './precisions';
-import { clientSlide, freeGesture, tableSheet } from './table-bill';
+import { clientSlide, freeGesture, tableSheet, type ServerGroup } from './table-bill';
 import { floorApi, menuImageUrl, requestsApi } from '@/services/api';
 import { errorMessage, toHttpError } from '@/services/http';
+import { useAuthStore } from '@/stores/auth.store';
 import { toast } from '@/stores/toast.store';
 import { formatMoney } from '@/utils/money';
 import { formatClock, formatTime, secondsSince } from '@/utils/time';
@@ -134,6 +135,21 @@ export function TableRequestsDialog({ table, areaName, status, requests, canClos
     },
   });
 
+  // Spec 029, R7 : « J'y vais » prend l'appel ou les messages du client, « Fait » les termine.
+  const meId = useAuthStore((state) => state.me?.id ?? null);
+  const serve = useMutation({
+    mutationFn: async (group: ServerGroup) => {
+      const waiting = group.requests.filter((request) => ['pending', 'assigned', 'accepted'].includes(request.status));
+      if (waiting.length > 0) await Promise.all(waiting.map((request) => requestsApi.act(establishmentId, request.id, 'prepare')));
+      else await Promise.all(group.requests.map((request) => requestsApi.act(establishmentId, request.id, 'resolve')));
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: estKey(establishmentId, 'requests') });
+      void queryClient.invalidateQueries({ queryKey: estKey(establishmentId, 'live') });
+    },
+    onError: (error) => toast.error('Action impossible', errorMessage(error)),
+  });
+
   const data = occupation.data;
   const currency = data?.currency ?? 'XOF';
   // Spec 027, R3 : les clients qui ont commandé, avec leur repère ; leurs commandes portent le même repère.
@@ -219,6 +235,17 @@ export function TableRequestsDialog({ table, areaName, status, requests, canClos
                     )}
                     {owing.length > 1 && <Chip icon={<HandCoins className="size-3.5" aria-hidden />}>Table · {formatMoney(unpaid, currency)} à régler</Chip>}
                   </ul>
+                  {sheet.calls.map((group) => (
+                    <ServerCard
+                      key={group.key}
+                      group={group}
+                      now={now}
+                      meId={meId}
+                      canHandle={canSettle}
+                      busy={serve.isPending && serve.variables?.key === group.key}
+                      onSlide={() => serve.mutate(group)}
+                    />
+                  ))}
                   {settled && <SettledCard settled={settled} currency={currency} />}
                   {sheet.bills.map((request) => (
                     <BillCard
@@ -516,6 +543,79 @@ function BillCard({
           busyLabel="Règlement…"
           busy={busy}
           onConfirm={onSettle}
+        />
+      )}
+    </section>
+  );
+}
+
+/** Spec 029, R7 : un appel (orange, téléphone animé) ou les messages d'un client (bleu, texte en grand). */
+function ServerCard({
+  group, now, meId, canHandle, busy, onSlide,
+}: { group: ServerGroup; now: number; meId: string | null; canHandle: boolean; busy: boolean; onSlide: () => void }) {
+  const call = group.kind === 'call';
+  const first = group.requests[0];
+  const name = group.marker === null ? null : markerInfo(group.marker).name;
+  const taker = group.requests.find((request) => request.assignee)?.assignee ?? null;
+  const mineToFinish = !group.waiting && taker?.id === meId;
+  const notes = group.requests.flatMap((request) => (request.note ? [request.note] : []));
+  const title = call ? 'Appel du serveur' : notes.length > 1 ? 'Messages' : 'Message';
+  return (
+    <section
+      aria-label={`${title}${name ? `, ${name}` : ''}`}
+      className={cn(
+        'animate-item-in rounded-3xl p-5 ring-1',
+        call ? 'bg-call-soft shadow-[0_14px_32px_-20px_rgb(194_65_12/0.6)] ring-call/25' : 'bg-message-soft shadow-[0_14px_32px_-20px_rgb(59_63_184/0.6)] ring-message/15',
+      )}
+    >
+      <div className="flex items-center gap-3">
+        <span className="relative grid size-12 shrink-0 place-items-center" aria-hidden>
+          {group.waiting && <span className={cn('absolute inset-0 rounded-full motion-safe:animate-call-wave', call ? 'bg-call' : 'bg-message')} />}
+          <span className={cn('relative grid size-12 place-items-center rounded-full', call ? 'bg-call text-ink' : 'bg-message text-white')}>
+            {call ? <Phone className={cn('size-6', group.waiting && 'motion-safe:animate-call-ring')} /> : <MessageCircle className="size-6" />}
+          </span>
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-[16px] leading-tight font-semibold text-ink">{title}</p>
+          <p className={cn('tabular mt-0.5 text-[13px]', call ? 'text-call-ink' : 'text-message')}>
+            {formatTime(first.createdAt)} · <span className="font-mono">{formatClock(secondsSince(first.createdAt, now))}</span>
+          </p>
+        </div>
+        {group.marker !== null && (
+          <span className="flex h-9 shrink-0 items-center gap-2 rounded-full bg-surface pr-3 pl-1.5 shadow-sm">
+            <SessionMarker index={group.marker} size="sm" decorative />
+            <span className="max-w-24 truncate text-[13px] font-semibold text-ink capitalize">{name}</span>
+          </span>
+        )}
+      </div>
+      {notes.length > 0 && (
+        <ul className="mt-4 flex flex-col items-start gap-2">
+          {notes.map((note, index) => (
+            <li
+              key={`${index}-${note}`}
+              className={cn('rounded-[22px] rounded-tl-md bg-surface px-4 py-3 leading-snug text-ink', index === 0 ? 'text-[19px] font-semibold tracking-tight' : 'text-[15px] font-medium')}
+            >
+              {note}
+            </li>
+          ))}
+        </ul>
+      )}
+      {!group.waiting && taker && (
+        <p className="mt-4 flex items-center gap-2 text-[14px] font-medium text-ink-2">
+          <Footprints className="size-4 text-done" aria-hidden />
+          {taker.id === meId ? 'Vous y allez' : `${taker.firstName} y va`}
+        </p>
+      )}
+      {canHandle && (group.waiting || mineToFinish) && (
+        <SlideToConfirm
+          className="mt-4"
+          size="lg"
+          tone={group.waiting ? 'ink' : 'done'}
+          label={group.waiting ? 'Glisser · J’y vais' : 'Glisser · Fait'}
+          ariaLabel={group.waiting ? `J’y vais, ${title}` : `Fait, ${title}`}
+          busyLabel={group.waiting ? 'C’est noté…' : 'Terminé…'}
+          busy={busy}
+          onConfirm={onSlide}
         />
       )}
     </section>

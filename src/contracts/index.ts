@@ -48,7 +48,8 @@ export interface OrderLine {
 }
 
 /** Spec 028 : `bill` est « L'addition », demande de facture d'un client (une par établissement). */
-export type RequestKind = 'service' | 'order' | 'bill';
+/** Spec 029 : `call` (appel d'un toucher) et `message` (texte du client). */
+export type RequestKind = 'service' | 'order' | 'bill' | 'call' | 'message';
 
 export interface ServiceRequest {
   id: string;
@@ -500,7 +501,7 @@ const guestTypeSchema = z.object({
   icon: z.string(),
   allowNote: z.boolean(),
   /** Spec 028 : « L'addition » (`bill`) se demande en glissant, depuis « Ma note ». */
-  kind: z.enum(['service', 'bill']).default('service'),
+  kind: z.enum(['service', 'bill', 'call', 'message']).default('service'),
 });
 
 export const guestContextSchema = z.object({
@@ -522,7 +523,7 @@ export const guestSessionSchema = guestContextSchema.extend({ token: z.string().
 export const guestRequestSchema = z.object({
   id: z.string(),
   status: z.enum(REQUEST_STATUSES),
-  type: z.object({ id: z.string(), label: z.string(), icon: z.string(), kind: z.enum(['service', 'order', 'bill']) }),
+  type: z.object({ id: z.string(), label: z.string(), icon: z.string(), kind: z.enum(['service', 'order', 'bill', 'call', 'message']) }),
   items: z.array(z.object({ menuItemId: z.string().optional(), name: z.string(), quantity: z.number().int(), unitPriceMinor: z.number().int() })),
   totalMinor: z.number().int().nullable(),
   quantity: z.number().int().nullable(),
@@ -534,6 +535,8 @@ export const guestRequestSchema = z.object({
   cancelledAt: z.string().nullable(),
   /** Spec 026, R8 : commande réglée. */
   paidAt: z.string().nullable().optional(),
+  /** Spec 029, R5 : le texte d'un message, rendu à son seul auteur. */
+  note: z.string().nullable().optional(),
 });
 export const guestRequestListSchema = z.array(guestRequestSchema);
 export const guestCreateResultSchema = z.object({ request: guestRequestSchema, deduplicated: z.boolean() });

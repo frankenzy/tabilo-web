@@ -132,7 +132,7 @@ export function RequestCard({ request, now, viewer, busy, onAction, onDialog }: 
               <SlideToConfirm
                 className="min-w-0 flex-1 sm:max-w-xs"
                 size="md"
-                tone={slideTone(caps.primary.action)}
+                tone={caps.primary.tone === 'ink' ? 'ink' : slideTone(caps.primary.action)}
                 label={bill ? `${caps.primary.label} · ${formatMoney(bill.dueMinor, currency)}` : caps.primary.label}
                 ariaLabel={`${caps.primary.label}${bill ? `, ${formatMoney(bill.dueMinor, currency)}` : ''}, table ${request.table.label}`}
                 busy={busy}

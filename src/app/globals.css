@@ -37,6 +37,12 @@
   /* Spec 027, R7 : « À régler » (servie, pas encore réglée), distinct de « Servie » et de « En préparation ». */
   --color-pay: #0e7490;
   --color-pay-soft: #e1f3f7;
+  /* Spec 029 : l'appel (orange, ondes) et le message (bleu nuit). */
+  --color-call: #f59e4b;
+  --color-call-soft: #fdeee3;
+  --color-call-ink: #9a3d0c;
+  --color-message: #3b3fb8;
+  --color-message-soft: #eef0fd;
 
   --radius-card: 14px;
   --shadow-pop: 0 12px 40px -12px rgb(27 25 23 / 0.25);
@@ -63,6 +69,20 @@
   --animate-slide-hint: slide-hint 700ms var(--ease-spring);
   --animate-draw: draw 600ms var(--ease-apple) 250ms forwards;
   --animate-pulse-step: pulse-step 1.8s ease-in-out infinite;
+  /* Spec 029 : ondes d'un appel et téléphone qui sonne. */
+  --animate-call-wave: call-wave 1.8s cubic-bezier(0, 0, 0.2, 1) infinite;
+  --animate-call-ring: call-ring 1.6s ease-in-out infinite;
+}
+
+@keyframes call-wave {
+  from { transform: scale(1); opacity: 0.5; }
+  to { transform: scale(1.85); opacity: 0; }
+}
+
+@keyframes call-ring {
+  0%, 40%, 100% { transform: rotate(0); }
+  5%, 15%, 25% { transform: rotate(-14deg); }
+  10%, 20%, 30% { transform: rotate(14deg); }
 }
 
 @keyframes page-in {

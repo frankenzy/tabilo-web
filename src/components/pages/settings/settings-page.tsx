@@ -192,6 +192,10 @@ function RequestTypesSettings() {
                         {type.label}
                         {type.kind === 'order' && <Badge tone="neutral">Commandes de la carte</Badge>}
                         {type.kind === 'bill' && <Badge tone="neutral">Glissée par le client, réglée par le serveur</Badge>}
+                        {/* Spec 029, R1 : les deux ronds du bouton « Serveur » ; les autres services ne sont plus proposés au téléphone. */}
+                        {type.kind === 'call' && <Badge tone="neutral">Rond téléphone du client</Badge>}
+                        {type.kind === 'message' && <Badge tone="neutral">Rond message du client</Badge>}
+                        {type.kind === 'service' && type.icon !== 'droplet' && <Badge tone="muted">Non proposée au client</Badge>}
                         {type.priority === 'high' && <Badge tone="brand">Prioritaire</Badge>}
                         {!type.isActive && <Badge tone="muted">Masqué</Badge>}
                       </p>

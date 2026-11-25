@@ -43,6 +43,23 @@ export function capabilitiesOf(request: ServiceRequest, viewer: Viewer, separate
       acknowledge: viewer.can('requests.supervise') && request.escalationStatus === 'escalated',
     };
   }
+  // Spec 029, R7 : un appel ou un message — « J'y vais » le prend, « Fait » le termine, en glissant.
+  if (request.type?.kind === 'call' || request.type?.kind === 'message') {
+    const takenByOther = request.assignee !== null && request.assignee !== undefined && !mine;
+    if (handle && ['pending', 'assigned', 'accepted'].includes(request.status) && !takenByOther) {
+      primary = { action: 'prepare', label: 'Glisser · J’y vais', gesture: 'slide', tone: 'ink' };
+    } else if (request.status === 'in_progress' && own) {
+      primary = { action: 'resolve', label: 'Glisser · Fait', gesture: 'slide', tone: 'green' };
+    }
+    return {
+      primary,
+      assign: supervise && ['pending', 'assigned', 'in_progress'].includes(request.status),
+      transfer: request.status === 'in_progress' && handle && mine && !supervise,
+      release: false,
+      cancel: viewer.can('requests.cancel') && ['pending', 'accepted'].includes(request.status),
+      acknowledge: viewer.can('requests.supervise') && request.escalationStatus === 'escalated',
+    };
+  }
   if (request.type && isOrder(request)) {
     // Spec 025 : même circuit que l'écran « Commandes » — Accepter, puis glisser pour servir.
     const step = nextStep(request, separateKitchen, viewer);

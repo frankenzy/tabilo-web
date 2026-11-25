@@ -163,7 +163,8 @@ function CreateRequestDialog({ onClose }: { onClose: () => void }) {
   }
 
   // Une commande se passe depuis la carte, par le client : le personnel ne crée que des demandes de service.
-  const activeTypes = (types.data ?? []).filter((type) => type.isActive && type.kind === 'service');
+  // Spec 029 : le personnel peut aussi saisir un appel pour une table.
+  const activeTypes = (types.data ?? []).filter((type) => type.isActive && (type.kind === 'service' || type.kind === 'call'));
   const hasTables = (floor.data ?? []).some((area) => area.tables.length > 0);
 
   return (

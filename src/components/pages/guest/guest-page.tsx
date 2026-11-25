@@ -20,6 +20,8 @@ import { TableBadge } from './order-flow';
 import { mergeIntoCart, reorderLines } from './order-logic';
 import { TrackingPager } from './tracking-card';
 import { useBill } from './use-bill';
+import { ServerCallCard, ServerRounds, ServerSheet, useServerCall } from './server-call';
+import { hasServerButton, isServerRequest } from './server-logic';
 import { useLandscape } from './use-layout';
 import { guestRequestsKey, upsert, useGuestRequests } from './use-guest-requests';
 import { useGuestSession } from './use-guest-session';
@@ -95,6 +97,8 @@ function GuestTable({ token, context, onSessionClosed, onSettled, onContextStale
   const { data: requests = [], live, isError, isPending } = useGuestRequests(token, onSessionClosed, onSettled);
   const [selected, setSelected] = useState<GuestRequestType | null>(null);
   const [serverOpen, setServerOpen] = useState(false);
+  // Spec 029, R2 : sans carte, la bulle ouvre directement la saisie du message.
+  const [writeFirst, setWriteFirst] = useState(false);
   const [cartOpen, setCartOpen] = useState(false);
   // Spec 028 : « Ma note » s'ouvre aussi depuis la carte servie et la tuile « L'addition ».
   const [noteOpen, setNoteOpen] = useState(false);
@@ -134,10 +138,17 @@ function GuestTable({ token, context, onSessionClosed, onSettled, onContextStale
   // Spec 018, R1 : une demande servie reste une minute dans le suivi (« Bon appétit »).
   const { spotlight, dismiss } = useServedSpotlight(requests, token);
   // Spec 028, R3 : l'addition demandée s'affiche dans « Ma note », pas dans le suivi des demandes.
-  const tracked = requests.filter((r) => r.type.kind !== 'bill' && (ACTIVE.includes(r.status) || spotlight.has(r.id)));
+  const tracked = requests.filter((r) => r.type.kind !== 'bill' && !isServerRequest(r) && (ACTIVE.includes(r.status) || spotlight.has(r.id)));
+  // Spec 029, R4 : l'appel et les messages en cours, chacun sa carte en tête du menu.
+  const serverCards = requests.filter((r) => isServerRequest(r) && ACTIVE.includes(r.status));
+  const server = useServerCall({ token, context, onSessionClosed });
+  const serverButton = hasServerButton(context.requestTypes);
   const bill = useBill(token, context, requests, onSessionClosed);
   // Spec 028, R2 : la tuile « L'addition » n'apparaît que s'il y a quelque chose à régler, et ouvre la note.
-  const tileTypes = context.requestTypes.filter((type) => type.kind !== 'bill' || bill.state.status !== 'none');
+  // Spec 029, R1 : hors appel et message, seule « De l'eau » reste proposée au téléphone.
+  const tileTypes = context.requestTypes.filter((type) =>
+    type.kind === 'bill' ? bill.state.status !== 'none' : type.kind === 'service' && type.icon === 'droplet',
+  );
   const selectTile = (type: GuestRequestType) => (type.kind === 'bill' ? setNoteOpen(true) : setSelected(type));
 
   // R4 : les mêmes plats rejoignent le panier ; rien ne part en cuisine sans « Glisser pour commander ».
@@ -165,8 +176,25 @@ function GuestTable({ token, context, onSessionClosed, onSettled, onContextStale
       onBillAsked={() => setNoteOpen(true)}
     />
   );
+  const callCards = serverCards.length > 0 && (
+    <div className="mt-4 flex flex-col gap-2">
+      {serverCards.map((request) => (
+        <ServerCallCard key={request.id} request={request} token={token} />
+      ))}
+    </div>
+  );
   // À l'horizontale, le suivi passe dans le panneau (R4).
-  const banner = tracked.length > 0 && !landscape ? pager(false) : undefined;
+  const banner =
+    (tracked.length > 0 || serverCards.length > 0) && !landscape ? (
+      <>
+        {callCards}
+        {tracked.length > 0 && pager(false)}
+      </>
+    ) : undefined;
+  const openServer = (write = false) => {
+    setWriteFirst(write);
+    setServerOpen(true);
+  };
   // Demande d'eau : le type de service à l'icône « goutte » (spec 005, R6).
   const waterType = context.requestTypes.find((type) => type.icon === 'droplet');
 
@@ -215,11 +243,11 @@ function GuestTable({ token, context, onSessionClosed, onSettled, onContextStale
             cart={cart}
             onQuantity={setQuantity}
             action={
-              context.requestTypes.length > 0 ? (
+              serverButton ? (
                 // Cloche toujours visible : elle est dans l'en-tête fixe de la carte (spec 005, R4).
                 <button
                   type="button"
-                  onClick={() => setServerOpen(true)}
+                  onClick={() => openServer()}
                   aria-label="Serveur"
                   title="Appeler le serveur"
                   className="grid size-12 shrink-0 place-items-center rounded-full bg-ink text-white shadow-pop active:scale-95"
@@ -230,15 +258,26 @@ function GuestTable({ token, context, onSessionClosed, onSettled, onContextStale
             }
             banner={banner}
             leadingTile={waterType ? <WaterTile pending={activeTypeIds.has(waterType.id)} onCall={() => setSelected(waterType)} /> : undefined}
-            trailingTile={context.requestTypes.length > 0 ? <WaiterTile onCall={() => setServerOpen(true)} /> : undefined}
+            trailingTile={serverButton ? <WaiterTile onCall={() => openServer()} /> : undefined}
           />
         </div>
       ) : (
         <>
           {banner}
         <section className="mt-8">
-          <h2 className="text-[15px] font-semibold text-ink">{active.length > 0 ? 'Autre chose ?' : 'De quoi avez-vous besoin ?'}</h2>
-          <RequestTiles types={tileTypes} activeTypeIds={activeTypeIds} onSelect={selectTile} />
+          <h2 className="sr-only">Appeler le serveur</h2>
+          {/* Spec 029, R2 : sans carte, les deux ronds sont sur la page ; l'eau et l'addition dessous. */}
+          <ServerRounds
+            className="py-4"
+            onCall={server.callType ? server.call : undefined}
+            onWrite={server.messageType ? () => openServer(true) : undefined}
+          />
+          {server.callError && (
+            <p role="alert" className="text-center text-[13px] text-late">
+              {server.callError}
+            </p>
+          )}
+          {tileTypes.length > 0 && <RequestTiles types={tileTypes} activeTypeIds={activeTypeIds} onSelect={selectTile} />}
         </section>
         </>
       )}
@@ -288,7 +327,12 @@ function GuestTable({ token, context, onSessionClosed, onSettled, onContextStale
           <div className="shrink-0 px-4 pt-5">
             <TableBadge label={context.table.label} area={context.table.area} />
           </div>
-          {tracked.length > 0 && <div className="max-h-[45%] shrink-0 overflow-y-auto overscroll-contain px-4 pt-4 pb-1">{pager(true)}</div>}
+          {(tracked.length > 0 || serverCards.length > 0) && (
+            <div className="max-h-[45%] shrink-0 overflow-y-auto overscroll-contain px-4 pt-4 pb-1">
+              {serverCards.length > 0 && <div className="-mt-4 mb-3">{callCards}</div>}
+              {tracked.length > 0 && pager(true)}
+            </div>
+          )}
           {context.orderingEnabled ? (
             <OrderPanel
               key={round}
@@ -341,18 +385,15 @@ function GuestTable({ token, context, onSessionClosed, onSettled, onContextStale
         />
       )}
 
-      {serverOpen && (
-        <Dialog open onOpenChange={(open) => !open && setServerOpen(false)} title="De quoi avez-vous besoin ?" description="L’équipe est prévenue tout de suite.">
-          <RequestTiles
-            types={tileTypes}
-            activeTypeIds={activeTypeIds}
-            onSelect={(type) => {
-              setServerOpen(false);
-              selectTile(type);
-            }}
-          />
-        </Dialog>
-      )}
+      <ServerSheet
+        open={serverOpen}
+        onOpenChange={setServerOpen}
+        startWriting={writeFirst}
+        token={token}
+        context={context}
+        requests={requests}
+        onSessionClosed={onSessionClosed}
+      />
       {selected && <ConfirmRequest key={selected.id} type={selected} token={token} onClose={() => setSelected(null)} onSessionClosed={onSessionClosed} />}
       {/* Spec 027, R8 : explication avant la première demande de position. */}
       {context.zone && <LocationExplanation />}

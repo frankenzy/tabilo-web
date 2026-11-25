@@ -14,6 +14,7 @@ import { useStaffRealtime } from '@/services/realtime/use-staff-realtime';
 import { useAuthStore, useMembership } from '@/stores/auth.store';
 import { useRealtimeStore } from '@/stores/realtime.store';
 import { formatDateTime } from '@/utils/time';
+import { IncomingCalls } from '@/components/pages/requests/incoming-calls';
 import { Brand } from './brand';
 import { visibleNav, type NavItem } from './navigation';
 
@@ -75,6 +76,9 @@ export function AppShell({ children }: { children: ReactNode }) {
       <div key={pathname} className="w-full animate-page-in px-4 pt-6 pb-28 lg:px-8 lg:pb-12">
         {children}
       </div>
+
+      {/* Spec 029, R6 : appels et messages en bas de l'écran, sur toutes les pages. */}
+      {establishmentId && <IncomingCalls />}
 
       <nav aria-label="Navigation principale" className="no-print fixed inset-x-0 bottom-0 z-30 flex border-t border-line bg-surface pb-[env(safe-area-inset-bottom)] lg:hidden">
         {primary.map((item) => (
