@@ -51,6 +51,20 @@ describe('Spec 029 — appel et message', () => {
     const { call, message } = serverTypes(context.requestTypes);
     expect([call?.id, message?.id]).toEqual(['call', 'msg']);
     expect(hasServerButton(context.requestTypes)).toBe(true);
+    // Contexte d'avant la mise à jour (genre absent) : la cloche et la bulle restent l'appel et le message.
+    const legacy = guestContextSchema.parse({
+      establishment: { name: 'Chez Aya', currency: 'XOF' },
+      table: { label: '5', area: 'Salle' },
+      requestTypes: [
+        { id: 'bell', label: 'Appeler un serveur', icon: 'bell', allowNote: false },
+        { id: 'autre', label: 'Autre demande', icon: 'message-circle', allowNote: true },
+      ],
+      menu: [],
+      orderingEnabled: false,
+    }).requestTypes;
+    expect(serverTypes(legacy).call?.id).toBe('bell');
+    expect(serverTypes(legacy).message?.id).toBe('autre');
+    expect(hasServerButton(legacy)).toBe(true);
     // Sans appel ni message, pas de bouton : « Assistance » seule ne suffit plus.
     expect(hasServerButton(context.requestTypes.filter((type) => type.kind === 'service'))).toBe(false);
   });

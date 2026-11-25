@@ -5,7 +5,12 @@ export const OPTIMISTIC_CALL = 'appel-en-cours';
 
 /** Spec 029, R1 : l'appel et le message de l'établissement, reconnus par leur genre. */
 export function serverTypes(types: GuestRequestType[]): { call?: GuestRequestType; message?: GuestRequestType } {
-  return { call: types.find((type) => type.kind === 'call'), message: types.find((type) => type.kind === 'message') };
+  // Session ouverte avant la mise à jour, ou API pas encore migrée : le genre manque, le pictogramme suffit.
+  const byIcon = (icon: string) => types.find((type) => type.kind === 'service' && type.icon === icon);
+  return {
+    call: types.find((type) => type.kind === 'call') ?? byIcon('bell'),
+    message: types.find((type) => type.kind === 'message') ?? byIcon('message-circle'),
+  };
 }
 
 /** Spec 029, R2 : ce que le bouton « Serveur » propose — l'appel et le message, rien d'autre. */
