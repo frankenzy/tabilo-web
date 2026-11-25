@@ -6,7 +6,7 @@ import type { SlideTone } from '@/components/ui/slide-to-confirm';
 /** Couleur de la barre à glisser : violet « prête », sombre « régler », vert « servir » (specs 025 et 026). */
 export function slideTone(action: RequestAction): SlideTone {
   if (action === 'ready') return 'ready';
-  if (action === 'settle') return 'ink';
+  if (action === 'settle' || action === 'settle-bill') return 'ink';
   return 'done';
 }
 

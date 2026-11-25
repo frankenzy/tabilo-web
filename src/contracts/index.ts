@@ -47,7 +47,8 @@ export interface OrderLine {
   unitPriceMinor: number;
 }
 
-export type RequestKind = 'service' | 'order';
+/** Spec 028 : `bill` est « L'addition », demande de facture d'un client (une par établissement). */
+export type RequestKind = 'service' | 'order' | 'bill';
 
 export interface ServiceRequest {
   id: string;
@@ -85,6 +86,14 @@ export interface ServiceRequest {
   zone?: ZoneSignal | null;
   /** Spec 027, R9 : marquée « Parti sans payer ». */
   writtenOffAt?: string | null;
+  /** Spec 028, R5 : demande d'addition — montant dû du client et commandes pas encore comptées ; null sinon. */
+  bill?: BillSummary | null;
+}
+
+/** Spec 028, R5 : ce que la carte « Demande d'addition » montre au personnel. */
+export interface BillSummary {
+  dueMinor: number;
+  pendingOrders: number;
 }
 
 /** Spec 027, R8 : position du client par rapport à la zone de l'établissement, au moment de commander. */
@@ -204,7 +213,7 @@ export interface QrCode {
 export interface RequestType {
   id: string;
   label: string;
-  /** `order` : le type « Commande », unique, utilisé par la carte. Il ne se supprime pas. */
+  /** `order` : le type « Commande », unique, utilisé par la carte ; `bill` : « L'addition » (spec 028). Ni l'un ni l'autre ne se supprime. */
   kind: RequestKind;
   icon: string;
   priority: 'normal' | 'high';
@@ -485,7 +494,14 @@ export interface AuditEntry {
 
 // ------------------------------------------------------------ parcours client
 
-const guestTypeSchema = z.object({ id: z.string(), label: z.string(), icon: z.string(), allowNote: z.boolean() });
+const guestTypeSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  icon: z.string(),
+  allowNote: z.boolean(),
+  /** Spec 028 : « L'addition » (`bill`) se demande en glissant, depuis « Ma note ». */
+  kind: z.enum(['service', 'bill']).default('service'),
+});
 
 export const guestContextSchema = z.object({
   establishment: z.object({ name: z.string(), currency: z.string() }),
@@ -506,7 +522,7 @@ export const guestSessionSchema = guestContextSchema.extend({ token: z.string().
 export const guestRequestSchema = z.object({
   id: z.string(),
   status: z.enum(REQUEST_STATUSES),
-  type: z.object({ id: z.string(), label: z.string(), icon: z.string(), kind: z.enum(['service', 'order']) }),
+  type: z.object({ id: z.string(), label: z.string(), icon: z.string(), kind: z.enum(['service', 'order', 'bill']) }),
   items: z.array(z.object({ menuItemId: z.string().optional(), name: z.string(), quantity: z.number().int(), unitPriceMinor: z.number().int() })),
   totalMinor: z.number().int().nullable(),
   quantity: z.number().int().nullable(),

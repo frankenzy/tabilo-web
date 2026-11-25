@@ -19,6 +19,7 @@ import { HistoryButton, useServedSpotlight } from './note';
 import { TableBadge } from './order-flow';
 import { mergeIntoCart, reorderLines } from './order-logic';
 import { TrackingPager } from './tracking-card';
+import { useBill } from './use-bill';
 import { useLandscape } from './use-layout';
 import { guestRequestsKey, upsert, useGuestRequests } from './use-guest-requests';
 import { useGuestSession } from './use-guest-session';
@@ -95,6 +96,8 @@ function GuestTable({ token, context, onSessionClosed, onSettled, onContextStale
   const [selected, setSelected] = useState<GuestRequestType | null>(null);
   const [serverOpen, setServerOpen] = useState(false);
   const [cartOpen, setCartOpen] = useState(false);
+  // Spec 028 : « Ma note » s'ouvre aussi depuis la carte servie et la tuile « L'addition ».
+  const [noteOpen, setNoteOpen] = useState(false);
   const { cart, setQuantity, clear } = useCart(token);
   const { details, updateDetails, clearDetails } = useOrderDetails(token);
   const hasMenu = context.menu.length > 0;
@@ -126,12 +129,16 @@ function GuestTable({ token, context, onSessionClosed, onSettled, onContextStale
   const active = useMemo(() => requests.filter((r) => ACTIVE.includes(r.status)), [requests]);
   // Spec 018, R6 : les commandes terminées de ce téléphone vont dans l'historique « Ma note ».
   const pastOrders = useMemo(() => requests.filter((r) => r.type.kind === 'order' && !ACTIVE.includes(r.status)), [requests]);
-  const activeTypeIds = new Set(active.map((r) => r.type.id));
+  // Spec 028 : la tuile « L'addition » reste touchable une fois demandée — elle rouvre la facture.
+  const activeTypeIds = new Set(active.filter((r) => r.type.kind !== 'bill').map((r) => r.type.id));
   // Spec 018, R1 : une demande servie reste une minute dans le suivi (« Bon appétit »).
   const { spotlight, dismiss } = useServedSpotlight(requests, token);
-  const tracked = requests.filter((r) => ACTIVE.includes(r.status) || spotlight.has(r.id));
-  // R6 : la demande « L'addition » de l'établissement.
-  const billType = context.requestTypes.find((type) => type.icon === 'receipt');
+  // Spec 028, R3 : l'addition demandée s'affiche dans « Ma note », pas dans le suivi des demandes.
+  const tracked = requests.filter((r) => r.type.kind !== 'bill' && (ACTIVE.includes(r.status) || spotlight.has(r.id)));
+  const bill = useBill(token, context, requests, onSessionClosed);
+  // Spec 028, R2 : la tuile « L'addition » n'apparaît que s'il y a quelque chose à régler, et ouvre la note.
+  const tileTypes = context.requestTypes.filter((type) => type.kind !== 'bill' || bill.state.status !== 'none');
+  const selectTile = (type: GuestRequestType) => (type.kind === 'bill' ? setNoteOpen(true) : setSelected(type));
 
   // R4 : les mêmes plats rejoignent le panier ; rien ne part en cuisine sans « Glisser pour commander ».
   const reorder = (request: GuestRequest, from: DOMRect | null) => {
@@ -145,7 +152,18 @@ function GuestTable({ token, context, onSessionClosed, onSettled, onContextStale
   };
 
   const pager = (stacked: boolean) => (
-    <TrackingPager active={tracked} token={token} currency={currency} menu={context.menu} spotlight={spotlight} onDismiss={dismiss} onReorder={reorder} stacked={stacked} />
+    <TrackingPager
+      active={tracked}
+      token={token}
+      currency={currency}
+      menu={context.menu}
+      spotlight={spotlight}
+      onDismiss={dismiss}
+      onReorder={reorder}
+      stacked={stacked}
+      bill={bill}
+      onBillAsked={() => setNoteOpen(true)}
+    />
   );
   // À l'horizontale, le suivi passe dans le panneau (R4).
   const banner = tracked.length > 0 && !landscape ? pager(false) : undefined;
@@ -220,7 +238,7 @@ function GuestTable({ token, context, onSessionClosed, onSettled, onContextStale
           {banner}
         <section className="mt-8">
           <h2 className="text-[15px] font-semibold text-ink">{active.length > 0 ? 'Autre chose ?' : 'De quoi avez-vous besoin ?'}</h2>
-          <RequestTiles types={context.requestTypes} activeTypeIds={activeTypeIds} onSelect={setSelected} />
+          <RequestTiles types={tileTypes} activeTypeIds={activeTypeIds} onSelect={selectTile} />
         </section>
         </>
       )}
@@ -240,9 +258,10 @@ function GuestTable({ token, context, onSessionClosed, onSettled, onContextStale
             orders={pastOrders}
             currency={currency}
             menu={context.menu}
-            billAvailable={billType !== undefined}
-            billPending={billType !== undefined && activeTypeIds.has(billType.id)}
-            onBill={() => billType && setSelected(billType)}
+            open={noteOpen}
+            onOpenChange={setNoteOpen}
+            bill={bill}
+            marker={context.marker}
             onReorder={reorder}
           />
         </div>
@@ -325,11 +344,11 @@ function GuestTable({ token, context, onSessionClosed, onSettled, onContextStale
       {serverOpen && (
         <Dialog open onOpenChange={(open) => !open && setServerOpen(false)} title="De quoi avez-vous besoin ?" description="L’équipe est prévenue tout de suite.">
           <RequestTiles
-            types={context.requestTypes}
+            types={tileTypes}
             activeTypeIds={activeTypeIds}
             onSelect={(type) => {
               setServerOpen(false);
-              setSelected(type);
+              selectTile(type);
             }}
           />
         </Dialog>

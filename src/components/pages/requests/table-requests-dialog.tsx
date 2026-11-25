@@ -55,6 +55,9 @@ export function TableRequestsDialog({ table, areaName, status, requests, canClos
   });
   // Une demande qui arrive ou change d'état : les chiffres et les commandes suivent aussitôt (spec 006, R7).
   const signature = requests.map((request) => `${request.id}:${request.status}`).join(',');
+  // Spec 028, R5 : les demandes d'addition en tête de « En cours » ; leurs clients portent « Addition demandée ».
+  const ordered = [...requests.filter((request) => request.type.kind === 'bill'), ...requests.filter((request) => request.type.kind !== 'bill')];
+  const billMarkers = new Set(requests.filter((request) => request.type.kind === 'bill' && request.marker !== null && request.marker !== undefined).map((request) => request.marker));
   const refetch = occupation.refetch;
   const first = useRef(true);
   useEffect(() => {
@@ -239,7 +242,7 @@ export function TableRequestsDialog({ table, areaName, status, requests, canClos
                 </div>
               ) : (
                 <ul className="mt-3 flex flex-col gap-3">
-                  {requests.map((request) => (
+                  {ordered.map((request) => (
                     <li key={request.id} className="animate-item-in">
                       {children(request)}
                     </li>
@@ -278,6 +281,7 @@ export function TableRequestsDialog({ table, areaName, status, requests, canClos
                       session={session}
                       currency={currency}
                       canSettle={canSettle}
+                      billAsked={billMarkers.has(session.marker)}
                       busy={settleClient.isPending && settleClient.variables?.id === session.id}
                       onSettle={() => settleClient.mutate(session)}
                     />
@@ -435,12 +439,15 @@ function ClientRow({
   session,
   currency,
   canSettle,
+  billAsked,
   busy,
   onSettle,
 }: {
   session: OccupationSession;
   currency: string;
   canSettle: boolean;
+  /** Spec 028, R5 : ce client a demandé l'addition (même geste que la carte « Demande d'addition »). */
+  billAsked: boolean;
   busy: boolean;
   onSettle: () => void;
 }) {
@@ -452,7 +459,15 @@ function ClientRow({
         <SessionMarker index={session.marker} size="md" decorative />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-[14px] font-semibold text-ink capitalize">{name}</span>
-          <span className="text-[12px] text-ink-3">{owes ? 'À régler' : session.status === 'settled' ? 'Réglé' : 'Rien à régler'}</span>
+          <span className="flex items-center gap-1.5 text-[12px] text-ink-3">
+            {owes ? 'À régler' : session.status === 'settled' ? 'Réglé' : 'Rien à régler'}
+            {billAsked && owes && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-pay px-1.5 py-px text-[11px] font-semibold text-white">
+                <Receipt className="size-3" aria-hidden />
+                Addition demandée
+              </span>
+            )}
+          </span>
         </span>
         <span className={cn('tabular shrink-0 text-[15px] font-semibold', owes ? 'text-pay' : 'text-ink-3')}>{formatMoney(session.unpaidMinor, currency)}</span>
       </div>

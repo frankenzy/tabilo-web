@@ -62,6 +62,7 @@ const SUCCESS: Partial<Record<RequestAction, string>> = {
   cancel: 'Demande annulée',
   'acknowledge-escalation': 'Escalade acquittée',
   settle: 'Commande réglée',
+  'settle-bill': 'Client réglé',
 };
 
 /**

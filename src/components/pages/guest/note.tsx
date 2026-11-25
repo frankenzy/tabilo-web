@@ -2,14 +2,17 @@
 
 import { Check, Clock, History, Receipt, RotateCcw, X } from 'lucide-react';
 import { useState } from 'react';
-import { Dialog } from '@/components/ui';
+import { Dialog, FormError } from '@/components/ui';
+import { SessionMarker } from '@/components/ui/session-marker';
+import { SlideToConfirm } from '@/components/ui/slide-to-confirm';
 import type { GuestRequest, MenuCategory } from '@/contracts';
 import { cn } from '@/lib/utils';
 import { formatMoney } from '@/utils/money';
 import { formatTime } from '@/utils/time';
 import { haptic } from './fly-to-cart';
 import { ItemPhoto } from './guest-menu';
-import { inSpotlight, reorderLines, servedTotal, spotlightStart, unpaidTotal } from './order-logic';
+import { inSpotlight, reorderLines, servedTotal, spotlightStart, unpaidTotal, type BillState } from './order-logic';
+import type { Bill } from './use-bill';
 
 /** Marge pour qu'une carte en train de sortir (R3) ne disparaisse pas d'un coup sur un rendu voisin. */
 const EXIT_GRACE_MS = 1500;
@@ -88,10 +91,10 @@ interface HistoryProps {
   orders: GuestRequest[];
   currency: string;
   menu: MenuCategory[];
-  /** Demande « L'addition » de l'établissement (pictogramme `receipt`), s'il y en a une. */
-  billAvailable: boolean;
-  billPending: boolean;
-  onBill: () => void;
+  /** Spec 028 : l'addition du client — barre à glisser, puis facture. */
+  bill: Bill;
+  /** Spec 027, R2 : repère du client, rappelé sur sa facture. */
+  marker: number;
   /** Relancer (R7) : `from` est la flèche touchée, point de départ de la vignette qui vole. */
   onReorder: (request: GuestRequest, from: DOMRect | null) => void;
 }
@@ -100,8 +103,17 @@ interface HistoryProps {
  * Spec 018, R5 : le bouton historique, à la place de la photo du serveur, et sa feuille « Ma note » (R6, R7).
  * Le conteneur (position au-dessus de la barre de commande) est fourni par la page.
  */
-export function HistoryButton({ orders, currency, menu, billAvailable, billPending, onBill, onReorder }: HistoryProps) {
-  const [open, setOpen] = useState(false);
+export function HistoryButton({
+  open,
+  onOpenChange: setOpen,
+  ...props
+}: HistoryProps & {
+  /** Spec 028, R2 : la note s'ouvre aussi depuis la carte servie et la tuile « L'addition ». */
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const { orders, onReorder } = props;
+  const asked = props.bill.state.status === 'pending';
 
   return (
     <>
@@ -122,20 +134,18 @@ export function HistoryButton({ orders, currency, menu, billAvailable, billPendi
         >
           {orders.length}
         </span>
+        {/* Spec 028, R3 : addition demandée — reçu et horloge, visibles sans ouvrir la note. */}
+        {asked && (
+          <span className="absolute -right-1 -bottom-1 grid size-7 animate-pop-in place-items-center rounded-full bg-pay text-white ring-2 ring-surface" aria-hidden>
+            <Receipt className="size-3.5" strokeWidth={2.5} />
+          </span>
+        )}
       </button>
 
       {open && (
-        <Dialog open onOpenChange={(next) => !next && setOpen(false)} title="Ma note">
+        <Dialog open onOpenChange={(next) => !next && setOpen(false)} title={asked ? 'Mon addition' : 'Ma note'}>
           <HistorySheet
-            orders={orders}
-            currency={currency}
-            menu={menu}
-            billAvailable={billAvailable}
-            billPending={billPending}
-            onBill={() => {
-              setOpen(false);
-              onBill();
-            }}
+            {...props}
             onReorder={(request, from) => {
               setOpen(false);
               onReorder(request, from);
@@ -147,7 +157,7 @@ export function HistoryButton({ orders, currency, menu, billAvailable, billPendi
   );
 }
 
-function HistorySheet({ orders, currency, menu, billAvailable, billPending, onBill, onReorder }: HistoryProps) {
+function HistorySheet({ orders, currency, menu, bill, marker, onReorder }: HistoryProps) {
   const [expanded, setExpanded] = useState<string | null>(null);
   const total = servedTotal(orders);
   const unpaid = unpaidTotal(orders);
@@ -250,24 +260,64 @@ function HistorySheet({ orders, currency, menu, billAvailable, billPending, onBi
         </div>
       )}
 
-      {billAvailable && (
-        <button
-          type="button"
-          disabled={billPending}
-          onClick={() => {
-            haptic(10);
-            onBill();
-          }}
-          className={cn(
-            'mt-4 flex h-14 w-full items-center justify-center gap-2.5 rounded-full text-[16px] font-semibold transition-[scale,background-color] duration-200 ease-apple',
-            billPending ? 'bg-sunken text-ink-3' : 'bg-ink text-white shadow-pop active:scale-[0.97]',
-          )}
-        >
-          {billPending ? <Clock className="size-5" aria-hidden /> : <Receipt className="size-5" aria-hidden />}
-          {billPending ? 'Addition demandée' : 'L’addition'}
-        </button>
-      )}
+      <BillSection bill={bill} currency={currency} marker={marker} />
     </div>
+  );
+}
+
+/**
+ * Spec 028 : « Glisser pour l'addition · 4 500 F » tant qu'il reste à régler ; une fois glissée, la facture —
+ * repère, montant en gros chiffres, « Le serveur arrive » — sans attendre le personnel (R3).
+ */
+function BillSection({ bill, currency, marker }: { bill: Bill; currency: string; marker: number }) {
+  const { state } = bill;
+  if (state.status === 'none') return null;
+  if (state.status === 'available') {
+    return (
+      <div className="mt-4">
+        <SlideToConfirm
+          label={`Glisser pour l’addition · ${formatMoney(state.dueMinor, currency)}`}
+          ariaLabel={`Demander l’addition, ${formatMoney(state.dueMinor, currency)}`}
+          busy={false}
+          onConfirm={() => {
+            haptic(12);
+            bill.ask();
+          }}
+        />
+        <FormError message={bill.error} />
+      </div>
+    );
+  }
+  return <BillPending state={state} currency={currency} marker={marker} />;
+}
+
+/** Spec 028, R3 et R9 : la facture en attente du serveur, lisible sans lire (reçu, repère, horloge animée). */
+export function BillPending({ state, currency, marker }: { state: Extract<BillState, { status: 'pending' }>; currency: string; marker: number }) {
+  return (
+    <section aria-label="Addition demandée" className="mt-4 animate-rise rounded-2xl bg-pay p-4 text-white shadow-pop">
+      <div className="flex items-center gap-3">
+        <span className="grid size-11 shrink-0 place-items-center rounded-full bg-white/15" aria-hidden>
+          <Receipt className="size-5" strokeWidth={2.25} />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-[13px] font-medium text-white/75">À régler</span>
+          <span className="tabular block text-[30px] leading-tight font-bold tracking-tight">{formatMoney(state.dueMinor, currency)}</span>
+        </span>
+        <SessionMarker index={marker} size="md" />
+      </div>
+      <p role="status" className="mt-3 flex items-center gap-2 rounded-full bg-white/12 px-3 py-2 text-[14px] font-semibold">
+        <span className="relative grid size-5 place-items-center" aria-hidden>
+          <span className="absolute inset-0 animate-ping rounded-full bg-white/40 motion-reduce:hidden" />
+          <Clock className="relative size-4" strokeWidth={2.5} />
+        </span>
+        Le serveur arrive
+      </p>
+      {state.pendingOrders > 0 && (
+        <p className="mt-2 text-[12px] text-white/75">
+          {state.pendingOrders} commande{state.pendingOrders > 1 ? 's' : ''} en cours, pas encore comptée{state.pendingOrders > 1 ? 's' : ''}
+        </p>
+      )}
+    </section>
   );
 }
 

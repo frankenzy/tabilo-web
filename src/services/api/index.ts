@@ -70,7 +70,9 @@ export type RequestAction =
   // Spec 007 : préparer (accepter + démarrer) et signaler prête.
   | 'prepare' | 'ready'
   // Spec 026 : régler une commande servie.
-  | 'settle';
+  | 'settle'
+  // Spec 028 : régler le client d'une demande d'addition.
+  | 'settle-bill';
 
 export const floorApi = {
   overview: (e: string) => data(http.get<Area[]>(`${est(e)}/floor`)),

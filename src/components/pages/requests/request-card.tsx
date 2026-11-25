@@ -7,6 +7,8 @@ import { requestIcon, STATUS_LABELS } from '@/constants/requests';
 import type { ServiceRequest } from '@/contracts';
 import { cn } from '@/lib/utils';
 import type { RequestAction } from '@/services/api';
+import { useCurrency } from '@/hooks/use-currency';
+import { formatMoney } from '@/utils/money';
 import { formatClock, secondsSince } from '@/utils/time';
 import { URGENCY_TILE, urgencyOf } from '@/utils/urgency';
 import { SlideToConfirm } from '@/components/ui/slide-to-confirm';
@@ -37,11 +39,15 @@ export function RequestCard({ request, now, viewer, busy, onAction, onDialog }: 
   const escalated = request.escalationStatus === 'escalated';
   const mine = request.assignee?.id === viewer.id;
   const hasMenu = caps.assign || caps.transfer || caps.release || caps.cancel || caps.acknowledge;
+  const currency = useCurrency();
+  // Spec 028, R5 : « Demande d'addition », montant dû du client en direct.
+  const bill = request.type.kind === 'bill' ? (request.bill ?? { dueMinor: 0, pendingOrders: 0 }) : null;
+  const title = bill ? 'Demande d’addition' : request.type.label;
 
   return (
     <article
-      aria-label={`Table ${request.table.label}, ${request.type.label}, ${STATUS_LABELS[request.status]}${precisionLabel(request.note)}${zoneLabel(request.zone) ? `, ${zoneLabel(request.zone)}` : ''}`}
-      className="flex gap-3 rounded-(--radius-card) bg-surface p-3 ring-1 ring-line"
+      aria-label={`Table ${request.table.label}, ${title}${bill ? `, ${formatMoney(bill.dueMinor, currency)}` : `, ${STATUS_LABELS[request.status]}`}${precisionLabel(request.note)}${zoneLabel(request.zone) ? `, ${zoneLabel(request.zone)}` : ''}`}
+      className={cn('flex gap-3 rounded-(--radius-card) bg-surface p-3 ring-1', bill ? 'ring-2 ring-pay/40' : 'ring-line')}
     >
       <div
         className={cn(
@@ -64,7 +70,7 @@ export function RequestCard({ request, now, viewer, busy, onAction, onDialog }: 
             <h3 className="flex items-center gap-1.5 text-[15px] font-semibold text-ink">
               <Icon className="size-4 shrink-0" aria-hidden />
               <span className="truncate">
-                {request.type.label}
+                {title}
                 {request.quantity !== null && <span className="tabular"> × {request.quantity}</span>}
               </span>
               {/* Spec 022, R4 : repérable sans ouvrir. */}
@@ -88,6 +94,17 @@ export function RequestCard({ request, now, viewer, busy, onAction, onDialog }: 
         {/* Spec 022, R2 : les précisions avant les plats. */}
         <PrecisionBanner note={request.note} className="mt-2" />
         {request.type.kind === 'order' && <OrderLines items={request.items} totalMinor={request.totalMinor} compact />}
+        {bill && (
+          <div className="mt-2 flex items-baseline justify-between gap-2 rounded-xl bg-pay-soft px-3 py-2">
+            <span className="text-[13px] font-medium text-pay">À régler</span>
+            <span className="tabular text-[20px] font-bold tracking-tight text-pay">{formatMoney(bill.dueMinor, currency)}</span>
+          </div>
+        )}
+        {bill && bill.pendingOrders > 0 && (
+          <p className="mt-1 text-[12px] text-ink-3">
+            {bill.pendingOrders} commande{bill.pendingOrders > 1 ? 's' : ''} en cours, pas encore comptée{bill.pendingOrders > 1 ? 's' : ''}
+          </p>
+        )}
 
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-ink-2">
           {/* Spec 027, R8 : commande hors de l'établissement, à vérifier. */}
@@ -98,7 +115,7 @@ export function RequestCard({ request, now, viewer, busy, onAction, onDialog }: 
               Escaladée
             </span>
           )}
-          {request.assignee ? (
+          {bill ? null : request.assignee ? (
             <span className="inline-flex items-center gap-1">
               <UserRound className="size-3.5" aria-hidden />
               {mine ? 'Vous' : request.assignee.firstName} · {isUnpaid(request) ? 'servie, à régler' : STATUS_LABELS[request.status].toLowerCase()}
@@ -116,8 +133,8 @@ export function RequestCard({ request, now, viewer, busy, onAction, onDialog }: 
                 className="min-w-0 flex-1 sm:max-w-xs"
                 size="md"
                 tone={slideTone(caps.primary.action)}
-                label={caps.primary.label}
-                ariaLabel={`${caps.primary.label}, table ${request.table.label}`}
+                label={bill ? `${caps.primary.label} · ${formatMoney(bill.dueMinor, currency)}` : caps.primary.label}
+                ariaLabel={`${caps.primary.label}${bill ? `, ${formatMoney(bill.dueMinor, currency)}` : ''}, table ${request.table.label}`}
                 busy={busy}
                 onConfirm={() => onAction(caps.primary!.action)}
               />

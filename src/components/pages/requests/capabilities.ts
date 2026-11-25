@@ -31,6 +31,18 @@ export function capabilitiesOf(request: ServiceRequest, viewer: Viewer, separate
   const supervise = viewer.can('requests.assign');
   const own = handle && (mine || supervise);
   let primary: Capabilities['primary'] = null;
+  // Spec 028, R5 : une demande d'addition n'a qu'un geste, régler son client — ni accepter, ni affecter.
+  if (request.type?.kind === 'bill') {
+    const due = request.bill?.dueMinor ?? 0;
+    return {
+      primary: handle && due > 0 ? { action: 'settle-bill', label: 'Glisser pour régler', gesture: 'slide', tone: 'ink' } : null,
+      assign: false,
+      transfer: false,
+      release: false,
+      cancel: viewer.can('requests.cancel') && request.status === 'pending',
+      acknowledge: viewer.can('requests.supervise') && request.escalationStatus === 'escalated',
+    };
+  }
   if (request.type && isOrder(request)) {
     // Spec 025 : même circuit que l'écran « Commandes » — Accepter, puis glisser pour servir.
     const step = nextStep(request, separateKitchen, viewer);

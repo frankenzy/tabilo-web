@@ -139,3 +139,30 @@ export function noteFlags(notes: (string | null | undefined)[]): { any: boolean;
   const parsed = notes.map(parseNote).filter((value): value is ParsedNote => value !== null);
   return { any: parsed.length > 0, takeaway: parsed.some((value) => value.takeaway), spicy: parsed.some((value) => value.spicy) };
 }
+
+/** Spec 028 : ce que le téléphone propose pour l'addition. */
+export type BillState =
+  | { status: 'none' }
+  | { status: 'available'; dueMinor: number }
+  | { status: 'pending'; dueMinor: number; pendingOrders: number };
+
+const OPEN_STATUSES = ['pending', 'assigned', 'accepted', 'in_progress', 'ready'];
+
+/**
+ * Spec 028, R2 et R3 : barre « Glisser pour l'addition » s'il reste à régler ; facture « Le serveur arrive »
+ * dès que la demande est partie (`sending` : affichage immédiat, avant la réponse du serveur).
+ */
+export function billState(
+  requests: Pick<GuestRequest, 'status' | 'totalMinor' | 'type' | 'paidAt'>[],
+  billAvailable: boolean,
+  sending = false,
+): BillState {
+  if (!billAvailable) return { status: 'none' };
+  const dueMinor = unpaidTotal(requests);
+  const asked = sending || requests.some((r) => r.type.kind === 'bill' && OPEN_STATUSES.includes(r.status));
+  if (asked) {
+    const pendingOrders = requests.filter((r) => r.type.kind === 'order' && OPEN_STATUSES.includes(r.status)).length;
+    return { status: 'pending', dueMinor, pendingOrders };
+  }
+  return dueMinor > 0 ? { status: 'available', dueMinor } : { status: 'none' };
+}

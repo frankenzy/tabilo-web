@@ -1,7 +1,8 @@
 'use client';
 
-import { Check, ChevronDown, RotateCcw, X } from 'lucide-react';
+import { Check, ChevronDown, Clock, Receipt, RotateCcw, X } from 'lucide-react';
 import { useEffect, useId, useRef, useState, type CSSProperties } from 'react';
+import { SlideToConfirm } from '@/components/ui/slide-to-confirm';
 import { requestIcon } from '@/constants/requests';
 import type { GuestRequest, MenuCategory } from '@/contracts';
 import { cn } from '@/lib/utils';
@@ -11,6 +12,7 @@ import { haptic, reducedMotion } from './fly-to-cart';
 import { GuestOrderLines, ItemPhoto } from './guest-menu';
 import { CancelOrderButton, OrderTracker } from './order-flow';
 import { LAST_STEP, reorderLines, SERVED_SPOTLIGHT_MS, stepOf, trackingSteps } from './order-logic';
+import type { Bill } from './use-bill';
 
 /** Spec 017, R4 : durée du dépliage automatique quand une étape est franchie. */
 const AUTO_OPEN_MS = 4000;
@@ -33,13 +35,17 @@ interface PagerProps {
   onReorder?: (request: GuestRequest, from: DOMRect | null) => void;
   /** Spec 019, R4 : dans le panneau de la tablette, les cartes s'empilent, sans pagination. */
   stacked?: boolean;
+  /** Spec 028, R4 : l'addition, proposée sur la carte d'une commande servie. */
+  bill?: Bill;
+  /** Spec 028, R3 : la barre a été glissée depuis la carte ; la page ouvre la facture. */
+  onBillAsked?: () => void;
 }
 
 /**
  * Spec 017 : demandes en cours, au-dessus de la carte.
  * Une seule demande : une carte. Plusieurs : une rangée qui défile, une demande par page, avec des points (R5).
  */
-export function TrackingPager({ active, token, currency, menu, spotlight, onDismiss, onReorder, stacked = false }: PagerProps) {
+export function TrackingPager({ active, token, currency, menu, spotlight, onDismiss, onReorder, stacked = false, bill, onBillAsked }: PagerProps) {
   const scroller = useRef<HTMLDivElement>(null);
   const [page, setPage] = useState(0);
   const several = active.length > 1 && !stacked;
@@ -84,6 +90,8 @@ export function TrackingPager({ active, token, currency, menu, spotlight, onDism
             spotlightAt={spotlight?.get(request.id)}
             onDismiss={onDismiss}
             onReorder={onReorder}
+            bill={bill}
+            onBillAsked={onBillAsked}
           />
         ))}
       </div>
@@ -123,9 +131,11 @@ interface CardProps {
   spotlightAt?: number;
   onDismiss?: (id: string) => void;
   onReorder?: (request: GuestRequest, from: DOMRect | null) => void;
+  bill?: Bill;
+  onBillAsked?: () => void;
 }
 
-function TrackingCard({ request, token, currency, menu, spotlightAt, onDismiss, onReorder }: CardProps) {
+function TrackingCard({ request, token, currency, menu, spotlightAt, onDismiss, onReorder, bill, onBillAsked }: CardProps) {
   const order = request.type.kind === 'order';
   const step = stepOf(request);
   const steps = trackingSteps(order ? 'order' : 'service');
@@ -257,7 +267,15 @@ function TrackingCard({ request, token, currency, menu, spotlightAt, onDismiss, 
                 <div className="mt-3 empty:hidden">
                   <CancelOrderButton request={request} token={token} tone="dark" />
                 </div>
-                {canReorder && spotlightAt !== undefined && <ReorderButton start={spotlightAt} added={added} onPress={reorder} />}
+                {served && order && spotlightAt !== undefined && (
+                  <ServedActions
+                    start={spotlightAt}
+                    currency={currency}
+                    bill={bill}
+                    onBillAsked={onBillAsked}
+                    reorder={canReorder ? { added, onPress: reorder } : undefined}
+                  />
+                )}
               </div>
             </div>
           </div>
@@ -267,15 +285,71 @@ function TrackingCard({ request, token, currency, menu, spotlightAt, onDismiss, 
   );
 }
 
-/** Rayon et circonférence de l'anneau du compte à rebours (viewBox de 32). */
-const RING_R = 14;
+/**
+ * Spec 028, R4 : actions de la minute « Bon appétit », sur une seule rangée — l'addition à glisser (principale)
+ * et « Recommander » réduit à un rond (secondaire). Sans addition possible, le rond seul, à droite.
+ */
+function ServedActions({
+  start,
+  currency,
+  bill,
+  onBillAsked,
+  reorder,
+}: {
+  start: number;
+  currency: string;
+  bill?: Bill;
+  onBillAsked?: () => void;
+  reorder?: { added: boolean; onPress: (from: DOMRect | null) => void };
+}) {
+  const state = bill?.state ?? { status: 'none' as const };
+  if (state.status === 'none' && !reorder) return null;
+  return (
+    <div className="mt-3 flex items-center justify-end gap-2.5">
+      {state.status === 'available' && bill && (
+        <SlideToConfirm
+          className="min-w-0 flex-1"
+          size="md"
+          tone="bar"
+          label={`L’addition · ${formatMoney(state.dueMinor, currency)}`}
+          ariaLabel={`Demander l’addition, ${formatMoney(state.dueMinor, currency)}`}
+          busy={false}
+          onConfirm={() => {
+            haptic(12);
+            bill.ask();
+            onBillAsked?.();
+          }}
+        />
+      )}
+      {state.status === 'pending' && (
+        <button
+          type="button"
+          onClick={onBillAsked}
+          className="flex h-12 min-w-0 flex-1 items-center gap-2.5 rounded-full bg-pay px-4 text-[14px] font-semibold text-white"
+          aria-label="Addition demandée, voir ma note"
+        >
+          <span className="relative grid size-5 shrink-0 place-items-center" aria-hidden>
+            <Receipt className="size-4" strokeWidth={2.5} />
+            <Clock className="absolute -right-1.5 -bottom-1.5 size-3 rounded-full bg-pay" strokeWidth={3} />
+          </span>
+          <span className="truncate">Addition demandée</span>
+        </button>
+      )}
+      {reorder && <ReorderRound start={start} added={reorder.added} onPress={reorder.onPress} />}
+    </div>
+  );
+}
+
+/** Rayon et circonférence de l'anneau du compte à rebours (viewBox de 48). */
+const RING_R = 22;
 const RING_C = 2 * Math.PI * RING_R;
 
 /**
- * Spec 018, R4 : « Recommander », en pilule de la couleur de la marque.
- * L'anneau autour de la flèche se vide au rythme de la minute restante ; il reste plein si le téléphone demande moins d'animations.
+ * Specs 018 (R4) et 028 (R4) : « Recommander » en rond de la taille d'un doigt, couleur de la marque.
+ * L'anneau se vide au rythme de la minute restante ; il reste plein si le téléphone demande moins d'animations.
+ * Un toucher suffit : il ne fait que remplir le panier, rien ne part sans « Glisser pour commander ».
  */
-function ReorderButton({ start, added, onPress }: { start: number; added: boolean; onPress: (from: DOMRect | null) => void }) {
+function ReorderRound({ start, added, onPress }: { start: number; added: boolean; onPress: (from: DOMRect | null) => void }) {
   const ring = useRef<SVGCircleElement>(null);
 
   useEffect(() => {
@@ -298,39 +372,32 @@ function ReorderButton({ start, added, onPress }: { start: number; added: boolea
         onPress(event.currentTarget.getBoundingClientRect());
       }}
       aria-label={added ? 'Ajouté à votre commande' : 'Recommander la même commande'}
+      title="Recommander"
       className={cn(
-        'mt-3 flex h-12 w-full items-center justify-center gap-2.5 rounded-full px-5 text-[15px] font-semibold text-white transition-[background-color,scale,box-shadow] duration-300 ease-apple active:scale-[0.97]',
-        added ? 'bg-done' : 'bg-brand shadow-[0_10px_28px_-12px_var(--color-brand)]',
+        'relative grid size-12 shrink-0 place-items-center rounded-full text-white transition-[background-color,scale] duration-300 ease-apple active:scale-90',
+        added ? 'bg-done' : 'bg-brand shadow-[0_8px_20px_-10px_var(--color-brand)]',
       )}
     >
       {added ? (
-        <>
-          <span key="ok" className="grid size-8 animate-pop-in place-items-center rounded-full bg-white/20">
-            <Check className="size-[18px]" strokeWidth={2.75} aria-hidden />
-          </span>
-          Ajouté
-        </>
+        <Check key="ok" className="size-5 animate-pop-in" strokeWidth={3} aria-hidden />
       ) : (
         <>
-          <span className="relative grid size-8 place-items-center">
-            <svg viewBox="0 0 32 32" className="absolute inset-0 size-full -rotate-90" aria-hidden>
-              <circle cx="16" cy="16" r={RING_R} fill="none" stroke="currentColor" strokeOpacity="0.25" strokeWidth="2.5" />
-              <circle
-                ref={ring}
-                cx="16"
-                cy="16"
-                r={RING_R}
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeDasharray={RING_C}
-                strokeDashoffset={0}
-              />
-            </svg>
-            <RotateCcw className="size-4" strokeWidth={2.5} aria-hidden />
-          </span>
-          Recommander
+          <svg viewBox="0 0 48 48" className="absolute inset-0 size-full -rotate-90" aria-hidden>
+            <circle cx="24" cy="24" r={RING_R} fill="none" stroke="currentColor" strokeOpacity="0.25" strokeWidth="2.5" />
+            <circle
+              ref={ring}
+              cx="24"
+              cy="24"
+              r={RING_R}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeDasharray={RING_C}
+              strokeDashoffset={0}
+            />
+          </svg>
+          <RotateCcw className="size-5" strokeWidth={2.5} aria-hidden />
         </>
       )}
     </button>

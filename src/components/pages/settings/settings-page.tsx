@@ -191,6 +191,7 @@ function RequestTypesSettings() {
                       <p className="flex flex-wrap items-center gap-2 text-sm font-medium text-ink">
                         {type.label}
                         {type.kind === 'order' && <Badge tone="neutral">Commandes de la carte</Badge>}
+                        {type.kind === 'bill' && <Badge tone="neutral">Glissée par le client, réglée par le serveur</Badge>}
                         {type.priority === 'high' && <Badge tone="brand">Prioritaire</Badge>}
                         {!type.isActive && <Badge tone="muted">Masqué</Badge>}
                       </p>
@@ -201,8 +202,8 @@ function RequestTypesSettings() {
                     <Button variant="secondary" size="sm" onClick={() => setEditing(type)}>
                       Modifier
                     </Button>
-                    {/* Le type « Commande » ne se supprime pas : on le masque pour suspendre les commandes. */}
-                    {type.kind !== 'order' && (
+                    {/* « Commande » et « L'addition » (spec 028, R1) ne se suppriment pas : on les masque pour les suspendre. */}
+                    {type.kind === 'service' && (
                       <Button variant="ghost" size="sm" onClick={() => setRemoving(type)}>
                         Supprimer
                       </Button>
