@@ -179,7 +179,7 @@ function GuestTable({ token, context, onSessionClosed, onSettled, onContextStale
   const callCards = serverCards.length > 0 && (
     <div className="mt-4 flex flex-col gap-2">
       {serverCards.map((request) => (
-        <ServerCallCard key={request.id} request={request} token={token} />
+        <ServerCallCard key={request.id} request={request} token={token} marker={context.marker} tableLabel={context.table.label} />
       ))}
     </div>
   );

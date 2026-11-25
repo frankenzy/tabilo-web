@@ -4,6 +4,7 @@ import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ArrowUp, Check, Footprints, MessageCircle, Phone, PhoneOff, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { SessionMarker } from '@/components/ui/session-marker';
 import type { GuestContext, GuestRequest, GuestRequestType } from '@/contracts';
 import { useNow } from '@/hooks/use-now';
 import { cn, randomId } from '@/lib/utils';
@@ -228,7 +229,7 @@ export function ServerSheet({
  * Spec 029, R4 et R5 : la carte d'un appel ou d'un message, en tête du menu.
  * Ondes tant que personne ne l'a pris ; « Raccrocher » / annuler à ce moment-là seulement ; « Fatou arrive » ensuite.
  */
-export function ServerCallCard({ request, token }: { request: GuestRequest; token: string }) {
+export function ServerCallCard({ request, token, marker, tableLabel }: { request: GuestRequest; token: string; marker?: number; tableLabel?: string }) {
   const queryClient = useQueryClient();
   const now = useNow();
   const isCall = request.type.kind === 'call';
@@ -241,38 +242,89 @@ export function ServerCallCard({ request, token }: { request: GuestRequest; toke
     onError: () => queryClient.invalidateQueries({ queryKey: guestRequestsKey(token) }),
   });
   const title = waiting ? (isCall ? 'Un serveur vient vers vous' : 'Message envoyé') : `${request.handledBy ?? 'Un serveur'} arrive`;
+  const hangUpNow = () => {
+    haptic(10);
+    hangUp.mutate();
+  };
+
+  if (isCall) {
+    // Maquette « Client 2 » : grande carte sombre, ondes autour du serveur qui marche, durée, repère de la table.
+    return (
+      <article
+        role="status"
+        aria-label={title}
+        className="flex animate-rise flex-col items-center gap-4 rounded-[28px] bg-ink px-6 pt-7 pb-6 text-center text-white shadow-[0_24px_48px_-20px_rgb(27_25_23/0.7)]"
+      >
+        <span className="relative grid size-24 place-items-center" aria-hidden>
+          {waiting && (
+            <>
+              <span className="absolute inset-0 rounded-full bg-call motion-safe:animate-call-wave" />
+              <span className="absolute inset-0 rounded-full bg-call [animation-delay:700ms] motion-safe:animate-call-wave" />
+            </>
+          )}
+          <span className={cn('relative grid size-24 place-items-center rounded-full', waiting ? 'bg-call text-ink' : 'bg-done text-white')}>
+            {waiting ? <Footprints className="size-11 motion-safe:animate-call-walk" strokeWidth={1.9} /> : <Check className="size-11" strokeWidth={2.6} />}
+          </span>
+        </span>
+        <div>
+          <p className="text-[21px] leading-tight font-bold tracking-tight">{title}</p>
+          <p className="tabular mt-1.5 text-[14px] text-white/65">
+            {waiting ? <span className="font-mono">{formatClock(secondsSince(request.createdAt, now))}</span> : 'En route vers votre table'}
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          {(marker !== undefined || tableLabel) && (
+            <span className="flex h-9 items-center gap-2 rounded-full bg-white/10 pr-3.5 pl-1.5">
+              {marker !== undefined && <SessionMarker index={marker} size="sm" decorative />}
+              {tableLabel && <span className="text-[13px] font-semibold">Table {tableLabel}</span>}
+            </span>
+          )}
+          {/* R4 : raccrocher tant que personne n'a pris l'appel ; petit, pour ne pas voler la vedette. */}
+          {waiting && !optimistic && (
+            <button
+              type="button"
+              onClick={hangUpNow}
+              disabled={hangUp.isPending}
+              aria-label="Raccrocher"
+              className="flex h-9 items-center gap-1.5 rounded-full bg-late px-3.5 text-[13px] font-semibold text-white transition-transform duration-300 ease-spring active:scale-95 disabled:opacity-50"
+            >
+              <PhoneOff className="size-4" aria-hidden />
+              Raccrocher
+            </button>
+          )}
+        </div>
+      </article>
+    );
+  }
 
   return (
     <article role="status" aria-label={title} className="flex animate-rise items-center gap-3.5 rounded-[22px] bg-ink px-3.5 py-3 text-white">
       <span className="relative grid size-14 shrink-0 place-items-center" aria-hidden>
         {waiting && (
           <>
-            <span className={cn('absolute inset-0 rounded-full motion-safe:animate-call-wave', isCall ? 'bg-call' : 'bg-message')} />
-            <span className={cn('absolute inset-0 rounded-full [animation-delay:600ms] motion-safe:animate-call-wave', isCall ? 'bg-call' : 'bg-message')} />
+            <span className="absolute inset-0 rounded-full bg-message motion-safe:animate-call-wave" />
+            <span className="absolute inset-0 rounded-full bg-message [animation-delay:600ms] motion-safe:animate-call-wave" />
           </>
         )}
-        <span className={cn('relative grid size-14 place-items-center rounded-full', waiting ? (isCall ? 'bg-call text-ink' : 'bg-message text-white') : 'bg-done text-white')}>
-          {!waiting ? <Footprints className="size-6" aria-hidden /> : isCall ? <Phone className="size-6" aria-hidden /> : <MessageCircle className="size-6" aria-hidden />}
+        <span className={cn('relative grid size-14 place-items-center rounded-full', waiting ? 'bg-message text-white' : 'bg-done text-white')}>
+          {waiting ? <MessageCircle className="size-6" aria-hidden /> : <Footprints className="size-6" aria-hidden />}
         </span>
       </span>
       <div className="min-w-0 flex-1">
         <p className="truncate text-[16px] font-semibold tracking-tight">{title}</p>
         <p className="mt-0.5 truncate text-[13px] text-white/60">
-          {!isCall && request.note ? `« ${request.note} »` : <span className="tabular font-mono">{formatClock(secondsSince(request.createdAt, now))}</span>}
+          {request.note ? `« ${request.note} »` : <span className="tabular font-mono">{formatClock(secondsSince(request.createdAt, now))}</span>}
         </p>
       </div>
       {waiting && !optimistic && (
         <button
           type="button"
-          onClick={() => {
-            haptic(10);
-            hangUp.mutate();
-          }}
+          onClick={hangUpNow}
           disabled={hangUp.isPending}
-          aria-label={isCall ? 'Raccrocher' : 'Annuler le message'}
+          aria-label="Annuler le message"
           className="grid size-11 shrink-0 place-items-center rounded-full bg-late text-white transition-transform duration-300 ease-spring active:scale-90 disabled:opacity-50"
         >
-          {isCall ? <PhoneOff className="size-5" aria-hidden /> : <X className="size-5" aria-hidden />}
+          <X className="size-5" aria-hidden />
         </button>
       )}
     </article>
