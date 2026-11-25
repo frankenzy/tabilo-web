@@ -2,7 +2,7 @@
 
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ChevronDown, Coffee, HandCoins, Pencil, Power, QrCode, Receipt, Smartphone, Timer, X } from 'lucide-react';
+import { Check, ChevronDown, Clock, Coffee, HandCoins, Pencil, Power, QrCode, Receipt, Smartphone, Timer, X } from 'lucide-react';
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { Button, ConfirmDialog } from '@/components/ui';
 import { SessionMarker } from '@/components/ui/session-marker';
@@ -14,8 +14,9 @@ import { estKey, useEstablishmentId } from '@/hooks/use-establishment';
 import { useNow } from '@/hooks/use-now';
 import { cn } from '@/lib/utils';
 import { PrecisionBanner, PrecisionFlags } from './precisions';
+import { clientSlide, freeGesture, tableSheet } from './table-bill';
 import { floorApi, menuImageUrl, requestsApi } from '@/services/api';
-import { errorMessage } from '@/services/http';
+import { errorMessage, toHttpError } from '@/services/http';
 import { toast } from '@/stores/toast.store';
 import { formatMoney } from '@/utils/money';
 import { formatClock, formatTime, secondsSince } from '@/utils/time';
@@ -55,9 +56,9 @@ export function TableRequestsDialog({ table, areaName, status, requests, canClos
   });
   // Une demande qui arrive ou change d'état : les chiffres et les commandes suivent aussitôt (spec 006, R7).
   const signature = requests.map((request) => `${request.id}:${request.status}`).join(',');
-  // Spec 028, R5 : les demandes d'addition en tête de « En cours » ; leurs clients portent « Addition demandée ».
-  const ordered = [...requests.filter((request) => request.type.kind === 'bill'), ...requests.filter((request) => request.type.kind !== 'bill')];
-  const billMarkers = new Set(requests.filter((request) => request.type.kind === 'bill' && request.marker !== null && request.marker !== undefined).map((request) => request.marker));
+  // Spec 028, R10 : l'addition en tête de fiche ; après un règlement, la carte verte « Réglé » jusqu'à la fermeture.
+  const [settled, setSettled] = useState<Settled | null>(null);
+  const sheet = tableSheet(requests, settled !== null);
   const refetch = occupation.refetch;
   const first = useRef(true);
   useEffect(() => {
@@ -73,6 +74,7 @@ export function TableRequestsDialog({ table, areaName, status, requests, canClos
     mutationFn: () => floorApi.closeSessions(establishmentId, table.id),
     onSuccess: ({ closed }) => {
       setConfirmFree(false);
+      setSettled(null);
       toast.success(closed > 0 ? `Table ${table.label} libérée` : 'Aucun téléphone connecté');
       void queryClient.invalidateQueries({ queryKey: estKey(establishmentId, 'floor') });
       void queryClient.invalidateQueries({ queryKey: estKey(establishmentId, 'tables-overview') });
@@ -84,6 +86,7 @@ export function TableRequestsDialog({ table, areaName, status, requests, canClos
   const settle = useMutation({
     mutationFn: () => requestsApi.settleTable(establishmentId, table.id),
     onSuccess: ({ amountMinor }) => {
+      setSettled({ amountMinor, marker: null, at: new Date().toISOString() });
       toast.success(`Table ${table.label} réglée`, formatMoney(amountMinor, currency));
       void queryClient.invalidateQueries({ queryKey: estKey(establishmentId, 'requests') });
       void queryClient.invalidateQueries({ queryKey: estKey(establishmentId, 'tables-overview') });
@@ -100,6 +103,7 @@ export function TableRequestsDialog({ table, areaName, status, requests, canClos
   const settleClient = useMutation({
     mutationFn: (session: OccupationSession) => requestsApi.settleSession(establishmentId, session.id),
     onSuccess: ({ amountMinor }, session) => {
+      setSettled({ amountMinor, marker: session.marker, at: new Date().toISOString() });
       toast.success(`Client ${markerInfo(session.marker).name} réglé`, formatMoney(amountMinor, currency));
       void queryClient.invalidateQueries({ queryKey: estKey(establishmentId, 'requests') });
       void queryClient.invalidateQueries({ queryKey: estKey(establishmentId, 'tables-overview') });
@@ -108,6 +112,24 @@ export function TableRequestsDialog({ table, areaName, status, requests, canClos
     },
     onError: (error) => {
       toast.error('Règlement impossible', errorMessage(error));
+      void refetch();
+    },
+  });
+
+  // Spec 028, R10 : « Glisser pour régler » de la carte d'addition règle le client qui l'a demandée.
+  const settleBill = useMutation({
+    mutationFn: (request: ServiceRequest) => requestsApi.act(establishmentId, request.id, 'settle-bill'),
+    onSuccess: (_, request) => {
+      setSettled({ amountMinor: request.bill?.dueMinor ?? 0, marker: request.marker ?? null, at: new Date().toISOString() });
+      void queryClient.invalidateQueries({ queryKey: estKey(establishmentId, 'requests') });
+      void queryClient.invalidateQueries({ queryKey: estKey(establishmentId, 'tables-overview') });
+      void queryClient.invalidateQueries({ queryKey: estKey(establishmentId, 'today') });
+      void refetch();
+    },
+    onError: (error) => {
+      // CA-028-09 : déjà réglé ailleurs, rien de bloquant.
+      if (toHttpError(error).code !== 'NOTHING_TO_SETTLE') toast.error('Règlement impossible', errorMessage(error));
+      void queryClient.invalidateQueries({ queryKey: estKey(establishmentId, 'requests') });
       void refetch();
     },
   });
@@ -183,7 +205,34 @@ export function TableRequestsDialog({ table, areaName, status, requests, canClos
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 pt-1 pb-6">
             {/* R2 : chiffres clés. */}
             <div className="stagger animate-item-in" style={next()}>
-              {occupied ? (
+              {sheet.compact ? (
+                <div className="flex flex-col gap-4">
+                  {/* R10 : les chiffres en pastilles. */}
+                  <ul className="flex flex-wrap gap-2" aria-label="Chiffres de la table">
+                    {data?.occupiedSince && (
+                      <Chip icon={<Timer className="size-3.5" aria-hidden />}>Ouverte depuis {formatTime(data.occupiedSince)}</Chip>
+                    )}
+                    {data && (
+                      <Chip icon={<Smartphone className="size-3.5" aria-hidden />}>
+                        {data.openSessions} téléphone{data.openSessions > 1 ? 's' : ''}
+                      </Chip>
+                    )}
+                    {owing.length > 1 && <Chip icon={<HandCoins className="size-3.5" aria-hidden />}>Table · {formatMoney(unpaid, currency)} à régler</Chip>}
+                  </ul>
+                  {settled && <SettledCard settled={settled} currency={currency} />}
+                  {sheet.bills.map((request) => (
+                    <BillCard
+                      key={request.id}
+                      request={request}
+                      currency={currency}
+                      now={now}
+                      canSettle={canSettle}
+                      busy={settleBill.isPending && settleBill.variables?.id === request.id}
+                      onSettle={() => settleBill.mutate(request)}
+                    />
+                  ))}
+                </div>
+              ) : occupied ? (
                 <dl className="grid grid-cols-2 gap-2 sm:gap-2.5">
                   <Tile
                     icon={<Receipt className="size-4" aria-hidden />}
@@ -228,28 +277,31 @@ export function TableRequestsDialog({ table, areaName, status, requests, canClos
             </div>
 
             {/* R3 : en cours. */}
-            <section aria-labelledby="table-active-title" className="stagger mt-7 animate-item-in" style={next()}>
-              <SectionTitle id="table-active-title" count={requests.length}>
-                En cours
-              </SectionTitle>
-              {requests.length === 0 ? (
-                <div className="mt-3 flex flex-col items-center gap-2 rounded-2xl border border-dashed border-line px-4 py-6 text-center">
-                  <span className="grid size-11 place-items-center rounded-full bg-sunken text-ink-3" aria-hidden>
-                    <Coffee className="size-5" />
-                  </span>
-                  <p className="text-[14px] font-medium text-ink">Tout est calme à cette table</p>
-                  <p className="text-[12px] text-ink-3">Les demandes et commandes apparaîtront ici en direct.</p>
-                </div>
-              ) : (
-                <ul className="mt-3 flex flex-col gap-3">
-                  {ordered.map((request) => (
-                    <li key={request.id} className="animate-item-in">
-                      {children(request)}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
+            {/* Spec 028, R10 : sans autre demande, « En cours » s'efface derrière la carte d'addition. */}
+            {!(sheet.compact && sheet.others.length === 0) && (
+              <section aria-labelledby="table-active-title" className="stagger mt-7 animate-item-in" style={next()}>
+                <SectionTitle id="table-active-title" count={sheet.others.length}>
+                  En cours
+                </SectionTitle>
+                {sheet.others.length === 0 ? (
+                  <div className="mt-3 flex flex-col items-center gap-2 rounded-2xl border border-dashed border-line px-4 py-6 text-center">
+                    <span className="grid size-11 place-items-center rounded-full bg-sunken text-ink-3" aria-hidden>
+                      <Coffee className="size-5" />
+                    </span>
+                    <p className="text-[14px] font-medium text-ink">Tout est calme à cette table</p>
+                    <p className="text-[12px] text-ink-3">Les demandes et commandes apparaîtront ici en direct.</p>
+                  </div>
+                ) : (
+                  <ul className="mt-3 flex flex-col gap-3">
+                    {sheet.others.map((request) => (
+                      <li key={request.id} className="animate-item-in">
+                        {children(request)}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+            )}
 
             {/* R4 : commandes de l'occupation. */}
             {occupied && data && data.orders.length > 0 && (
@@ -280,8 +332,8 @@ export function TableRequestsDialog({ table, areaName, status, requests, canClos
                       key={session.id}
                       session={session}
                       currency={currency}
-                      canSettle={canSettle}
-                      billAsked={billMarkers.has(session.marker)}
+                      slide={clientSlide(session, sheet.billMarkers, canSettle)}
+                      billAsked={sheet.billMarkers.has(session.marker)}
                       busy={settleClient.isPending && settleClient.variables?.id === session.id}
                       onSettle={() => settleClient.mutate(session)}
                     />
@@ -316,7 +368,30 @@ export function TableRequestsDialog({ table, areaName, status, requests, canClos
             )}
 
             {/* R5 : action de service. */}
-            {canClose && occupied && (
+            {canClose && occupied && freeGesture(data !== undefined, unpaid) === 'slide' && (
+              <div className="stagger mt-7 animate-item-in rounded-2xl bg-sunken/70 p-4" style={next()}>
+                <div className="flex items-center gap-3">
+                  <span className="grid size-10 shrink-0 place-items-center rounded-full bg-surface text-ink shadow-sm" aria-hidden>
+                    <Power className="size-5" />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[15px] font-semibold text-ink">Plus rien à régler</p>
+                    <p className="mt-0.5 text-[13px] text-ink-2">Les clients sont partis ? Leurs téléphones ne pourront plus envoyer de demande.</p>
+                  </div>
+                </div>
+                <SlideToConfirm
+                  className="mt-3"
+                  size="md"
+                  tone="ink"
+                  label="Glisser pour libérer la table"
+                  ariaLabel={`Libérer la table ${table.label}`}
+                  busyLabel="Libération…"
+                  busy={close.isPending}
+                  onConfirm={() => close.mutate()}
+                />
+              </div>
+            )}
+            {canClose && occupied && freeGesture(data !== undefined, unpaid) === 'button' && (
               <div className="stagger mt-7 flex animate-item-in items-start gap-3 rounded-2xl bg-sunken/70 p-4" style={next()}>
                 <span className="grid size-10 shrink-0 place-items-center rounded-full bg-surface text-ink shadow-sm" aria-hidden>
                   <Power className="size-5" />
@@ -368,6 +443,100 @@ export function TableRequestsDialog({ table, areaName, status, requests, canClos
         onConfirm={() => close.mutate()}
       />
     </DialogPrimitive.Root>
+  );
+}
+
+interface Settled {
+  amountMinor: number;
+  marker: number | null;
+  at: string;
+}
+
+function Chip({ icon, children }: { icon: ReactNode; children: ReactNode }) {
+  return (
+    <li className="tabular inline-flex h-8 items-center gap-1.5 rounded-full bg-sunken px-3 text-[13px] text-ink-2">
+      {icon}
+      {children}
+    </li>
+  );
+}
+
+/** Spec 028, R10 : la carte d'addition — qui, depuis quand, combien, et le geste pour régler. */
+function BillCard({
+  request, currency, now, canSettle, busy, onSettle,
+}: { request: ServiceRequest; currency: string; now: number; canSettle: boolean; busy: boolean; onSettle: () => void }) {
+  const bill = request.bill ?? { dueMinor: 0, pendingOrders: 0 };
+  const marker = request.marker ?? null;
+  const name = marker === null ? null : markerInfo(marker).name;
+  const amount = formatMoney(bill.dueMinor, currency);
+  return (
+    <section
+      aria-label={`Addition demandée${name ? ` par ${name}` : ''}, ${amount}`}
+      className="animate-item-in rounded-3xl bg-pay-soft p-5 shadow-[0_14px_32px_-20px_rgb(14_116_144/0.6)] ring-1 ring-pay/15"
+    >
+      <div className="flex items-center gap-3">
+        <span className="relative grid size-10 shrink-0 place-items-center rounded-full bg-pay text-white" aria-hidden>
+          <span className="absolute inset-0 rounded-full bg-pay opacity-40 motion-safe:animate-ping" />
+          <Receipt className="relative size-5" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-[16px] leading-tight font-semibold text-ink">Addition demandée</p>
+          <p className="tabular mt-0.5 text-[13px] text-pay">
+            {formatTime(request.createdAt)} · <span className="font-mono">{formatClock(secondsSince(request.createdAt, now))}</span>
+          </p>
+        </div>
+        {marker !== null && (
+          <span className="flex h-9 shrink-0 items-center gap-2 rounded-full bg-surface pr-3 pl-1.5 shadow-sm">
+            <SessionMarker index={marker} size="sm" decorative />
+            <span className="max-w-24 truncate text-[13px] font-semibold text-ink capitalize">{name}</span>
+          </span>
+        )}
+      </div>
+      <p className="tabular mt-5 text-[38px] leading-none font-bold tracking-tight text-ink">{amount}</p>
+      <p className="mt-2.5 flex items-center gap-1.5 text-[14px] text-ink-2">
+        {bill.pendingOrders > 0 ? (
+          <>
+            <Clock className="size-4 text-progress" aria-hidden />
+            {bill.pendingOrders} commande{bill.pendingOrders > 1 ? 's' : ''} pas encore servie{bill.pendingOrders > 1 ? 's' : ''}
+          </>
+        ) : (
+          <>
+            <Check className="size-4 text-done" strokeWidth={2.6} aria-hidden />
+            Tout est servi
+          </>
+        )}
+      </p>
+      {canSettle && bill.dueMinor > 0 && (
+        <SlideToConfirm
+          className="mt-5"
+          size="lg"
+          tone="ink"
+          label="Glisser pour régler"
+          ariaLabel={`Régler ${name ?? 'le client'}, ${amount}`}
+          busyLabel="Règlement…"
+          busy={busy}
+          onConfirm={onSettle}
+        />
+      )}
+    </section>
+  );
+}
+
+/** Spec 028, R10 : le règlement vient d'avoir lieu. */
+function SettledCard({ settled, currency }: { settled: Settled; currency: string }) {
+  return (
+    <section aria-label={`Réglé, ${formatMoney(settled.amountMinor, currency)}`} className="flex animate-pop-in flex-col items-center gap-2 rounded-3xl bg-done-soft px-5 py-6 text-center">
+      <span className="grid size-14 place-items-center rounded-full bg-done text-white" aria-hidden>
+        <Check className="size-7" strokeWidth={2.6} />
+      </span>
+      <p className="text-[17px] font-semibold text-done">Réglé</p>
+      <p className="tabular text-[30px] leading-none font-bold tracking-tight text-ink">{formatMoney(settled.amountMinor, currency)}</p>
+      <p className="flex items-center gap-1.5 text-[13px] text-ink-2">
+        {settled.marker !== null && <SessionMarker index={settled.marker} size="xs" decorative />}
+        {settled.marker !== null && <span className="capitalize">{markerInfo(settled.marker).name} ·</span>}
+        <span className="tabular">{formatTime(settled.at)}</span>
+      </p>
+    </section>
   );
 }
 
@@ -438,14 +607,15 @@ function useCountUp(target: number | null, duration = 600): number | null {
 function ClientRow({
   session,
   currency,
-  canSettle,
+  slide,
   billAsked,
   busy,
   onSettle,
 }: {
   session: OccupationSession;
   currency: string;
-  canSettle: boolean;
+  /** Spec 028, R10 : sa barre, sauf s'il se règle depuis la carte d'addition. */
+  slide: boolean;
   /** Spec 028, R5 : ce client a demandé l'addition (même geste que la carte « Demande d'addition »). */
   billAsked: boolean;
   busy: boolean;
@@ -471,7 +641,7 @@ function ClientRow({
         </span>
         <span className={cn('tabular shrink-0 text-[15px] font-semibold', owes ? 'text-pay' : 'text-ink-3')}>{formatMoney(session.unpaidMinor, currency)}</span>
       </div>
-      {canSettle && owes && (
+      {slide && (
         <SlideToConfirm
           className="mt-3"
           size="md"

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { billState } from '@/components/pages/guest/order-logic';
 import { capabilitiesOf } from '@/components/pages/requests/capabilities';
+import { clientSlide, freeGesture, tableSheet } from '@/components/pages/requests/table-bill';
 import { guestContextSchema, type GuestRequest, type ServiceRequest } from '@/contracts';
 
 const WAITER = ['requests.read', 'requests.handle', 'requests.cancel'];
@@ -76,5 +77,26 @@ describe('Spec 028 — l’addition', () => {
       orderingEnabled: false,
     });
     expect(context.requestTypes.map((type) => type.kind)).toEqual(['bill', 'service']);
+  });
+
+  it('CA-028-16 — fiche de la table : la carte d’addition en tête, « En cours » sans elle, pas de seconde barre', () => {
+    const water = billRequest({ id: 'w', type: { id: 'eau', label: 'Eau', icon: 'droplet', kind: 'service' }, marker: 1, bill: null });
+    const sheet = tableSheet([water, billRequest({ marker: 3 })], false);
+    expect(sheet.bills.map((request) => request.id)).toEqual(['b1']);
+    expect(sheet.others.map((request) => request.id)).toEqual(['w']);
+    expect(sheet.compact).toBe(true);
+    // Le client qui a demandé se règle depuis la carte ; les autres gardent leur barre.
+    expect(clientSlide({ id: 's3', marker: 3, status: 'open', unpaidMinor: 4500 }, sheet.billMarkers, true)).toBe(false);
+    expect(clientSlide({ id: 's1', marker: 1, status: 'open', unpaidMinor: 3500 }, sheet.billMarkers, true)).toBe(true);
+    // Sans addition demandée, la fiche reste comme avant.
+    expect(tableSheet([water], false).compact).toBe(false);
+  });
+
+  it('CA-028-17 — après le règlement : carte « Réglé », puis libérer en glissant s’il ne reste rien', () => {
+    expect(tableSheet([], true).compact).toBe(true);
+    expect(freeGesture(true, 0)).toBe('slide');
+    // Un reste à régler garde le bouton et sa confirmation ; occupation pas encore chargée aussi.
+    expect(freeGesture(true, 1500)).toBe('button');
+    expect(freeGesture(false, 0)).toBe('button');
   });
 });
