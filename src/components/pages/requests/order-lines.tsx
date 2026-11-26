@@ -12,10 +12,14 @@ export function OrderLines({ items, totalMinor, compact = false }: { items: Orde
   return (
     <div className={cn('rounded-lg bg-sunken px-3 py-2', compact ? 'mt-1.5' : 'mt-4')}>
       <ul className="flex flex-col gap-0.5 text-sm text-ink">
-        {items.map((line) => (
-          <li key={line.name} className="flex justify-between gap-3">
+        {items.map((line, index) => (
+          <li key={`${line.name}-${index}`} className="flex justify-between gap-3">
             <span className="min-w-0">
               <span className="tabular font-semibold">{line.quantity} ×</span> {line.name}
+              {/* Spec 032 : les choix de la formule. */}
+              {((line.choices?.length ?? 0) > 0 || (line.options?.length ?? 0) > 0) && (
+                <span className="block pl-5 text-[13px] text-ink-2">{[...(line.choices ?? []), ...(line.options ?? [])].map((part) => part.name).join(' · ')}</span>
+              )}
             </span>
             {!compact && <span className="tabular shrink-0 text-ink-2">{formatMoney(line.unitPriceMinor * line.quantity, currency)}</span>}
           </li>

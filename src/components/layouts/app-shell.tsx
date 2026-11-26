@@ -15,6 +15,9 @@ import { useAuthStore, useMembership } from '@/stores/auth.store';
 import { useRealtimeStore } from '@/stores/realtime.store';
 import { formatDateTime } from '@/utils/time';
 import { IncomingCalls } from '@/components/pages/requests/incoming-calls';
+import { EstablishmentLogo } from '@/components/ui/establishment-logo';
+import { AccountBanner } from './account-banner';
+import { TermsGate } from './terms-gate';
 import { Brand } from './brand';
 import { visibleNav, type NavItem } from './navigation';
 
@@ -73,6 +76,10 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
       </header>
 
+      {/* Spec 035 : échéance de l'abonnement ; spec 041 : nouvelle version des conditions. */}
+      <AccountBanner />
+      <TermsGate />
+
       <div key={pathname} className="w-full animate-page-in px-4 pt-6 pb-28 lg:px-8 lg:pb-12">
         {children}
       </div>
@@ -125,10 +132,14 @@ function EstablishmentSwitcher({ compact }: { compact?: boolean }) {
   const membership = useMembership();
   const queryClient = useQueryClient();
   if (!me || !membership) return null;
+  // Spec 031, R8 : le logo de l'établissement sélectionné, à côté de son nom.
   const label = (
-    <span className="min-w-0 text-left">
-      <span className="block truncate text-sm font-semibold text-ink">{membership.establishment.name}</span>
-      {!compact && <span className="block truncate text-xs text-ink-3">{membership.role.name}</span>}
+    <span className="flex min-w-0 items-center gap-2.5 text-left">
+      <EstablishmentLogo name={membership.establishment.name} logoImageId={membership.establishment.logoImageId ?? null} size="sm" />
+      <span className="min-w-0">
+        <span className="block truncate text-sm font-semibold text-ink">{membership.establishment.name}</span>
+        {!compact && <span className="block truncate text-xs text-ink-3">{membership.role.name}</span>}
+      </span>
     </span>
   );
   if (me.memberships.length < 2) return <div className="px-2">{label}</div>;

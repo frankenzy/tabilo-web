@@ -6,7 +6,7 @@ import { fromPrefetch } from '@/components/pages/guest/use-guest-session';
 
 const CODE = 'H7Ql9nU8tmdfFAOJFTxQo116';
 const context = {
-  establishment: { name: 'Maquis INTERNAT', currency: 'XOF' },
+  establishment: { key: '', name: 'Maquis INTERNAT', currency: 'XOF', logoImageId: null, brandColor: 'orange', welcomeText: null, timezone: 'Africa/Abidjan' },
   table: { label: '1', area: 'Terrasse' },
   requestTypes: [],
   menu: [],
@@ -15,6 +15,7 @@ const context = {
   // Spec 027 : repère de la session et présence d'une zone.
   marker: 3,
   zone: false,
+  serviceMode: 'serve_then_pay' as const,
 };
 const session = { ...context, token: 't'.repeat(43), expiresAt: '2026-11-17T14:00:00.000Z' };
 

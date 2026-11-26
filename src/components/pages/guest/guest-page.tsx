@@ -2,7 +2,7 @@
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  BellRing, Check, Droplet, Minus, Plus, Clock, Loader2, QrCode, RotateCw, WifiOff,
+  BellRing, Check, Droplet, Minus, Plus, Clock, Clock3, Loader2, QrCode, RotateCw, WifiOff,
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Button, Dialog, FormError, Textarea } from '@/components/ui';
@@ -25,11 +25,14 @@ import { hasServerButton, isServerRequest } from './server-logic';
 import { useLandscape } from './use-layout';
 import { guestRequestsKey, upsert, useGuestRequests } from './use-guest-requests';
 import { useGuestSession } from './use-guest-session';
+import { useBranding } from './use-branding';
+import { EstablishmentHeader } from './establishment-header';
+import { LoyaltyCardView } from './loyalty-card';
 import { LocationExplanation, SettledScreen } from './session-screens';
 import { SessionMarker } from '@/components/ui/session-marker';
 
 const NOTE_MAX = 280;
-const ACTIVE = ['pending', 'assigned', 'accepted', 'in_progress'];
+const ACTIVE = ['awaiting_payment', 'pending', 'assigned', 'accepted', 'in_progress'];
 
 export function GuestPage({ code }: { code: string }) {
   const { state, retry, markClosed, markSettled, refresh } = useGuestSession(code);
@@ -56,6 +59,22 @@ export function GuestPage({ code }: { code: string }) {
     );
   }
   if (state.phase === 'settled') return <SettledScreen marker={state.marker} onOrderAgain={retry} />;
+  // Spec 035, R6 : compte suspendu — une horloge, compris sans lire ; on peut réessayer plus tard.
+  if (state.phase === 'error' && state.kind === 'suspended') {
+    return (
+      <Screen>
+        <span className="grid size-24 place-items-center rounded-full bg-sunken text-ink-3" aria-hidden>
+          <Clock3 className="size-12" />
+        </span>
+        <h1 className="text-lg font-semibold text-ink">Service momentanément indisponible</h1>
+        <p className="max-w-xs text-sm text-ink-2">Adressez-vous au personnel.</p>
+        <Button onClick={retry} size="lg" variant="secondary" className="mt-2">
+          <RotateCw className="size-5" aria-hidden />
+          Réessayer
+        </Button>
+      </Screen>
+    );
+  }
   if (state.phase === 'error') {
     return (
       <Screen>
@@ -104,9 +123,11 @@ function GuestTable({ token, context, onSessionClosed, onSettled, onContextStale
   const [noteOpen, setNoteOpen] = useState(false);
   const { cart, setQuantity, clear } = useCart(token);
   const { details, updateDetails, clearDetails } = useOrderDetails(token);
+  // Spec 031, R3 et R7 : couleur et nom de l'établissement, avant le premier affichage.
+  useBranding(context.establishment.brandColor, context.establishment.name);
   const hasMenu = context.menu.length > 0;
   const currency = context.establishment.currency;
-  const summary = cartLines(cart, context.menu);
+  const summary = cartLines(cart, context.menu, new Date(), context.establishment.timezone);
   // Spec 019, R4 : à l'horizontale, la commande est dans le panneau de droite ; ni barre ni feuille.
   const landscape = useLandscape() && hasMenu;
   const [round, setRound] = useState(0);
@@ -207,18 +228,21 @@ function GuestTable({ token, context, onSessionClosed, onSettled, onContextStale
       )}
     >
       <header>
+        {/* Spec 031, R5 et R6 : logo et nom de l'établissement, puis son mot d'accueil. */}
+        <EstablishmentHeader establishment={context.establishment} token={token} />
+        {/* Spec 043 : la carte de fidélité, si l'établissement en a une. */}
+        <LoyaltyCardView token={token} context={context} />
         {hasMenu ? (
           // Repères discrets : l'en-tête de la carte (recherche, tuiles, cloche) prend le haut de l'écran (spec 005).
           <h1 className="flex items-center gap-2 text-[13px] text-ink-2">
             {/* Spec 027, R2 : le repère du client, celui que le serveur voit sur ses commandes. */}
             <SessionMarker index={context.marker} size="sm" />
             <span className="truncate">
-              <span className="font-semibold text-ink">Table {context.table.label}</span> · {context.table.area} · {context.establishment.name}
+              <span className="font-semibold text-ink">Table {context.table.label}</span> · {context.table.area}
             </span>
           </h1>
         ) : (
           <>
-            <p className="text-sm text-ink-2">{context.establishment.name}</p>
             <h1 className="mt-0.5 flex items-center gap-2 text-2xl font-semibold tracking-tight text-ink">
               <SessionMarker index={context.marker} size="md" />
               Table {context.table.label}
@@ -283,7 +307,13 @@ function GuestTable({ token, context, onSessionClosed, onSettled, onContextStale
       )}
 
 
-      <p className="mt-auto pt-10 text-center text-xs text-ink-3">Service assuré avec TABILO</p>
+      <p className="mt-auto pt-10 text-center text-xs text-ink-3">
+        Service assuré avec TABILO ·{' '}
+        {/* Spec 041, R1 : la politique de confidentialité, depuis le pied de page. */}
+        <a href="/confidentialite" target="_blank" className="underline underline-offset-2">
+          Confidentialité
+        </a>
+      </p>
 
       {pastOrders.length > 0 && !cartOpen && (
         // Spec 018, R5 : le bouton historique prend la place du bouton flottant « Serveur » ; le serveur reste à la cloche et à la tuile.

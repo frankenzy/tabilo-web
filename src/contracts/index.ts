@@ -6,9 +6,14 @@ import { z } from 'zod';
  * Les réponses du parcours client, qui arrivent d'un réseau non maîtrisé, sont validées par Zod.
  */
 
-export const REQUEST_STATUSES = ['pending', 'assigned', 'accepted', 'in_progress', 'ready', 'resolved', 'cancelled'] as const;
+/** Spec 030 : `awaiting_payment` = commande à encaisser avant la préparation (« Caisse d'abord »). */
+export const REQUEST_STATUSES = ['awaiting_payment', 'pending', 'assigned', 'accepted', 'in_progress', 'ready', 'resolved', 'cancelled'] as const;
 export type RequestStatus = (typeof REQUEST_STATUSES)[number];
 export type EscalationStatus = 'none' | 'escalated' | 'acknowledged';
+
+/** Spec 030, R1 : façon de servir d'un établissement. */
+export const SERVICE_MODES = ['serve_then_pay', 'pay_anytime', 'pay_first'] as const;
+export type ServiceMode = (typeof SERVICE_MODES)[number];
 
 export interface ApiError {
   statusCode: number;
@@ -31,11 +36,100 @@ export interface Me {
   lastName: string;
   mustChangePassword: boolean;
   tenant: { id: string; name: string };
+  /** Specs 034 et 035 : abonnement du compte (cadenas, bandeaux). Absent d'une API plus ancienne. */
+  account?: AccountInfo;
   memberships: {
-    establishment: { id: string; name: string; timezone: string };
+    /** Spec 031, R8 : logo affiché dans le sélecteur d'établissement. */
+    establishment: { id: string; name: string; timezone: string; logoImageId?: string | null };
     role: { key: string; name: string };
     permissions: string[];
   }[];
+}
+
+// ------------------------------------------------------------ abonnement (specs 034 à 037)
+
+export type PlanKey = 'essentiel' | 'pro' | 'premium';
+export type AccountState = 'trial' | 'active' | 'past_due' | 'suspended';
+export type PlanFeature = 'bundles' | 'promotions' | 'yearly_stats' | 'custom_roles' | 'options' | 'exports' | 'loyalty';
+export type PaymentMethod = 'cash' | 'orange_money' | 'mtn_momo' | 'moov_money' | 'wave' | 'bank_transfer';
+
+export interface AccountInfo {
+  plan: PlanKey;
+  planName: string;
+  state: AccountState;
+  paidUntil: string;
+  graceUntil: string;
+  features: PlanFeature[];
+  /** WhatsApp de TABILO. */
+  contact: string;
+  /** Spec 041, R2 : version acceptée par le compte et version en vigueur. */
+  termsVersion?: string | null;
+  legalVersion?: string;
+}
+
+export interface Receipt {
+  id: string;
+  number: string;
+  amountMinor: number;
+  method: PaymentMethod;
+  reference: string | null;
+  months: number;
+  plan: PlanKey;
+  planName: string;
+  periodStart: string;
+  periodEnd: string;
+  createdAt: string;
+  cancelledAt: string | null;
+  cancelReason: string | null;
+  tenantName: string;
+}
+
+export interface PlanDefinition {
+  key: PlanKey;
+  name: string;
+  monthlyPriceMinor: number;
+  limits: { establishments: number | null; tablesPerEstablishment: number | null; staffPerEstablishment: number | null };
+  features: PlanFeature[];
+  current: boolean;
+}
+
+export interface SubscriptionOverview {
+  plan: PlanKey;
+  planName: string;
+  state: AccountState;
+  paidUntil: string;
+  graceUntil: string;
+  contact: string;
+  usage: Record<'establishments' | 'tables' | 'staff', { used: number; max: number | null }>;
+  features: { key: PlanFeature; label: string; included: boolean; availableIn: string | null }[];
+  catalog: PlanDefinition[];
+  payments: Receipt[];
+}
+
+export interface PlatformTenantRow {
+  id: string;
+  name: string;
+  plan: PlanKey;
+  planName: string;
+  accountState: AccountState;
+  paidUntil: string;
+  manuallySuspended: boolean;
+  createdAt: string;
+  establishments: number;
+  tables: number;
+  orders30d: number;
+  lastActivity: string | null;
+  /** Spec 041 : compte fermé, date d'effacement, effacé. */
+  closedAt?: string | null;
+  deleteAfter?: string | null;
+  erasedAt?: string | null;
+}
+
+export interface PlatformTenantDetail extends PlatformTenantRow {
+  establishmentsList: { id: string; name: string; phone: string | null; address: string | null }[];
+  owners: { id: string; firstName: string; lastName: string; email: string; status: string }[];
+  payments: Receipt[];
+  log: { id: string; action: string; reason: string | null; adminName: string | null; createdAt: string }[];
 }
 
 /** Ligne d'une commande : nom et prix figés au moment de la commande. */
@@ -45,6 +139,14 @@ export interface OrderLine {
   name: string;
   quantity: number;
   unitPriceMinor: number;
+  /** Spec 032 : choix d'une formule, figés à la commande ; null pour un plat. */
+  choices?: BundleChoice[] | null;
+  /** Spec 038 : options choisies. */
+  options?: LineOption[] | null;
+  /** Spec 033 : identifiant de la ligne, prix de la carte si promotion, ligne offerte. */
+  id?: string;
+  listPriceMinor?: number | null;
+  offeredAt?: string | null;
 }
 
 /** Spec 028 : `bill` est « L'addition », demande de facture d'un client (une par établissement). */
@@ -159,7 +261,20 @@ export interface OccupationOrder {
   paidAt?: string | null;
   totalMinor: number;
   note: string | null;
-  items: { menuItemId: string; name: string; quantity: number; unitPriceMinor: number; imageId: string | null }[];
+  items: {
+    id?: string;
+    menuItemId: string;
+    name: string;
+    quantity: number;
+    unitPriceMinor: number;
+    imageId: string | null;
+    choices?: BundleChoice[] | null;
+    /** Spec 033. */
+    listPriceMinor?: number | null;
+    /** Spec 038. */
+    options?: LineOption[] | null;
+    offeredAt?: string | null;
+  }[];
   /** Spec 027 : session du client ; null pour une commande saisie par le personnel. */
   sessionId?: string | null;
   /** Spec 027, R9 : marquée « Parti sans payer ». */
@@ -205,6 +320,9 @@ export interface Area {
 export interface QrCode {
   tableId: string;
   tableLabel: string;
+  /** Spec 042 : zone (filtre) et dernière impression (null = à imprimer). */
+  areaId?: string;
+  printedAt?: string | null;
   areaName: string;
   url: string;
   svg: string;
@@ -282,6 +400,14 @@ export interface Establishment {
   zoneRadiusM?: number;
   /** Délai avant l'alerte de départ sans payer, en minutes (10 à 60). */
   unpaidAlertMinutes?: number;
+  /** Spec 030, R1 : façon de servir. */
+  serviceMode?: ServiceMode;
+  /** Spec 030, R9 : lancer la préparation dès l'envoi. */
+  autoStartOrders?: boolean;
+  /** Spec 031 : logo, couleur principale (clé de la palette) et mot d'accueil. */
+  logoImageId?: string | null;
+  brandColor?: string;
+  welcomeText?: string | null;
 }
 
 export interface AppNotification {
@@ -369,6 +495,68 @@ export interface SalesFigures {
   /** Spec 027, R13 : marqué « Parti sans payer » pendant la période. */
   writtenOffMinor?: number;
   writtenOffCustomers?: number;
+  /** Spec 033, R7 : offert et remises de promotion, hors du total. */
+  offeredMinor?: number;
+  discountMinor?: number;
+}
+
+/** Spec 043 : carte de fidélité du client (téléphone). */
+export const loyaltyCardSchema = z
+  .object({
+    token: z.string().optional(),
+    stamps: z.number().int(),
+    stampsRequired: z.number().int(),
+    minOrderMinor: z.number().int(),
+    rewardItemId: z.string(),
+    redemption: z.object({ id: z.string(), validated: z.boolean() }).nullable(),
+  })
+  .nullable();
+export type LoyaltyCard = z.infer<typeof loyaltyCardSchema>;
+
+/** Spec 043, R1 : réglage de la carte de fidélité. */
+export interface LoyaltyProgram {
+  stampsRequired: number;
+  minOrderMinor: number;
+  rewardItemId: string;
+  isActive: boolean;
+}
+
+/** Spec 043, R4 : récompense à valider. */
+export interface LoyaltyRedemption {
+  id: string;
+  tableId: string;
+  sessionId: string;
+  reward: { id: string; name: string; imageId: string | null } | null;
+  createdAt: string;
+}
+
+/** Spec 040, R4 : récapitulatif d'une période. */
+export interface SalesSummary {
+  establishment: string;
+  currency: string;
+  from: string;
+  to: string;
+  editedAt: string;
+  totalMinor: number;
+  orders: number;
+  averageMinor: number | null;
+  paidMinor: number;
+  outstandingMinor: number;
+  offeredMinor: number;
+  discountMinor: number;
+  writtenOffMinor: number;
+  topProducts: { name: string; quantity: number; amountMinor: number }[];
+  servers: { name: string; orders: number; amountMinor: number }[];
+}
+
+/** Spec 038, R8 bis : ventes d'une option sur la période. */
+export interface OptionSale {
+  menuItemId: string;
+  item: string;
+  group: string;
+  option: string;
+  quantity: number;
+  amountMinor: number;
 }
 
 /** Spec 027, R9 : alerte de départ sans payer. */
@@ -463,6 +651,17 @@ export interface Report {
 /** Devises proposées (liste fermée côté API). */
 export const CURRENCIES = ['XOF', 'XAF', 'EUR', 'USD', 'MAD', 'GNF', 'NGN', 'GHS', 'CDF', 'TND', 'DZD', 'CAD', 'CHF', 'GBP'] as const;
 
+/** Spec 039 : un créneau. */
+const slotSchema = z.object({ days: z.array(z.number().int()), start: z.string(), end: z.string() });
+
+/** Spec 038, R5 : une option choisie, figée sur la ligne de commande. */
+export const lineOptionSchema = z.object({ group: z.string(), optionId: z.string(), name: z.string(), priceMinor: z.number().int() });
+export type LineOption = z.infer<typeof lineOptionSchema>;
+
+/** Spec 032, R5 : un choix de formule, figé sur la ligne de commande. */
+export const bundleChoiceSchema = z.object({ group: z.string(), menuItemId: z.string(), name: z.string() });
+export type BundleChoice = z.infer<typeof bundleChoiceSchema>;
+
 const menuItemSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -470,6 +669,27 @@ const menuItemSchema = z.object({
   priceMinor: z.number().int(),
   imageId: z.string().nullable(),
   isAvailable: z.boolean(),
+  /** Spec 032 : formule à prix unique, un plat par rubrique. */
+  isBundle: z.boolean().default(false),
+  groups: z.array(z.object({ id: z.string(), name: z.string(), choiceIds: z.array(z.string()) })).default([]),
+  /** Spec 033 : prix promotionnel en cours, sinon null. */
+  promoPriceMinor: z.number().int().nullable().default(null),
+  /** Spec 039 : créneaux de la promotion et de disponibilité (null = permanent), nom de la promotion. */
+  promoSlots: z.array(slotSchema).nullable().default(null),
+  promoName: z.string().nullable().default(null),
+  availabilitySlots: z.array(slotSchema).nullable().default(null),
+  /** Spec 038 : groupes d'options. */
+  optionGroups: z
+    .array(
+      z.object({
+        id: z.string(),
+        name: z.string(),
+        multiple: z.boolean(),
+        required: z.boolean(),
+        options: z.array(z.object({ id: z.string(), name: z.string(), priceMinor: z.number().int(), icon: z.string().nullable(), isAvailable: z.boolean() })),
+      }),
+    )
+    .default([]),
 });
 const menuCategorySchema = z.object({
   id: z.string(),
@@ -505,7 +725,18 @@ const guestTypeSchema = z.object({
 });
 
 export const guestContextSchema = z.object({
-  establishment: z.object({ name: z.string(), currency: z.string() }),
+  establishment: z.object({
+    /** Spec 043 : clé de rangement de la carte de fidélité (dérivée, sans identifiant interne). */
+    key: z.string().default(''),
+    name: z.string(),
+    currency: z.string(),
+    /** Spec 031 : apparence de l'établissement. */
+    logoImageId: z.string().nullable().default(null),
+    brandColor: z.string().default('orange'),
+    welcomeText: z.string().nullable().default(null),
+    /** Spec 039 : fuseau de l'établissement (créneaux). */
+    timezone: z.string().default('Africa/Abidjan'),
+  }),
   table: z.object({ label: z.string(), area: z.string() }),
   requestTypes: z.array(guestTypeSchema),
   menu: z.array(menuCategorySchema),
@@ -517,6 +748,8 @@ export const guestContextSchema = z.object({
   marker: z.number().int().min(0).default(0),
   /** Spec 027, R8 : une zone existe, le téléphone donne sa position au moment de commander. */
   zone: z.boolean().default(false),
+  /** Spec 030 : façon de servir (addition, « Payez à la caisse »). */
+  serviceMode: z.enum(SERVICE_MODES).default('serve_then_pay'),
 });
 export const guestSessionSchema = guestContextSchema.extend({ token: z.string().min(32), expiresAt: z.string() });
 
@@ -524,7 +757,21 @@ export const guestRequestSchema = z.object({
   id: z.string(),
   status: z.enum(REQUEST_STATUSES),
   type: z.object({ id: z.string(), label: z.string(), icon: z.string(), kind: z.enum(['service', 'order', 'bill', 'call', 'message']) }),
-  items: z.array(z.object({ menuItemId: z.string().optional(), name: z.string(), quantity: z.number().int(), unitPriceMinor: z.number().int() })),
+  items: z.array(
+    z.object({
+      menuItemId: z.string().optional(),
+      name: z.string(),
+      quantity: z.number().int(),
+      unitPriceMinor: z.number().int(),
+      /** Spec 032 : choix d'une formule. */
+      choices: z.array(bundleChoiceSchema).nullable().optional(),
+      /** Spec 038 : options choisies. */
+      options: z.array(lineOptionSchema).nullable().optional(),
+      /** Spec 033 : ligne offerte, prix de la carte si promotion. */
+      offeredAt: z.string().nullable().optional(),
+      listPriceMinor: z.number().int().nullable().optional(),
+    }),
+  ),
   totalMinor: z.number().int().nullable(),
   quantity: z.number().int().nullable(),
   handledBy: z.string().nullable(),

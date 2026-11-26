@@ -1,5 +1,7 @@
 'use client';
 
+import { Lock } from 'lucide-react';
+import { useFeature } from '@/hooks/use-account';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { Clock, HandCoins, Minus, RotateCw, TrendingDown, TrendingUp, UserX, Wallet, type LucideIcon } from 'lucide-react';
 import { useState, type CSSProperties } from 'react';
@@ -21,6 +23,8 @@ const PERIODS: { value: SalesPeriod; label: string; previous: string }[] = [
 /** Spec 024, R3 et spec 026, R7 : filtre Mensuel · Annuel de la rangée « Caisse », en haut à droite de la page. */
 export function SalesPeriodFilter({ period, onChange }: { period: SalesPeriod; onChange: (period: SalesPeriod) => void }) {
   const segments = useSlidingIndicator(period);
+  // Spec 034, R4 et R7 : les ventes de l'année, avec un cadenas hors des formules qui les comprennent.
+  const yearly = useFeature('yearly_stats');
   return (
     <div ref={segments.container} role="tablist" aria-label="Période des ventes" className="relative flex gap-1 rounded-lg bg-sunken p-1">
       {segments.indicator}
@@ -31,12 +35,15 @@ export function SalesPeriodFilter({ period, onChange }: { period: SalesPeriod; o
           type="button"
           role="tab"
           aria-selected={period === option.value}
+          disabled={option.value === 'year' && !yearly}
+          title={option.value === 'year' && !yearly ? 'Avec la formule Pro' : undefined}
           onClick={() => onChange(option.value)}
           className={cn(
             'relative rounded-md px-3 py-1.5 text-[13px] font-medium transition-colors duration-300',
             period === option.value ? 'text-ink' : 'text-ink-3 hover:text-ink',
           )}
         >
+          {option.value === 'year' && !yearly && <Lock className="mr-1 inline size-3" aria-hidden />}
           {option.label}
         </button>
       ))}
@@ -84,7 +91,18 @@ export function CashCards({ period, index = 0 }: { period: SalesPeriod; index?: 
         icon={Wallet}
         label="Total servi"
         amount={data ? money(data.current.totalMinor) : null}
-        detail={data ? `${plural(data.current.orders, 'commande')} servie${data.current.orders > 1 ? 's' : ''}` : ''}
+        detail={
+          data
+            ? [
+                `${plural(data.current.orders, 'commande')} servie${data.current.orders > 1 ? 's' : ''}`,
+                // Spec 033, R7 : offert et remises de promotion, à part du total.
+                (data.current.offeredMinor ?? 0) > 0 ? `${money(data.current.offeredMinor ?? 0)} offerts` : null,
+                (data.current.discountMinor ?? 0) > 0 ? `${money(data.current.discountMinor ?? 0)} de remises` : null,
+              ]
+                .filter(Boolean)
+                .join(' · ')
+            : ''
+        }
         trend={data ? salesTrend(data.current.totalMinor, data.previous.totalMinor) : { kind: 'none' }}
         previousLabel={previousLabel}
       />

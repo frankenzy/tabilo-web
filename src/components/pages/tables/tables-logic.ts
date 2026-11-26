@@ -193,6 +193,8 @@ export function orderSummary(items: { menuItemId: string; quantity: number }[]):
 export function orderStateLabel(status: string): { label: string; tone: 'done' | 'progress' | 'waiting' | 'cancelled' } {
   if (status === 'resolved') return { label: 'Servie', tone: 'done' };
   if (status === 'cancelled') return { label: 'Annulée', tone: 'cancelled' };
+  // Spec 030, R7 : à encaisser avant la préparation.
+  if (status === 'awaiting_payment') return { label: 'À encaisser', tone: 'waiting' };
   if (status === 'accepted' || status === 'in_progress' || status === 'ready') return { label: status === 'ready' ? 'Prête' : 'En préparation', tone: 'progress' };
   return { label: 'Envoyée', tone: 'waiting' };
 }

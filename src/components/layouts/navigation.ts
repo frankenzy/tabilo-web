@@ -1,5 +1,5 @@
 import {
-  Armchair, BarChart3, BookOpen, ConciergeBell, CookingPot, History, LayoutDashboard, ScrollText, Settings, Users, type LucideIcon,
+  Armchair, BarChart3, BookOpen, ConciergeBell, CookingPot, CreditCard, History, LayoutDashboard, ScrollText, Settings, Users, type LucideIcon,
 } from 'lucide-react';
 
 export interface NavItem {
@@ -21,6 +21,8 @@ export const NAV_ITEMS: NavItem[] = [
   { href: '/app/parametres', label: 'Paramètres', icon: Settings, anyOf: ['establishment.update', 'request_types.manage', 'escalation.manage'] },
   { href: '/app/demandes', label: 'Historique', icon: History, anyOf: ['requests.read'] },
   { href: '/app/journal', label: 'Journal', icon: ScrollText, anyOf: ['audit.read'] },
+  // Spec 034, R8 : réservé au propriétaire (seul à détenir « roles.manage »).
+  { href: '/app/abonnement', label: 'Abonnement', icon: CreditCard, anyOf: ['roles.manage'] },
 ];
 
 export function visibleNav(permissions: string[]): NavItem[] {

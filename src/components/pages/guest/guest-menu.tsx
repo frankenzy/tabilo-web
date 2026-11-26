@@ -2,7 +2,7 @@
 
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Ban, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Minus, PauseCircle, Plus, Search, SearchX, ShoppingBag, Sparkles, Trash2, TriangleAlert, X } from 'lucide-react';
+import { Ban, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clock, Gift, Layers, Minus, Percent, PauseCircle, Plus, Search, SearchX, ShoppingBag, Sparkles, Trash2, TriangleAlert, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Button, FormError, Textarea } from '@/components/ui';
 import type { GuestContext, GuestRequest, MenuCategory, MenuItem, OrderLine } from '@/contracts';
@@ -12,9 +12,12 @@ import { menuImageUrl } from '@/services/api';
 import { guestApi } from '@/services/api/guest';
 import { errorMessage, toHttpError } from '@/services/http';
 import { formatMoney } from '@/utils/money';
-import { cartLines, MAX_QUANTITY, type Cart, type OrderDetails } from './cart';
+import { bundleKey, cartLines, MAX_QUANTITY, optionKey, orderableNow, promoActive, quantityOf, unitPrice, type Cart, type OrderDetails } from './cart';
+import { useNow } from '@/hooks/use-now';
+import { categoryIcon } from '@/constants/menu-icons';
+import { currentSlot, hourLabel, nextOpening } from '@/utils/slots';
 import { CART_BUMP, CART_TARGET_ATTR, flyToCart, haptic } from './fly-to-cart';
-import { CancelOrderButton, composeNote, OrderTracker, PrecisionChips, SuccessCheck, TableBadge } from './order-flow';
+import { CancelOrderButton, composeNote, OrderTracker, PayAtCounter, PrecisionChips, SuccessCheck, TableBadge } from './order-flow';
 import { SlideToConfirm } from '@/components/ui/slide-to-confirm';
 import { prefersReducedMotion, usePhotoTint } from './photo-tint';
 import { guestRequestsKey, upsert } from './use-guest-requests';
@@ -97,6 +100,9 @@ const normalize = (text: string) => text.normalize('NFD').replace(/\p{Diacritic}
 
 export function MenuView({ context, cart, onQuantity, action, banner, leadingTile, trailingTile, token }: MenuViewProps) {
   const currency = context.establishment.currency;
+  // Spec 039 : prix et disponibilité suivent l'heure, recalculés chaque minute (l'API reste seule juge, R4).
+  const now = new Date(useNow(60_000));
+  const timeZone = context.establishment.timezone;
   const [query, setQuery] = useState('');
   const shown = useMemo(() => {
     const needle = normalize(query);
@@ -328,9 +334,12 @@ export function MenuView({ context, cart, onQuantity, action, banner, leadingTil
                   key={item.id}
                   item={item}
                   currency={currency}
-                  quantity={cart[item.id] ?? 0}
+                  quantity={quantityOf(cart, item.id)}
                   orderable={context.orderingEnabled}
-                  onQuantity={(next) => onQuantity(item.id, next)}
+                  now={now}
+                  timeZone={timeZone}
+                  // Spec 032, R2 et spec 038 : une formule ou un plat à options se compose dans sa fiche.
+                  onQuantity={(next) => (item.isBundle || item.optionGroups.length > 0 ? setOpened(item) : onQuantity(item.id, next))}
                   onOpen={() => setOpened(item)}
                 />
               ))}
@@ -344,14 +353,21 @@ export function MenuView({ context, cart, onQuantity, action, banner, leadingTil
           item={opened}
           currency={currency}
           orderable={context.orderingEnabled}
-          inCart={cart[opened.id] ?? 0}
-          onSave={(quantity) => {
-            onQuantity(opened.id, quantity);
+          inCart={opened.isBundle || opened.optionGroups.length > 0 ? 0 : (cart[opened.id] ?? 0)}
+          menu={context.menu}
+          now={now}
+          timeZone={timeZone}
+          onSave={(quantity, choiceIds, optionIds) => {
+            // Spec 032 et 038 : chaque composition est une ligne à part ; la quantité s'y ajoute.
+            if (choiceIds || optionIds) {
+              const key = choiceIds ? bundleKey(opened.id, choiceIds) : optionKey(opened.id, optionIds ?? []);
+              onQuantity(key, Math.min(MAX_QUANTITY, (cart[key] ?? 0) + quantity));
+            } else onQuantity(opened.id, quantity);
             setOpened(null);
           }}
           onClose={() => setOpened(null)}
           pairings={
-            token && context.orderingEnabled && context.pairingsEnabled ? (
+            token && context.orderingEnabled && context.pairingsEnabled && !opened.isBundle ? (
               <PairedItems token={token} item={opened} context={context} cart={cart} onAdd={(id) => onQuantity(id, (cart[id] ?? 0) + 1)} />
             ) : undefined
           }
@@ -369,11 +385,19 @@ interface MenuCardProps {
   /** Nouvelle quantité du plat dans la commande (0 = retiré). */
   onQuantity: (quantity: number) => void;
   onOpen: () => void;
+  now: Date;
+  timeZone: string;
 }
 
-function MenuCard({ item, currency, quantity, orderable, onQuantity, onOpen }: MenuCardProps) {
-  const canAdd = orderable && item.isAvailable;
-  const price = formatMoney(item.priceMinor, currency);
+function MenuCard({ item, currency, quantity, orderable, onQuantity, onOpen, now, timeZone }: MenuCardProps) {
+  // Spec 039, R3 : hors de son créneau, le plat est grisé, avec une horloge et la prochaine ouverture.
+  const open = orderableNow(item, now, timeZone);
+  const closedBySlot = item.isAvailable && !open;
+  const canAdd = orderable && open;
+  const price = formatMoney(unitPrice(item, now, timeZone), currency);
+  const promo = promoActive(item, now, timeZone);
+  const happyHour = promo && item.promoSlots ? currentSlot(item.promoSlots, now, timeZone) : null;
+  const composed = item.isBundle || item.optionGroups.length > 0;
   return (
     <li>
       <div className="relative">
@@ -383,8 +407,29 @@ function MenuCard({ item, currency, quantity, orderable, onQuantity, onOpen }: M
           className="block w-full"
           aria-label={`${item.name}, ${price}${item.isAvailable ? '' : ', épuisé'}${quantity > 0 ? `, ${quantity} dans la commande` : ''}`}
         >
-          <ItemPhoto item={item} dimmed={!item.isAvailable} className="aspect-square w-full rounded-2xl text-2xl" />
-          {item.isAvailable && quantity > 0 && <SelectionChecks quantity={quantity} />}
+          <ItemPhoto item={item} dimmed={!open} className="aspect-square w-full rounded-2xl text-2xl" />
+          {open && quantity > 0 && <SelectionChecks quantity={quantity} />}
+          {closedBySlot && (
+            <span className="absolute top-2 left-2 inline-flex items-center gap-1 rounded-full bg-surface/95 px-2 py-1 text-xs font-medium text-ink-2 shadow-sm">
+              <Clock className="size-3.5" aria-hidden />
+              {nextOpening(item.availabilitySlots, now, timeZone) ? `dès ${nextOpening(item.availabilitySlots, now, timeZone)}` : 'Plus tard'}
+            </span>
+          )}
+          {/* Spec 033, R2 : la pastille « promo ». */}
+          {promo && open && (
+            <span className={cn('absolute right-2 inline-flex items-center gap-0.5 rounded-full bg-late px-2 py-1 text-[11px] font-bold text-white shadow-sm', item.isBundle ? 'top-9' : 'top-2')}>
+              <Percent className="size-3.5" strokeWidth={3} aria-hidden />
+              {/* Spec 039, R6 et Q1 : nom de la promotion programmée, « Happy hour » par défaut, et son heure de fin. */}
+              {happyHour ? `${item.promoName || 'Happy hour'} · → ${hourLabel(happyHour.end)}` : 'Promo'}
+            </span>
+          )}
+          {/* Spec 032, R8 : la pastille « formule », comprise sans lire. */}
+          {item.isBundle && (
+            <span className="absolute top-2 right-2 inline-flex items-center gap-1 rounded-full bg-brand px-2 py-1 text-[11px] font-semibold text-white shadow-sm">
+              <Layers className="size-3.5" aria-hidden />
+              Formule
+            </span>
+          )}
           {!item.isAvailable && (
             <span className="absolute top-2 left-2 inline-flex items-center gap-1 rounded-full bg-surface/95 px-2 py-1 text-xs font-medium text-late shadow-sm">
               <Ban className="size-3.5" aria-hidden />
@@ -392,12 +437,13 @@ function MenuCard({ item, currency, quantity, orderable, onQuantity, onOpen }: M
             </span>
           )}
         </button>
-        {canAdd && quantity === 0 && (
+        {canAdd && (quantity === 0 || composed) && (
           <button
             type="button"
             onClick={(event) => {
               haptic();
-              flyToCart(event.currentTarget.parentElement?.getBoundingClientRect() ?? null, item.imageId ? menuImageUrl(item.imageId) : null);
+              // Spec 032 et 038 : un plat à composer ouvre sa fiche ; l'animation vient à l'ajout.
+              if (!composed) flyToCart(event.currentTarget.parentElement?.getBoundingClientRect() ?? null, item.imageId ? menuImageUrl(item.imageId) : null);
               onQuantity(1);
             }}
             aria-label={`Ajouter ${item.name}`}
@@ -407,7 +453,7 @@ function MenuCard({ item, currency, quantity, orderable, onQuantity, onOpen }: M
           </button>
         )}
         {/* Spec 021, R4 : dès la quantité 1, la quantité se règle sur la photo, sans ouvrir la fiche. */}
-        {canAdd && quantity > 0 && (
+        {canAdd && quantity > 0 && !composed && (
           <div
             role="group"
             aria-label={`${quantity} ${item.name}`}
@@ -448,7 +494,10 @@ function MenuCard({ item, currency, quantity, orderable, onQuantity, onOpen }: M
       {/* Le nom et le prix ouvrent aussi la fiche ; le bouton de la photo porte déjà le libellé accessible. */}
       <button type="button" onClick={onOpen} tabIndex={-1} aria-hidden className="mt-2 block w-full text-left">
         <span className={cn('line-clamp-2 block text-[15px] leading-snug font-medium', item.isAvailable ? 'text-ink' : 'text-ink-3')}>{item.name}</span>
-        <span className={cn('tabular mt-0.5 block text-sm', item.isAvailable ? 'text-ink-2' : 'text-ink-3')}>{price}</span>
+        <span className={cn('tabular mt-0.5 block text-sm', item.isAvailable ? 'text-ink-2' : 'text-ink-3')}>
+          {promo && <s className="mr-1.5 text-ink-3">{formatMoney(item.priceMinor, currency)}</s>}
+          <span className={cn(promo && 'font-semibold text-late')}>{price}</span>
+        </span>
       </button>
     </li>
   );
@@ -484,12 +533,32 @@ function SelectionChecks({ quantity }: { quantity: number }) {
  * - R6 : états « épuisé » et « déjà dans la commande ».
  */
 function ItemSheet({
-  item, currency, orderable, inCart, onSave, onClose, pairings,
-}: { item: MenuItem; currency: string; orderable: boolean; inCart: number; onSave: (quantity: number) => void; onClose: () => void; pairings?: ReactNode }) {
+  item, currency, orderable, inCart, menu, onSave, onClose, pairings, now, timeZone,
+}: {
+  item: MenuItem;
+  currency: string;
+  orderable: boolean;
+  inCart: number;
+  menu: MenuCategory[];
+  /** `choiceIds` : composition d'une formule (spec 032) ; `optionIds` : options choisies (spec 038). */
+  onSave: (quantity: number, choiceIds?: string[], optionIds?: string[]) => void;
+  onClose: () => void;
+  pairings?: ReactNode;
+  now: Date;
+  timeZone: string;
+}) {
   const [quantity, setQuantity] = useState(Math.max(1, inCart));
-  const canOrder = orderable && item.isAvailable;
+  // Spec 032, R2 : un plat par rubrique ; « Ajouter » s'active quand chaque rubrique a le sien.
+  const [picks, setPicks] = useState<Record<string, string>>({});
+  // Spec 038, R2 : options choisies ; « Ajouter » s'active quand chaque groupe obligatoire a son choix.
+  const [chosen, setChosen] = useState<string[]>([]);
+  const optionsComplete = item.optionGroups.every((group) => !group.required || group.options.some((option) => chosen.includes(option.id)));
+  const complete = (!item.isBundle || item.groups.every((group) => picks[group.id])) && optionsComplete;
+  const canOrder = orderable && orderableNow(item, now, timeZone);
   const label = inCart === 0 ? 'Ajouter' : quantity === 0 ? 'Retirer' : 'Mettre à jour';
-  const total = formatMoney(quantity * item.priceMinor, currency);
+  const extras = item.optionGroups.flatMap((group) => group.options).filter((option) => chosen.includes(option.id)).reduce((sum, option) => sum + option.priceMinor, 0);
+  const unit = unitPrice(item, now, timeZone) + extras;
+  const total = formatMoney(quantity * unit, currency);
 
   // R8 : teinte légère tirée de la couleur dominante de la photo ; pas d'effet de profondeur si mouvements réduits.
   const tint = usePhotoTint(item.imageId ? menuImageUrl(item.imageId) : null);
@@ -533,7 +602,7 @@ function ItemSheet({
       const visible = [photo.current, widePhoto.current].find((el) => el && el.getBoundingClientRect().width > 0);
       flyToCart(visible?.getBoundingClientRect() ?? null, item.imageId ? menuImageUrl(item.imageId) : null);
     }
-    onSave(quantity);
+    onSave(quantity, item.isBundle ? item.groups.map((group) => picks[group.id]) : undefined, item.optionGroups.length > 0 ? chosen : undefined);
   };
 
   return (
@@ -633,9 +702,43 @@ function ItemSheet({
                 >
                   <div className="flex items-baseline justify-between gap-3">
                     <DialogPrimitive.Title className="min-w-0 text-[22px] leading-tight font-semibold tracking-tight text-ink">{item.name}</DialogPrimitive.Title>
-                    <p className="tabular shrink-0 text-[19px] font-semibold text-brand-strong">{formatMoney(item.priceMinor, currency)}</p>
+                    <p className="tabular shrink-0 text-right">
+                      {/* Spec 033, R2 : ancien prix barré, nouveau prix en grand. */}
+                      {promoActive(item, now, timeZone) && <s className="mr-2 text-[14px] text-ink-3">{formatMoney(item.priceMinor + extras, currency)}</s>}
+                      <span className={cn('text-[19px] font-semibold', promoActive(item, now, timeZone) ? 'text-late' : 'text-brand-strong')}>{formatMoney(unit, currency)}</span>
+                    </p>
                   </div>
                   {item.description && <p className="mt-2 text-sm leading-relaxed text-ink-3">{item.description}</p>}
+                  {item.optionGroups.length > 0 && (
+                    <OptionsComposer
+                      item={item}
+                      currency={currency}
+                      chosen={chosen}
+                      disabled={!canOrder}
+                      onToggle={(groupId, optionId) => {
+                        haptic(8);
+                        const group = item.optionGroups.find((candidate) => candidate.id === groupId)!;
+                        setChosen((current) => {
+                          if (current.includes(optionId)) return current.filter((id) => id !== optionId);
+                          // Un seul choix : l'option touchée remplace celle du groupe.
+                          const others = group.multiple ? current : current.filter((id) => !group.options.some((option) => option.id === id));
+                          return [...others, optionId];
+                        });
+                      }}
+                    />
+                  )}
+                  {item.isBundle && (
+                    <BundleComposer
+                      item={item}
+                      menu={menu}
+                      picks={picks}
+                      disabled={!canOrder}
+                      onPick={(groupId, dishId) => {
+                        haptic(8);
+                        setPicks((current) => ({ ...current, [groupId]: dishId }));
+                      }}
+                    />
+                  )}
                   {canOrder && (
                     <div className="mt-5 flex min-h-12 items-center justify-between gap-3 rounded-2xl bg-sunken/70 py-2 pr-2 pl-3">
                       <QuantityThumbnails item={item} quantity={quantity} />
@@ -685,8 +788,9 @@ function ItemSheet({
                   <button
                     type="button"
                     onClick={save}
+                    disabled={!complete}
                     className={cn(
-                      'flex h-14 w-full items-center justify-center gap-2 rounded-full px-5 text-[17px] font-semibold text-white shadow-[0_10px_24px_-10px_rgb(27_25_23/0.6)] transition-[transform,background-color] duration-300 ease-apple active:scale-[0.98]',
+                      'flex h-14 w-full items-center justify-center gap-2 rounded-full px-5 text-[17px] font-semibold text-white shadow-[0_10px_24px_-10px_rgb(27_25_23/0.6)] transition-[transform,background-color,opacity] duration-300 ease-apple active:scale-[0.98] disabled:opacity-40',
                       label === 'Retirer' ? 'bg-late' : 'bg-ink',
                     )}
                   >
@@ -708,6 +812,133 @@ function ItemSheet({
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>
+  );
+}
+
+/**
+ * Spec 032, P2 : une rangée de photos par rubrique ; un toucher coche le plat. Un plat en rupture est grisé (R4).
+ */
+function BundleComposer({
+  item, menu, picks, disabled, onPick,
+}: { item: MenuItem; menu: MenuCategory[]; picks: Record<string, string>; disabled: boolean; onPick: (groupId: string, dishId: string) => void }) {
+  const dishes = new Map(menu.flatMap((category) => category.items).map((dish) => [dish.id, dish]));
+  return (
+    <div className="mt-5 flex flex-col gap-4">
+      {item.groups.map((group, index) => {
+        const chosen = picks[group.id];
+        return (
+          <section key={group.id} aria-label={group.name}>
+            <h3 className="mb-2 flex items-center gap-2 text-[14px] font-semibold text-ink">
+              <span className={cn('grid size-6 place-items-center rounded-full text-[12px] text-white', chosen ? 'bg-done' : 'bg-ink-3')} aria-hidden>
+                {chosen ? <Check className="size-3.5" strokeWidth={3} /> : index + 1}
+              </span>
+              {group.name}
+            </h3>
+            <ul className="-mx-1 flex gap-2.5 overflow-x-auto px-1 pb-1 [scrollbar-width:none]" role="radiogroup" aria-label={group.name}>
+              {group.choiceIds.map((id) => {
+                const dish = dishes.get(id);
+                if (!dish) return null;
+                const selected = chosen === id;
+                return (
+                  <li key={id} className="w-20 shrink-0">
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={selected}
+                      aria-label={`${dish.name}${dish.isAvailable ? '' : ', épuisé'}`}
+                      disabled={disabled || !dish.isAvailable}
+                      onClick={() => onPick(group.id, id)}
+                      className="flex w-full flex-col items-center gap-1 text-center disabled:cursor-not-allowed"
+                    >
+                      <span className={cn('relative block rounded-2xl ring-offset-2 transition-shadow duration-200', selected && 'ring-[3px] ring-done')}>
+                        <ItemPhoto item={dish} dimmed={!dish.isAvailable} className="size-20 rounded-2xl text-lg" />
+                        {selected && (
+                          <span className="absolute -top-1.5 -right-1.5 grid size-6 animate-pop-in place-items-center rounded-full bg-done text-white ring-2 ring-surface" aria-hidden>
+                            <Check className="size-3.5" strokeWidth={3.5} />
+                          </span>
+                        )}
+                        {!dish.isAvailable && (
+                          <span className="absolute inset-0 grid place-items-center rounded-2xl bg-black/30 text-white" aria-hidden>
+                            <Ban className="size-6" />
+                          </span>
+                        )}
+                      </span>
+                      <span className={cn('line-clamp-2 text-[12px] leading-tight', selected ? 'font-semibold text-ink' : 'text-ink-2')}>{dish.name}</span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * Spec 038, P2 et R8 : une rangée par groupe d'options ; un toucher coche l'option, le supplément s'affiche « +200 F ».
+ * Une option indisponible est grisée (R6).
+ */
+function OptionsComposer({
+  item, currency, chosen, disabled, onToggle,
+}: { item: MenuItem; currency: string; chosen: string[]; disabled: boolean; onToggle: (groupId: string, optionId: string) => void }) {
+  return (
+    <div className="mt-5 flex flex-col gap-4">
+      {item.optionGroups.map((group) => {
+        const done = group.options.some((option) => chosen.includes(option.id));
+        return (
+          <section key={group.id} aria-label={group.name}>
+            <h3 className="mb-2 flex items-center gap-2 text-[14px] font-semibold text-ink">
+              <span className={cn('grid size-6 place-items-center rounded-full text-white', done ? 'bg-done' : group.required ? 'bg-ink' : 'bg-ink-3')} aria-hidden>
+                {done ? <Check className="size-3.5" strokeWidth={3} /> : <Plus className="size-3.5" strokeWidth={3} />}
+              </span>
+              {group.name}
+              {!group.required && <span className="text-[12px] font-normal text-ink-3">facultatif</span>}
+            </h3>
+            <div role={group.multiple ? 'group' : 'radiogroup'} aria-label={group.name} className="flex flex-wrap gap-2">
+              {group.options.map((option) => {
+                const selected = chosen.includes(option.id);
+                const Icon = option.icon ? categoryIcon(option.icon) : null;
+                return (
+                  <button
+                    key={option.id}
+                    type="button"
+                    role={group.multiple ? 'checkbox' : 'radio'}
+                    aria-checked={selected}
+                    disabled={disabled || !option.isAvailable}
+                    onClick={() => onToggle(group.id, option.id)}
+                    className={cn(
+                      'inline-flex min-h-11 items-center gap-1.5 rounded-full px-3.5 text-[14px] font-medium ring-1 transition-[background-color,color,transform] duration-200 active:scale-95 disabled:opacity-40',
+                      selected ? 'bg-done text-white ring-done' : 'bg-surface text-ink ring-line',
+                      !option.isAvailable && 'line-through',
+                    )}
+                  >
+                    {selected ? <Check className="size-4" strokeWidth={3} aria-hidden /> : Icon && <Icon className="size-4" aria-hidden />}
+                    {option.name}
+                    {option.priceMinor > 0 && <span className={cn('tabular text-[12px]', selected ? 'text-white/85' : 'text-ink-2')}>+{formatMoney(option.priceMinor, currency)}</span>}
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Spec 032 : vignettes des plats choisis dans une formule, sous son nom. */
+function ChoiceThumbs({ choices }: { choices: Pick<MenuItem, 'name' | 'imageId'>[] }) {
+  return (
+    <span className="mt-0.5 flex items-center gap-1.5">
+      {choices.map((choice, index) => (
+        <span key={index} className="flex min-w-0 items-center gap-1">
+          <ItemPhoto item={choice} className="size-5 shrink-0 rounded-md text-[8px]" />
+          <span className="truncate text-[12px] text-ink-2">{choice.name}</span>
+        </span>
+      ))}
+    </span>
   );
 }
 
@@ -782,7 +1013,7 @@ interface CartBarProps {
  */
 export function CartBar({ token, context, cart, precisionCount, onOpen, onAdd, sending, error, onConfirm }: CartBarProps) {
   const currency = context.establishment.currency;
-  const { lines, count, totalMinor, hasInvalid } = cartLines(cart, context.menu);
+  const { lines, count, totalMinor, hasInvalid } = cartLines(cart, context.menu, new Date(), context.establishment.timezone);
   // Spec 012, R5 : un rebond quand un plat arrive dans la commande — relancé sans recréer la barre (le geste garde son état).
   const card = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -946,7 +1177,7 @@ export function useSendOrder({
   onSessionClosed: () => void;
 }) {
   const queryClient = useQueryClient();
-  const { lines } = cartLines(cart, context.menu);
+  const { lines } = cartLines(cart, context.menu, new Date(), context.establishment.timezone);
   // Une clé par intention de commander : un double appui ou une reprise réseau ne crée qu'une commande.
   const [idempotencyKey, setIdempotencyKey] = useState(() => randomId());
   const send = useMutation({
@@ -954,7 +1185,16 @@ export function useSendOrder({
       guestApi.order(
         token,
         {
-          items: lines.filter((line) => !line.invalid).map((line) => ({ menuItemId: line.itemId, quantity: line.quantity })),
+          items: lines
+            .filter((line) => !line.invalid)
+            .map((line) => ({
+              menuItemId: line.menuItemId,
+              quantity: line.quantity,
+              // Spec 032 : un plat par rubrique de la formule.
+              ...(line.choices.length > 0 ? { choices: line.choices.map((choice) => ({ groupId: choice.groupId, menuItemId: choice.item!.id })) } : {}),
+              // Spec 038 : options choisies.
+              ...(line.options.length > 0 ? { options: line.options.map((option) => option.id) } : {}),
+            })),
           note: composeNote(details.precisions, details.note, NOTE_MAX),
           // Spec 027, R8 : position demandée seulement si l'établissement a une zone ; la commande part dans tous les cas.
           ...(context.zone ? await orderLocation() : {}),
@@ -997,7 +1237,7 @@ function OrderBody({
 }: OrderScreenProps & { variant: 'sheet' | 'panel'; landscape?: boolean; initialSent?: GuestRequest | null }) {
   const panel = variant === 'panel';
   const currency = context.establishment.currency;
-  const { lines, count, totalMinor, hasInvalid } = cartLines(cart, context.menu);
+  const { lines, count, totalMinor, hasInvalid } = cartLines(cart, context.menu, new Date(), context.establishment.timezone);
   // Spec 013, R2 : précisions à toucher, et texte libre replié derrière « Autre ».
   const { precisions, note } = details;
   const [freeOpen, setFreeOpen] = useState(() => details.note.trim() !== '');
@@ -1054,6 +1294,9 @@ function OrderBody({
                   </span>
                   <div className="min-w-0 flex-1">
                     <p className={cn('truncate text-[15px] font-semibold', line.invalid ? 'text-ink-3 line-through' : 'text-ink')}>{line.item?.name ?? 'Article retiré'}</p>
+                    {line.choices.length > 0 && <ChoiceThumbs choices={line.choices.map((choice) => choice.item ?? { name: '?', imageId: null })} />}
+                    {/* Spec 038 : les options choisies, sous le nom. */}
+                    {line.options.length > 0 && <p className="truncate text-[12px] text-ink-2">{line.options.map((option) => option.name).join(' · ')}</p>}
                     {line.invalid ? (
                       <p className="flex items-center gap-1 text-[13px] font-medium text-late">
                         <Ban className="size-3.5" aria-hidden />
@@ -1062,7 +1305,7 @@ function OrderBody({
                     ) : (
                       <div className="mt-1 flex items-center gap-2">
                         <QuantityThumbnails item={line.item ?? { name: '?', imageId: null }} quantity={line.quantity} size="sm" />
-                        <span className="tabular text-[13px] text-ink-2">{formatMoney((line.item?.priceMinor ?? 0) * line.quantity, currency)}</span>
+                        <span className="tabular text-[13px] text-ink-2">{formatMoney(line.unitMinor * line.quantity, currency)}</span>
                       </div>
                     )}
                   </div>
@@ -1245,6 +1488,8 @@ function OrderSent({ token, context, sent, onDone, autoDoneMs }: { token: string
   const live = data?.find((request) => request.id === sent.id) ?? sent;
   const menuItems = new Map(context.menu.flatMap((category) => category.items).map((item) => [item.id, item]));
   const cancelled = live.status === 'cancelled';
+  // Spec 030, R6 : « Caisse d'abord », le client va payer avant qu'on prépare.
+  const toPay = live.status === 'awaiting_payment';
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
       <div className="flex flex-col items-center gap-3 pt-2 text-center">
@@ -1256,7 +1501,7 @@ function OrderSent({ token, context, sent, onDone, autoDoneMs }: { token: string
           <SuccessCheck />
         )}
         <p role="status" className="text-[22px] font-semibold tracking-tight text-ink">
-          {cancelled ? 'Commande annulée' : 'C’est parti !'}
+          {cancelled ? 'Commande annulée' : toPay ? 'Payez à la caisse' : 'C’est parti !'}
         </p>
         <TableBadge label={context.table.label} area={context.table.area} />
       </div>
@@ -1273,7 +1518,12 @@ function OrderSent({ token, context, sent, onDone, autoDoneMs }: { token: string
         })}
       </ul>
 
-      {!cancelled && (
+      {toPay && live.totalMinor !== null && (
+        <div className="mt-6">
+          <PayAtCounter amount={formatMoney(live.totalMinor, context.establishment.currency)} tone="light" />
+        </div>
+      )}
+      {!cancelled && !toPay && (
         <div className="mt-6 rounded-2xl bg-sunken/60 p-4">
           <OrderTracker request={live} tone="light" />
         </div>
@@ -1343,7 +1593,7 @@ function PairedItems({ token, item, context, cart, onAdd }: { token: string; ite
                 </span>
               </button>
               <p className="mt-1.5 line-clamp-2 text-[12px] leading-tight font-medium text-ink">{entry.name}</p>
-              <p className="tabular text-[11px] text-ink-3">{formatMoney(entry.priceMinor, context.establishment.currency)}</p>
+              <p className="tabular text-[11px] text-ink-3">{formatMoney(unitPrice(entry), context.establishment.currency)}</p>
             </li>
           );
         })}
@@ -1418,7 +1668,7 @@ function Suggestions({ token, context, cart, onAdd }: { token: string; context: 
                 </span>
               </span>
               <span className="w-full truncate text-[12px] leading-tight font-medium text-ink">{item.name}</span>
-              <span className="tabular -mt-0.5 text-[11px] text-ink-3">{formatMoney(item.priceMinor, context.establishment.currency)}</span>
+              <span className="tabular -mt-0.5 text-[11px] text-ink-3">{formatMoney(unitPrice(item), context.establishment.currency)}</span>
             </button>
           </li>
         ))}
@@ -1501,12 +1751,29 @@ export function GuestOrderLines({ items, totalMinor, currency, menu }: { items: 
                 style={{ height: ORDER_ROW_PX, '--i': Math.min(index, 8) } as React.CSSProperties}
               >
                 <ItemPhoto item={item ?? { name: line.name, imageId: null }} className="size-10 shrink-0 rounded-[10px] text-xs ring-1 ring-white/10" />
-                <span className="min-w-0 flex-1 truncate text-[14px] font-medium text-white">{line.name}</span>
-                <span className="tabular shrink-0 text-[13px] whitespace-nowrap">
-                  <span className="font-semibold text-white">{line.quantity}</span>
-                  <span className="px-1 text-white/45">×</span>
-                  <span className="text-white/70">{formatMoney(line.unitPriceMinor, currency)}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[14px] font-medium text-white">{line.name}</span>
+                  {/* Spec 032 : les choix de la formule, sous son nom. */}
+                  {((line.choices?.length ?? 0) > 0 || (line.options?.length ?? 0) > 0) && (
+                    <span className="block truncate text-[12px] text-white/60">{[...(line.choices ?? []), ...(line.options ?? [])].map((part) => part.name).join(' · ')}</span>
+                  )}
                 </span>
+                {line.offeredAt ? (
+                  // Spec 033, R4 et R9 : un cadeau et « Offert », le prix d'origine barré.
+                  <span className="inline-flex shrink-0 items-center gap-1 text-[13px] whitespace-nowrap">
+                    <s className="tabular text-white/45">{formatMoney(line.unitPriceMinor * line.quantity, currency)}</s>
+                    <span className="inline-flex items-center gap-1 rounded-full bg-done px-2 py-0.5 font-semibold text-white">
+                      <Gift className="size-3.5" aria-hidden />
+                      Offert
+                    </span>
+                  </span>
+                ) : (
+                  <span className="tabular shrink-0 text-[13px] whitespace-nowrap">
+                    <span className="font-semibold text-white">{line.quantity}</span>
+                    <span className="px-1 text-white/45">×</span>
+                    <span className="text-white/70">{formatMoney(line.unitPriceMinor, currency)}</span>
+                  </span>
+                )}
               </li>
             );
           })}

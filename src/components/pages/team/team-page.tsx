@@ -1,5 +1,6 @@
 'use client';
 
+import { useFeature } from '@/hooks/use-account';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Lock, Plus } from 'lucide-react';
 import { useState, type CSSProperties, type FormEvent } from 'react';
@@ -41,6 +42,7 @@ export function TeamPage() {
   const [tab, setTab] = useState<'members' | 'roles'>('members');
   const [dialog, setDialog] = useState<TeamDialog>(null);
   const canManageRoles = useCan('roles.manage');
+  const customRoles = useFeature('custom_roles');
   const close = () => setDialog(null);
 
   return (
@@ -56,8 +58,9 @@ export function TeamPage() {
             </Button>
           ) : (
             canManageRoles && (
-              <Button onClick={() => setDialog({ kind: 'role' })}>
-                <Plus className="size-4" aria-hidden />
+              // Spec 034, R7 : rôles personnalisés compris dans Pro ; le bouton reste visible, avec un cadenas.
+              <Button onClick={() => setDialog({ kind: 'role' })} disabled={!customRoles} title={customRoles ? undefined : 'Avec la formule Pro'}>
+                {customRoles ? <Plus className="size-4" aria-hidden /> : <Lock className="size-4" aria-hidden />}
                 Nouveau rôle
               </Button>
             )

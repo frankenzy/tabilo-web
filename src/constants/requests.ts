@@ -33,6 +33,7 @@ export function requestIcon(key: string): LucideIcon {
 }
 
 export const STATUS_LABELS: Record<RequestStatus, string> = {
+  awaiting_payment: 'À encaisser',
   pending: 'En attente',
   assigned: 'Affectée',
   accepted: 'Acceptée',
@@ -43,6 +44,7 @@ export const STATUS_LABELS: Record<RequestStatus, string> = {
 };
 
 export const STATUS_TONE: Record<RequestStatus, 'neutral' | 'wait' | 'progress' | 'done' | 'muted'> = {
+  awaiting_payment: 'wait',
   pending: 'wait',
   assigned: 'wait',
   accepted: 'progress',

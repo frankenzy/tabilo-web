@@ -15,6 +15,9 @@ import { errorMessage } from '@/services/http';
 import { useMembership } from '@/stores/auth.store';
 import { toast } from '@/stores/toast.store';
 import { formatDuration } from '@/utils/time';
+import { BrandingSettings } from './branding-settings';
+import { LoyaltySettings } from './loyalty-settings';
+import { ServiceModeSettings } from './service-mode';
 import { SessionSecuritySettings } from './session-security';
 
 type Section = 'establishment' | 'types' | 'escalation';
@@ -77,6 +80,18 @@ function EstablishmentSettings() {
 
   return (
     <>
+      {/* Spec 030 : la façon de servir, en tête — c'est le réglage qui change le plus le service. */}
+      <div className="mb-10">
+        <ServiceModeSettings data={data} />
+      </div>
+      {/* Spec 031 : logo, couleur et mot d'accueil, avec l'aperçu du téléphone. */}
+      <div className="mb-10">
+        <BrandingSettings data={data} />
+      </div>
+      {/* Spec 043 : carte de fidélité. */}
+      <div className="mb-10">
+        <LoyaltySettings />
+      </div>
       <form onSubmit={submit} noValidate className="flex max-w-xl flex-col gap-8">
         <fieldset className="flex flex-col gap-4">
           <legend className="mb-3 text-[15px] font-semibold text-ink">Informations</legend>
