@@ -285,23 +285,10 @@ function GuestTable({ token, context, onSessionClosed, onSettled, onContextStale
             context={context}
             cart={cart}
             onQuantity={setQuantity}
-            action={
-              serverButton ? (
-                // Cloche toujours visible : elle est dans l'en-tête fixe de la carte (spec 005, R4).
-                <button
-                  type="button"
-                  onClick={() => openServer()}
-                  aria-label="Serveur"
-                  title="Appeler le serveur"
-                  className="grid size-12 shrink-0 place-items-center rounded-full bg-ink text-white shadow-pop active:scale-95"
-                >
-                  <BellRing className="size-5" aria-hidden />
-                </button>
-              ) : undefined
-            }
+            // Spec 005, R9 (modifiée le 2026-11-27) : la photo du serveur, à droite de la recherche, remplace la cloche.
+            action={serverButton ? <WaiterButton onCall={() => openServer()} /> : undefined}
             banner={banner}
             leadingTile={waterType ? <WaterTile pending={activeTypeIds.has(waterType.id)} onCall={() => setSelected(waterType)} /> : undefined}
-            trailingTile={serverButton ? <WaiterTile onCall={() => openServer()} /> : undefined}
           />
         </div>
       ) : (
@@ -450,23 +437,26 @@ function GuestTable({ token, context, onSessionClosed, onSettled, onContextStale
   );
 }
 
-/** Tuile spéciale « Eau » (spec 005, R6) : un geste pour demander de l'eau, sans lire ni passer par la cloche. */
-/** Tuile « Serveur » en bout de rangée (spec 005, R9) : la photo du serveur, comprise sans lire. */
-function WaiterTile({ onCall }: { onCall: () => void }) {
+/** Bouton « Serveur » à droite de la recherche (spec 005, R4 et R9) : la photo du serveur, comprise sans lire. */
+function WaiterButton({ onCall }: { onCall: () => void }) {
   return (
-    <button type="button" onClick={onCall} aria-label="Serveur, appeler le serveur" title="Appeler le serveur" className="group flex w-16 shrink-0 flex-col items-center gap-1">
-      <span className="relative size-12 rounded-xl shadow-sm ring-1 ring-line transition-transform duration-300 ease-spring group-hover:-translate-y-0.5 group-active:scale-95">
-        {/* eslint-disable-next-line @next/next/no-img-element -- image statique de l'interface */}
-        <img src="/images/serveur.jpg" alt="" draggable={false} className="size-full rounded-xl object-cover" />
-        <span className="absolute -top-1 -right-1 grid size-5 place-items-center rounded-full bg-ink text-white ring-2 ring-paper">
-          <BellRing className="size-3" aria-hidden />
-        </span>
+    <button
+      type="button"
+      onClick={onCall}
+      aria-label="Serveur"
+      title="Appeler le serveur"
+      className="relative size-12 shrink-0 rounded-xl shadow-sm ring-1 ring-line transition-transform duration-300 ease-spring hover:-translate-y-0.5 active:scale-95"
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element -- image statique de l'interface */}
+      <img src="/images/serveur.jpg" alt="" draggable={false} className="size-full rounded-xl object-cover" />
+      <span className="absolute -top-1 -right-1 grid size-5 place-items-center rounded-full bg-ink text-white ring-2 ring-paper">
+        <BellRing className="size-3" aria-hidden />
       </span>
-      <span className="w-full truncate text-center text-[11px] leading-tight font-semibold text-ink">Serveur</span>
     </button>
   );
 }
 
+/** Tuile spéciale « Eau » (spec 005, R6) : un geste pour demander de l'eau, sans lire ni passer par le bouton « Serveur ». */
 function WaterTile({ pending, onCall }: { pending: boolean; onCall: () => void }) {
   return (
     <button

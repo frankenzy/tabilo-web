@@ -83,14 +83,12 @@ interface MenuViewProps {
   context: GuestContext;
   cart: Cart;
   onQuantity: (itemId: string, quantity: number) => void;
-  /** Bouton toujours visible à droite de la recherche (la cloche « Serveur », spec 005). */
+  /** Bouton toujours visible à droite de la recherche (le bouton « Serveur », spec 005, R9). */
   action?: ReactNode;
   /** Contenu placé sous l'en-tête fixe, avant la carte (suivi des commandes en cours). */
   banner?: ReactNode;
   /** Tuile placée en tête de la rangée des rubriques (tuile spéciale « Eau », spec 005). */
   leadingTile?: ReactNode;
-  /** Tuile fixe en bout de rangée, isolée des rubriques (tuile « Serveur », spec 005, R9). */
-  trailingTile?: ReactNode;
   /** Jeton de la session de table : suggestions « Souvent pris avec » de la fiche d'un plat (spec 012, R7). */
   token?: string;
 }
@@ -98,7 +96,7 @@ interface MenuViewProps {
 /** Recherche sans accents ni majuscules : « attieke » trouve « Attiéké ». */
 const normalize = (text: string) => text.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().trim();
 
-export function MenuView({ context, cart, onQuantity, action, banner, leadingTile, trailingTile, token }: MenuViewProps) {
+export function MenuView({ context, cart, onQuantity, action, banner, leadingTile, token }: MenuViewProps) {
   const currency = context.establishment.currency;
   // Spec 039 : prix et disponibilité suivent l'heure, recalculés chaque minute (l'API reste seule juge, R4).
   const now = new Date(useNow(60_000));
@@ -283,13 +281,6 @@ export function MenuView({ context, cart, onQuantity, action, banner, leadingTil
               ) : null,
             )}
           </div>
-          {trailingTile && (
-            // Isolée des rubriques par un trait fin, et fixe pendant leur défilement.
-            <div className="flex shrink-0 items-start pt-3 pb-2 pl-2">
-              <span className="mt-1 mr-2 h-10 w-px bg-line" aria-hidden />
-              {trailingTile}
-            </div>
-          )}
         </nav>
       </div>
 
