@@ -28,14 +28,14 @@ import { useGuestSession } from './use-guest-session';
 import { useBranding } from './use-branding';
 import { EstablishmentHeader } from './establishment-header';
 import { LoyaltyButton, SettledGift } from './loyalty-card';
-import { LocationExplanation, SettledScreen } from './session-screens';
+import { LeftScreen, LocationExplanation, SettledScreen } from './session-screens';
 import { SessionMarker } from '@/components/ui/session-marker';
 
 const NOTE_MAX = 280;
 const ACTIVE = ['awaiting_payment', 'pending', 'assigned', 'accepted', 'in_progress'];
 
 export function GuestPage({ code }: { code: string }) {
-  const { state, retry, markClosed, markSettled, refresh } = useGuestSession(code);
+  const { state, retry, markClosed, markSettled, markLeft, refresh } = useGuestSession(code);
 
   if (state.phase === 'loading') {
     return (
@@ -62,11 +62,19 @@ export function GuestPage({ code }: { code: string }) {
     return (
       <SettledScreen
         marker={state.marker}
+        tableLabel={state.context?.table.label ?? null}
+        token={state.token}
         onOrderAgain={retry}
+        onClose={retry}
+        onLeave={async () => {
+          if (state.token) await guestApi.leaveSession(state.token);
+          markLeft();
+        }}
         gift={state.token && state.context ? <SettledGift token={state.token} context={state.context} /> : null}
       />
     );
   }
+  if (state.phase === 'left') return <LeftScreen onBack={retry} />;
   // Spec 035, R6 : compte suspendu — une horloge, compris sans lire ; on peut réessayer plus tard.
   if (state.phase === 'error' && state.kind === 'suspended') {
     return (

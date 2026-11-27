@@ -24,6 +24,10 @@ export const guestApi = {
     const response = await httpGuest.post('/guest/loyalty/redeem', {}, { headers: headers(token) });
     return loyaltyCardSchema.parse(response.data || null);
   },
+  /** Spec 047, R5 : le client réglé libère la table ; le personnel est prévenu. */
+  async leaveSession(token: string): Promise<void> {
+    await httpGuest.post('/guest/session/leave', {}, { headers: headers(token) });
+  },
   /** Spec 046, R9 : déballer un cadeau ; le lot est révélé. */
   async giftReveal(token: string, giftId: string): Promise<LoyaltyGift> {
     const response = await httpGuest.post(`/guest/loyalty/gifts/${giftId}/reveal`, {}, { headers: headers(token) });

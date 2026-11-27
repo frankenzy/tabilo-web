@@ -78,6 +78,18 @@ function useLoyaltyCard(token: string, context: GuestContext, settled: boolean) 
 
 type LoyaltyHook = ReturnType<typeof useLoyaltyCard>;
 
+/**
+ * Spec 047, R5 : cadeaux encore à utiliser (emballés ou gagnés), lus dans la carte déjà chargée par
+ * « Réglé · Merci » ; null s'il n'y en a pas.
+ */
+export function usePendingGifts(token: string | null): { count: number; until: Date } | null {
+  const card = useQuery<LoyaltyCard>({ queryKey: ['guest', token, 'loyalty', 'settled'], enabled: false });
+  const pending = (card.data?.surprise?.gifts ?? []).filter((gift) => gift.state === 'wrapped' || gift.state === 'won');
+  if (pending.length === 0) return null;
+  const until = new Date(Math.min(...pending.map((gift) => new Date(gift.expiresAt).getTime())));
+  return { count: pending.length, until };
+}
+
 /** Spec 046, R7 : feux d'artifice une fois par cadeau débloqué. */
 function useCelebration(loyalty: LoyaltyHook) {
   const toCelebrate = giftToCelebrate(loyalty.card.data);
@@ -156,11 +168,18 @@ export function SettledGift({ token, context }: { token: string; context: GuestC
   const wrapped = data?.mode === 'surprise' ? (data.surprise?.gifts.filter((gift) => gift.state === 'wrapped').length ?? 0) : 0;
   // Spec 046, R16 : la visite n'a pas fait avancer la carte, on le dit en image et en chiffres.
   const noStamp = data && !data.visitStamped && data.minOrderMinor > 0 ? <NoStamp minOrder={formatMoney(data.minOrderMinor, context.establishment.currency)} /> : null;
+  // Spec 047, R1 : la fenêtre reste ouverte après le déballage du dernier cadeau (elle ne dépend pas du bouton).
+  const dialog = data ? (
+    <Dialog open={open} onOpenChange={setOpen} title="Mes cadeaux">
+      <LoyaltySheetBody loyalty={loyalty} context={context} canUse={false} />
+    </Dialog>
+  ) : null;
   if (!data || wrapped === 0) {
     return (
       <>
         {fireworks}
         {noStamp}
+        {dialog}
       </>
     );
   }
@@ -186,9 +205,7 @@ export function SettledGift({ token, context }: { token: string; context: GuestC
         </span>
         <span className="text-[15px] font-semibold text-ink">Voir mon cadeau</span>
       </button>
-      <Dialog open={open} onOpenChange={setOpen} title="Mes cadeaux">
-        <LoyaltySheetBody loyalty={loyalty} context={context} canUse={false} />
-      </Dialog>
+      {dialog}
     </>
   );
 }

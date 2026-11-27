@@ -75,6 +75,22 @@
   --animate-call-walk: call-walk 1.2s ease-in-out infinite;
   /* Spec 043, R8 : le cadeau frémit quand la récompense est prête. */
   --animate-gift-wiggle: gift-wiggle 2.4s var(--ease-apple) infinite;
+  /* Spec 047, R1 : « Youpi ! » et confettis au déballage. */
+  --animate-youpi: youpi 700ms var(--ease-apple) both;
+  --animate-confetti: confetti 1.8s ease-in both;
+}
+
+@keyframes youpi {
+  0% { transform: scale(0.4) rotate(-8deg); opacity: 0; }
+  55% { transform: scale(1.12) rotate(3deg); opacity: 1; }
+  75% { transform: scale(0.96) rotate(-1deg); }
+  100% { transform: scale(1) rotate(0); opacity: 1; }
+}
+
+@keyframes confetti {
+  0% { transform: translateY(-24px) rotate(0); opacity: 0; }
+  15% { opacity: 1; }
+  100% { transform: translateY(140px) rotate(280deg); opacity: 0; }
 }
 
 @keyframes gift-wiggle {

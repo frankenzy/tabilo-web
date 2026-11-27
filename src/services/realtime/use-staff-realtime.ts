@@ -86,10 +86,14 @@ export function useStaffRealtime(establishmentId: string): void {
     });
 
     // Spec 027, R4 : un client réglé quitte la table — vue « Tables » et fiche de table.
-    socket.on('session.changed', () => {
+    // Spec 047, R6 : un client réglé a libéré la table — « Table 2 · client parti » (et « table libre »).
+    socket.on('session.changed', (event: { eventId?: string; type?: string; tableLabel?: string | null; tableFree?: boolean }) => {
       void queryClient.invalidateQueries({ queryKey: estKey(establishmentId, 'tables-overview') });
       void queryClient.invalidateQueries({ queryKey: estKey(establishmentId, 'table-occupation') });
       void queryClient.invalidateQueries({ queryKey: estKey(establishmentId, 'live') });
+      if (event?.type !== 'session.left' || !event.eventId || seen.has(event.eventId)) return;
+      seen.add(event.eventId);
+      toast.info('Client parti', leftMessage(event.tableLabel ?? null, event.tableFree === true));
     });
     // Spec 027, R9 : alerte de départ sans payer créée ou traitée — le tableau de bord relit ses alertes et sa caisse.
     socket.on('alert.changed', (event: { eventId: string }) => {
@@ -112,4 +116,9 @@ export function useStaffRealtime(establishmentId: string): void {
       setStatus('connecting');
     };
   }, [establishmentId, queryClient, setStatus]);
+}
+
+/** Spec 047, R6 : « Table 2 · client parti · table libre ». */
+export function leftMessage(tableLabel: string | null, tableFree: boolean): string {
+  return `${tableLabel ? `Table ${tableLabel}` : 'Une table'} · client parti${tableFree ? ' · table libre' : ''}`;
 }
