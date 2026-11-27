@@ -73,6 +73,16 @@
   --animate-call-wave: call-wave 1.8s cubic-bezier(0, 0, 0.2, 1) infinite;
   --animate-call-ring: call-ring 1.6s ease-in-out infinite;
   --animate-call-walk: call-walk 1.2s ease-in-out infinite;
+  /* Spec 043, R8 : le cadeau frémit quand la récompense est prête. */
+  --animate-gift-wiggle: gift-wiggle 2.4s var(--ease-apple) infinite;
+}
+
+@keyframes gift-wiggle {
+  0%, 70%, 100% { transform: rotate(0) scale(1); }
+  76% { transform: rotate(-12deg) scale(1.08); }
+  82% { transform: rotate(10deg) scale(1.08); }
+  88% { transform: rotate(-6deg) scale(1.04); }
+  94% { transform: rotate(3deg) scale(1); }
 }
 
 @keyframes call-wave {

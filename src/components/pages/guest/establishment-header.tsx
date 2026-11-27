@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { type ReactNode, useEffect, useState } from 'react';
 import type { GuestContext } from '@/contracts';
 import { cn } from '@/lib/utils';
 import { EstablishmentLogo } from '@/components/ui/establishment-logo';
@@ -8,7 +8,12 @@ import { EstablishmentLogo } from '@/components/ui/establishment-logo';
 /** Spec 031, R6 : le mot d'accueil se lit une fois, puis s'efface sans jamais gêner. */
 const WELCOME_MS = 8_000;
 
-export function EstablishmentHeader({ establishment, token }: { establishment: GuestContext['establishment']; token: string }) {
+export function EstablishmentHeader({ establishment, token, action }: {
+  establishment: GuestContext['establishment'];
+  token: string;
+  /** Spec 043, R8 : à droite du nom (l'icône cadeau de la fidélité). */
+  action?: ReactNode;
+}) {
   const welcome = establishment.welcomeText;
   const storageKey = `tabilo:welcome:${token.slice(0, 12)}`;
   const [showWelcome, setShowWelcome] = useState(false);
@@ -32,7 +37,8 @@ export function EstablishmentHeader({ establishment, token }: { establishment: G
     <div className="mb-3">
       <div className="flex items-center gap-3">
         <EstablishmentLogo name={establishment.name} logoImageId={establishment.logoImageId} />
-        <p className="min-w-0 truncate text-[17px] font-semibold tracking-tight text-ink">{establishment.name}</p>
+        <p className="min-w-0 flex-1 truncate text-[17px] font-semibold tracking-tight text-ink">{establishment.name}</p>
+        {action}
       </div>
       {welcome && (
         <div
