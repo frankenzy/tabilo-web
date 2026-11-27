@@ -1,5 +1,5 @@
 import type {
-  AppNotification, Area, AuditEntry, LoyaltyProgram, LoyaltyRedemption, EscalationRule, Establishment, LiveOverview, Me, MenuCategory, MenuItem, Page, QrCode, SalesOverview, SalesPeriod, TableOccupation, TablesOverview, Timeline, TimelineQuery, TodayOverview,
+  AppNotification, Area, AuditEntry, LoyaltyPrize, LoyaltyProgram, LoyaltyRedemption, EscalationRule, Establishment, LiveOverview, Me, MenuCategory, MenuItem, Page, QrCode, SalesOverview, SalesPeriod, TableOccupation, TablesOverview, Timeline, TimelineQuery, TodayOverview,
   OptionSale, Receipt, Report, RequestType, SalesSummary, Role, ServiceRequest, ServiceRequestDetail, StaffMember, SubscriptionOverview, Table, UnpaidAlert, UnpaidAlertResolution, WrittenOff,
 } from '@/contracts';
 import { API_BASE, http, httpAuth } from '@/services/http';
@@ -219,6 +219,16 @@ export const loyaltyApi = {
   save: (e: string, body: LoyaltyProgram) => data(http.put<LoyaltyProgram>(`${est(e)}/loyalty`, body)),
   pending: (e: string) => data(http.get<LoyaltyRedemption[]>(`${est(e)}/loyalty/redemptions`)),
   validate: (e: string, id: string) => data(http.post(`${est(e)}/loyalty/redemptions/${id}/validate`, {})),
+  /** Spec 046, R10 : valider un cadeau demandé (plat offert ou lot remis). */
+  validateGift: (e: string, id: string) => data(http.post(`${est(e)}/loyalty/gifts/${id}/validate`, {})),
+  prizes: (e: string) => data(http.get<LoyaltyPrize[]>(`${est(e)}/loyalty/prizes`)),
+  createPrize: (e: string, body: { kind: 'menu_item' | 'free'; menuItemId?: string; name?: string; weight: number; monthlyStock?: number | null }) =>
+    data(http.post<LoyaltyPrize>(`${est(e)}/loyalty/prizes`, body)),
+  updatePrize: (e: string, id: string, body: { name?: string; weight?: number; monthlyStock?: number | null }) =>
+    data(http.patch<LoyaltyPrize>(`${est(e)}/loyalty/prizes/${id}`, body)),
+  archivePrize: (e: string, id: string) => data(http.delete(`${est(e)}/loyalty/prizes/${id}`)),
+  setPrizeImage: (e: string, id: string, body: { mime: string; data: string }) => data(http.put<LoyaltyPrize>(`${est(e)}/loyalty/prizes/${id}/image`, body)),
+  removePrizeImage: (e: string, id: string) => data(http.delete<LoyaltyPrize>(`${est(e)}/loyalty/prizes/${id}/image`)),
 };
 
 /** Spec 041, R3 : toutes les données du compte en ZIP (propriétaire). */

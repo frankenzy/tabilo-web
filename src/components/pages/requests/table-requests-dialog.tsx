@@ -769,7 +769,10 @@ function ClientRow({
   );
 }
 
-/** Spec 043, R4 : la récompense devient une commande offerte, validée d'un toucher par un serveur. */
+/**
+ * Spec 043, R4 : la récompense devient une commande offerte, validée d'un toucher par un serveur.
+ * Spec 046, R10 : un cadeau surprise demandé — « Valider » (plat offert) ou « Remis » (lot libre).
+ */
 function LoyaltyRewards({ tableId, onValidated }: { tableId: string; onValidated: () => void }) {
   const establishmentId = useEstablishmentId();
   const queryClient = useQueryClient();
@@ -777,9 +780,9 @@ function LoyaltyRewards({ tableId, onValidated }: { tableId: string; onValidated
   const key = estKey(establishmentId, 'loyalty', 'pending');
   const pending = useQuery({ queryKey: key, queryFn: () => loyaltyApi.pending(establishmentId), refetchInterval: 15_000, enabled: permissions.includes('requests.read') });
   const validate = useMutation({
-    mutationFn: (id: string) => loyaltyApi.validate(establishmentId, id),
-    onSuccess: () => {
-      toast.success('Récompense offerte');
+    mutationFn: ({ id, gift }: { id: string; gift: boolean }) => (gift ? loyaltyApi.validateGift(establishmentId, id) : loyaltyApi.validate(establishmentId, id)),
+    onSuccess: (_, { gift }) => {
+      toast.success(gift ? 'Cadeau remis' : 'Récompense offerte');
       void queryClient.invalidateQueries({ queryKey: key });
       void queryClient.invalidateQueries({ queryKey: estKey(establishmentId, 'requests') });
       onValidated();
@@ -790,22 +793,40 @@ function LoyaltyRewards({ tableId, onValidated }: { tableId: string; onValidated
   if (rewards.length === 0) return null;
   return (
     <ul className="mt-5 flex flex-col gap-2">
-      {rewards.map((reward) => (
-        <li key={reward.id} className="flex items-center gap-3 rounded-2xl bg-brand-soft p-3 ring-1 ring-brand">
-          <span className="grid size-10 shrink-0 place-items-center rounded-full bg-brand text-white" aria-hidden>
-            <Gift className="size-5" />
-          </span>
-          <span className="min-w-0 flex-1 text-[14px]">
-            <span className="block font-semibold text-ink">Carte de fidélité pleine</span>
-            <span className="block truncate text-ink-2">{reward.reward?.name ?? 'Récompense'} offert</span>
-          </span>
-          {permissions.includes('requests.handle') && (
-            <Button size="sm" loading={validate.isPending} onClick={() => validate.mutate(reward.id)}>
-              Valider
-            </Button>
-          )}
-        </li>
-      ))}
+      {rewards.map((reward) => {
+        const gift = reward.kind === 'gift';
+        const free = gift && reward.prizeKind === 'free';
+        return (
+          <li key={reward.id} className="flex items-center gap-3 rounded-2xl bg-brand-soft p-3 ring-1 ring-brand">
+            <span className="relative shrink-0">
+              {reward.reward?.imageId ? (
+                <Thumb imageId={reward.reward.imageId} name={reward.reward.name} />
+              ) : (
+                <span className="grid size-10 place-items-center rounded-full bg-brand text-white" aria-hidden>
+                  <Gift className="size-5" />
+                </span>
+              )}
+              {reward.reward?.imageId && (
+                <span className="absolute -right-1 -bottom-1 grid size-5 place-items-center rounded-full bg-brand text-white ring-2 ring-surface" aria-hidden>
+                  <Gift className="size-3" />
+                </span>
+              )}
+            </span>
+            <span className="min-w-0 flex-1 text-[14px]">
+              <span className="block font-semibold text-ink">{gift ? 'Cadeau surprise' : 'Carte de fidélité pleine'}</span>
+              <span className="block truncate text-ink-2">
+                {reward.reward?.name ?? 'Récompense'}
+                {free ? ' à remettre' : ' offert'}
+              </span>
+            </span>
+            {permissions.includes('requests.handle') && (
+              <Button size="sm" loading={validate.isPending && validate.variables?.id === reward.id} onClick={() => validate.mutate({ id: reward.id, gift })}>
+                {free ? 'Remis' : 'Valider'}
+              </Button>
+            )}
+          </li>
+        );
+      })}
     </ul>
   );
 }

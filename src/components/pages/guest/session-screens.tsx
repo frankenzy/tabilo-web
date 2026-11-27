@@ -1,6 +1,7 @@
 'use client';
 
 import { Check, MapPin, Store, UtensilsCrossed } from 'lucide-react';
+import type { ReactNode } from 'react';
 import { Button, Dialog } from '@/components/ui';
 import { SessionMarker } from '@/components/ui/session-marker';
 import { continueAfterExplanation, useLocationExplanation } from './use-order-location';
@@ -9,7 +10,8 @@ import { continueAfterExplanation, useLocationExplanation } from './use-order-lo
  * Spec 027, R4 : toutes les commandes du client sont servies et réglées.
  * Lisible sans lire : grande coche verte, le repère du client, puis un seul bouton.
  */
-export function SettledScreen({ marker, onOrderAgain }: { marker: number; onOrderAgain: () => void }) {
+/** Spec 027, R4 ; spec 046, R7 : `gift` montre le cadeau débloqué par ce règlement (feux d'artifice, déballage). */
+export function SettledScreen({ marker, onOrderAgain, gift }: { marker: number; onOrderAgain: () => void; gift?: ReactNode }) {
   return (
     <main className="flex min-h-dvh flex-col items-center justify-center gap-5 px-6 text-center">
       <div className="relative">
@@ -22,6 +24,7 @@ export function SettledScreen({ marker, onOrderAgain }: { marker: number; onOrde
         <h1 className="text-2xl font-semibold tracking-tight text-ink">Réglé · Merci</h1>
         <p className="mt-1 text-sm text-ink-2">Votre note est réglée. À bientôt !</p>
       </div>
+      {gift}
       <Button onClick={onOrderAgain} size="lg" className="mt-2 min-w-56">
         <UtensilsCrossed className="size-5" aria-hidden />
         Commander encore
