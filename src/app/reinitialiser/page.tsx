@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useState, type FormEvent } from 'react';
-import { AuthLayout } from '@/components/layouts/auth-layout';
+import { AuthLayout, authLinkClass } from '@/components/layouts/auth-layout';
 import { Button, FormError, Input } from '@/components/ui';
 import { PASSWORD_MIN_LENGTH } from '@/contracts';
 import { authApi } from '@/services/api';
@@ -56,7 +56,7 @@ export default function ResetPasswordPage() {
       title="Nouveau mot de passe"
       subtitle="Choisissez votre nouveau mot de passe. Ce lien ne sert qu’une fois."
       footer={
-        <Link href="/" className="font-medium text-ink underline underline-offset-4">
+        <Link href="/" className={authLinkClass}>
           Retour à la connexion
         </Link>
       }

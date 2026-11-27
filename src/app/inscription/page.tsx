@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState, type FormEvent } from 'react';
-import { AuthLayout } from '@/components/layouts/auth-layout';
+import { AuthLayout, authLinkClass } from '@/components/layouts/auth-layout';
 import { Button, FormError, Input } from '@/components/ui';
 import { fieldErrors, PASSWORD_MIN_LENGTH, registerSchema } from '@/contracts';
 import { authApi } from '@/services/api';
@@ -46,7 +46,7 @@ export default function RegisterPage() {
       footer={
         <>
           Déjà inscrit ?{' '}
-          <Link href="/" className="font-medium text-ink underline underline-offset-4">
+          <Link href="/" className={authLinkClass}>
             Se connecter
           </Link>
         </>
