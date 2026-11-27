@@ -27,7 +27,7 @@ import { guestRequestsKey, upsert, useGuestRequests } from './use-guest-requests
 import { useGuestSession } from './use-guest-session';
 import { useBranding } from './use-branding';
 import { EstablishmentHeader } from './establishment-header';
-import { LoyaltyCardView } from './loyalty-card';
+import { LoyaltyButton } from './loyalty-card';
 import { LocationExplanation, SettledScreen } from './session-screens';
 import { SessionMarker } from '@/components/ui/session-marker';
 
@@ -228,10 +228,13 @@ function GuestTable({ token, context, onSessionClosed, onSettled, onContextStale
       )}
     >
       <header>
-        {/* Spec 031, R5 et R6 : logo et nom de l'établissement, puis son mot d'accueil. */}
-        <EstablishmentHeader establishment={context.establishment} token={token} />
-        {/* Spec 043 : la carte de fidélité, si l'établissement en a une. */}
-        <LoyaltyCardView token={token} context={context} />
+        {/* Spec 031, R5 et R6 : logo et nom de l'établissement, puis son mot d'accueil.
+            Spec 043, R8 : la carte de fidélité derrière le cadeau, à droite du nom. */}
+        <EstablishmentHeader
+          establishment={context.establishment}
+          token={token}
+          action={<LoyaltyButton token={token} context={context} />}
+        />
         {hasMenu ? (
           // Repères discrets : l'en-tête de la carte (recherche, tuiles, cloche) prend le haut de l'écran (spec 005).
           <h1 className="flex items-center gap-2 text-[13px] text-ink-2">
