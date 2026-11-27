@@ -1,17 +1,18 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, Gift, Loader2 } from 'lucide-react';
+import { Check, Gift, Loader2, StampIcon } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Dialog } from '@/components/ui';
 import type { GuestContext, LoyaltyCard, LoyaltyGift } from '@/contracts';
 import { cn } from '@/lib/utils';
 import { guestApi } from '@/services/api/guest';
 import { errorMessage } from '@/services/http';
+import { formatMoney } from '@/utils/money';
 import { Fireworks } from './fireworks';
 import { haptic } from './fly-to-cart';
 import { ItemPhoto } from './guest-menu';
-import { giftToCelebrate, loyaltyNeedsAttention, loyaltyStatus } from './loyalty-logic';
+import { countsFrom, giftToCelebrate, loyaltyNeedsAttention, loyaltyStatus } from './loyalty-logic';
 import { SurpriseSheet } from './surprise-sheet';
 
 const storageKey = (establishmentId: string) => `tabilo.loyalty.${establishmentId}`;
@@ -100,6 +101,7 @@ function LoyaltySheetBody({ loyalty, context, canUse }: { loyalty: LoyaltyHook; 
       <>
         <SurpriseSheet
           card={data}
+          currency={context.establishment.currency}
           canUse={canUse}
           usingId={loyalty.use.isPending ? (loyalty.use.variables ?? null) : null}
           onReveal={(gift) => loyalty.reveal.mutateAsync(gift.id)}
@@ -152,10 +154,20 @@ export function SettledGift({ token, context }: { token: string; context: GuestC
   const fireworks = useCelebration(loyalty);
   const data = loyalty.card.data;
   const wrapped = data?.mode === 'surprise' ? (data.surprise?.gifts.filter((gift) => gift.state === 'wrapped').length ?? 0) : 0;
-  if (!data || wrapped === 0) return fireworks;
+  // Spec 046, R16 : la visite n'a pas fait avancer la carte, on le dit en image et en chiffres.
+  const noStamp = data && !data.visitStamped && data.minOrderMinor > 0 ? <NoStamp minOrder={formatMoney(data.minOrderMinor, context.establishment.currency)} /> : null;
+  if (!data || wrapped === 0) {
+    return (
+      <>
+        {fireworks}
+        {noStamp}
+      </>
+    );
+  }
   return (
     <>
       {fireworks}
+      {noStamp}
       <button
         type="button"
         onClick={() => {
@@ -178,6 +190,22 @@ export function SettledGift({ token, context }: { token: string; context: GuestC
         <LoyaltySheetBody loyalty={loyalty} context={context} canUse={false} />
       </Dialog>
     </>
+  );
+}
+
+/** Spec 046, R16 : un tampon barré et le minimum, en chiffres. */
+function NoStamp({ minOrder }: { minOrder: string }) {
+  return (
+    <p role="status" className="flex animate-pop-in items-center gap-3 rounded-2xl bg-sunken px-4 py-3 text-left">
+      <span className="relative grid size-10 shrink-0 place-items-center rounded-full bg-surface text-ink-3 ring-1 ring-line" aria-hidden>
+        <StampIcon className="size-5" />
+        <span className="absolute h-0.5 w-9 rotate-45 rounded-full bg-late" />
+      </span>
+      <span className="text-[14px] leading-tight">
+        <span className="block font-semibold text-ink">Pas de tampon</span>
+        <span className="block text-ink-2 tabular-nums">moins de {minOrder}</span>
+      </span>
+    </p>
   );
 }
 
@@ -223,6 +251,8 @@ function ClassicCard({ loyalty, context, data }: { loyalty: LoyaltyHook; context
         </span>
       </span>
       {reward && <p className="mt-4 text-[17px] font-semibold tracking-tight text-ink">{reward.name}</p>}
+      {/* Spec 046, R15 : ce qui fait avancer la carte. */}
+      <p className="mt-0.5 text-[12px] font-medium text-ink-3 tabular-nums">{countsFrom(data.minOrderMinor, (minor) => formatMoney(minor, context.establishment.currency))}</p>
       <p className="mt-1 text-[28px] font-bold tabular-nums tracking-tight text-ink" aria-hidden>
         {stamps}
         <span className="text-ink-3"> / {data.stampsRequired}</span>

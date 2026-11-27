@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
-  giftToCelebrate, loyaltyNeedsAttention, loyaltyStatus, sortGifts, unwrapProgress, UNWRAP_AT, waveNodes,
+  countsFrom, giftToCelebrate, loyaltyNeedsAttention, loyaltyStatus, remainingLabel, sortGifts, unwrapProgress, UNWRAP_AT, waveNodes,
 } from '@/components/pages/guest/loyalty-logic';
-import { chanceShare } from '@/components/pages/settings/loyalty-prizes-logic';
+import { chanceShare, programSentence } from '@/components/pages/settings/loyalty-prizes-logic';
 import { loyaltyCardSchema, type LoyaltyCard, type LoyaltyGift } from '@/contracts';
 
 /** Spec 046 — cadeaux surprises, côté téléphone. */
@@ -11,7 +11,8 @@ const gift = (extra: Partial<LoyaltyGift> = {}): LoyaltyGift => ({
   id: 'g1', state: 'wrapped', revealed: false, atStamp: 3, unlockedAt: '2026-11-27T10:00:00.000Z', expiresAt: '2026-12-27T10:00:00.000Z', celebrate: true, prize: null, ...extra,
 });
 const card = (gifts: LoyaltyGift[], stamps = 3): LoyaltyCard => ({
-  mode: 'surprise', stamps, stampsRequired: 10, minOrderMinor: 2000, rewardItemId: null, surprise: { giftsReceived: gifts.length, gifts }, redemption: null,
+  mode: 'surprise', stamps, stampsRequired: 10, minOrderMinor: 2000, rewardItemId: null,
+  surprise: { giftsReceived: gifts.length, gifts, nextAt: stamps + 2, remaining: 2 }, visitStamped: true, redemption: null,
 });
 
 describe('Spec 046 — cadeaux surprises', () => {
@@ -30,16 +31,33 @@ describe('Spec 046 — cadeaux surprises', () => {
     expect(giftToCelebrate(card([gift({ celebrate: false })]))).toBeNull();
   });
 
-  it('R8 — la vague : départ, ronds, boîte après la commande qui la débloque, « ? » au bout', () => {
-    const nodes = waveNodes(3, [gift({ atStamp: 2, id: 'a' })]);
-    expect(nodes.map((node) => node.kind)).toEqual(['start', 'stamp', 'stamp', 'gift', 'stamp', 'next']);
-    // Longue carte : seuls les derniers nœuds, sans « Départ ».
-    const long = waveNodes(20, [], 9);
-    expect(long).toHaveLength(10);
-    expect(long[0]).toEqual({ kind: 'stamp', index: 12 });
-    expect(long.at(-1)).toEqual({ kind: 'next' });
-    // Carte neuve : départ et « ? ».
+  it('CA-046-13 — la vague : ronds cochés, boîte débloquée, ronds restants puis le prochain cadeau à sa place', () => {
+    const nodes = waveNodes(3, [gift({ atStamp: 2, id: 'a' })], 6);
+    expect(nodes.map((node) => node.kind)).toEqual(['start', 'stamp', 'stamp', 'gift', 'stamp', 'todo', 'todo', 'next']);
+    expect(nodes.at(-1)).toMatchObject({ kind: 'next', index: 6 });
+    // Carte neuve, cadeau à la 3e commande : départ, deux ronds vides, la boîte.
+    expect(waveNodes(0, [], 3).map((node) => node.kind)).toEqual(['start', 'todo', 'todo', 'next']);
+    // Place inconnue (ancienne API) : la boîte « ? » juste après.
     expect(waveNodes(0, []).map((node) => node.kind)).toEqual(['start', 'next']);
+    expect(remainingLabel(2)).toBe('Encore 2 commandes');
+    expect(remainingLabel(1)).toBe('Encore 1 commande');
+  });
+
+  it('R8 — les points gardent leur place : une commande de plus ne retourne pas la vague', () => {
+    const before = waveNodes(8, [], 11, 5);
+    const after = waveNodes(9, [], 11, 5);
+    const at = (nodes: ReturnType<typeof waveNodes>, index: number) => nodes.find((node) => node.kind === 'stamp' && node.index === index)?.position;
+    expect(at(before, 8)).toBe(at(after, 8));
+    // Le rond vide de la 9e commande devient un rond coché à la même place.
+    expect(before.find((node) => node.kind === 'todo' && node.index === 9)?.position).toBe(at(after, 9));
+    // Longue carte : seules les 5 dernières commandes, sans « Départ ».
+    expect(after[0]).toMatchObject({ kind: 'stamp', index: 5 });
+  });
+
+  it('CA-046-15 — ce qui compte, en clair', () => {
+    const format = (minor: number) => `${minor} F`;
+    expect(countsFrom(2000, format)).toBe('Dès 2000 F par visite');
+    expect(countsFrom(0, format)).toBe('Chaque visite compte');
   });
 
   it('CA-046-06 — le cadeau s’ouvre au-delà de 70 % du ruban', () => {
@@ -65,5 +83,18 @@ describe('Spec 046 — panier du gérant', () => {
     expect(prizes.map((prize) => chanceShare(prize.weight, prizes))).toEqual([50, 40, 10]);
     expect(chanceShare(1, [{ weight: 1 }, { weight: 2 }])).toBe(33);
     expect(chanceShare(5, [])).toBe(0);
+  });
+});
+
+describe('Spec 046 — réglages lisibles', () => {
+  const format = (minor: number) => `${minor} F`;
+  it('CA-046-15 — le réglage en une phrase', () => {
+    expect(programSentence({ mode: 'surprise', surpriseMin: 2, surpriseMax: 5, stampsRequired: 10, minOrderMinor: 2000 }, format)).toBe('Un cadeau toutes les 2 à 5 visites d’au moins 2000 F');
+    expect(programSentence({ mode: 'surprise', surpriseMin: 3, surpriseMax: 3, stampsRequired: 10, minOrderMinor: 0 }, format)).toBe('Un cadeau toutes les 3 visites');
+    expect(programSentence({ mode: 'surprise', surpriseMin: 1, surpriseMax: 1, stampsRequired: 10, minOrderMinor: 0 }, format)).toBe('Un cadeau à chaque visite');
+    expect(programSentence({ mode: 'classic', surpriseMin: 2, surpriseMax: 5, stampsRequired: 10, minOrderMinor: 2000 }, format)).toBe('Un plat offert toutes les 10 visites d’au moins 2000 F');
+    // Saisie incomplète ou incohérente : pas de phrase.
+    expect(programSentence({ mode: 'surprise', surpriseMin: 5, surpriseMax: 2, stampsRequired: 10, minOrderMinor: 0 }, format)).toBeNull();
+    expect(programSentence({ mode: 'classic', surpriseMin: 2, surpriseMax: 5, stampsRequired: 10, minOrderMinor: null }, format)).toBeNull();
   });
 });

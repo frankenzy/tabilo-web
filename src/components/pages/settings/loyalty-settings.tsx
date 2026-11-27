@@ -10,8 +10,9 @@ import { estKey, useEstablishmentId } from '@/hooks/use-establishment';
 import { loyaltyApi, menuApi } from '@/services/api';
 import { errorMessage } from '@/services/http';
 import { toast } from '@/stores/toast.store';
-import { parseMoney, toMajorInput } from '@/utils/money';
+import { formatMoney, parseMoney, toMajorInput } from '@/utils/money';
 import { PrizeBasket } from './loyalty-prizes';
+import { programSentence } from './loyalty-prizes-logic';
 
 /**
  * Spec 043, P1 : nombre de tampons, montant minimum d'une visite, plat offert (mode Classique).
@@ -27,6 +28,8 @@ export function LoyaltySettings() {
   const menu = useQuery({ queryKey: estKey(establishmentId, 'menu'), queryFn: () => menuApi.overview(establishmentId), enabled: allowed });
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<'classic' | 'surprise' | null>(null);
+  // Spec 046, R17 : la saisie en cours, pour la phrase qui résume le réglage.
+  const [draft, setDraft] = useState<{ surpriseMin?: string; surpriseMax?: string; stampsRequired?: string; minOrder?: string }>({});
   const save = useMutation({
     mutationFn: (body: Parameters<typeof loyaltyApi.save>[1]) => loyaltyApi.save(establishmentId, body),
     onSuccess: (saved) => {
@@ -54,6 +57,16 @@ export function LoyaltySettings() {
   const current = program.data;
   const dishes = (menu.data ?? []).flatMap((category) => category.items.filter((item) => !item.isBundle));
   const activeMode = mode ?? current?.mode ?? 'classic';
+  const sentence = programSentence(
+    {
+      mode: activeMode,
+      surpriseMin: Number(draft.surpriseMin ?? current?.surpriseMin ?? 2),
+      surpriseMax: Number(draft.surpriseMax ?? current?.surpriseMax ?? 5),
+      stampsRequired: Number(draft.stampsRequired ?? current?.stampsRequired ?? 10),
+      minOrderMinor: draft.minOrder !== undefined ? parseMoney(draft.minOrder || '0', currency) : (current?.minOrderMinor ?? 0),
+    },
+    (minor) => formatMoney(minor, currency),
+  );
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -80,7 +93,15 @@ export function LoyaltySettings() {
 
   return (
     <div className="flex max-w-2xl flex-col gap-6">
-      <form onSubmit={submit} noValidate className="flex max-w-xl flex-col gap-4">
+      <form
+        onSubmit={submit}
+        onChange={(event) => {
+          const field = event.target as unknown as HTMLInputElement;
+          if (['surpriseMin', 'surpriseMax', 'stampsRequired', 'minOrder'].includes(field.name)) setDraft((previous) => ({ ...previous, [field.name]: field.value }));
+        }}
+        noValidate
+        className="flex max-w-xl flex-col gap-4"
+      >
         <div>
           <h2 className="flex items-center gap-2 text-[15px] font-semibold text-ink">
             <Gift className="size-4" aria-hidden />
@@ -97,6 +118,7 @@ export function LoyaltySettings() {
           value={activeMode}
           onChange={(value) => {
             setMode(value);
+            setDraft({});
             setError(null);
           }}
           tabs={[
@@ -125,6 +147,11 @@ export function LoyaltySettings() {
               ))}
             </Select>
           </div>
+        )}
+        {sentence && (
+          <p className="rounded-xl bg-brand-soft px-3 py-2 text-[14px] font-medium text-brand-strong tabular-nums" aria-live="polite">
+            {sentence}
+          </p>
         )}
         <Checkbox label="Carte active" name="isActive" defaultChecked={current?.isActive ?? true} />
         <FormError message={error} />

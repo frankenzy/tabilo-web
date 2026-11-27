@@ -5,7 +5,7 @@ import type { LoyaltyCard } from '@/contracts';
 /** Spec 043, R8 — la carte de fidélité derrière l'icône cadeau, à droite du nom. */
 
 const card = (extra: Partial<NonNullable<LoyaltyCard>> = {}): LoyaltyCard => ({
-  mode: 'classic', stamps: 3, stampsRequired: 10, minOrderMinor: 2000, rewardItemId: 'poulet', surprise: null, redemption: null, ...extra,
+  mode: 'classic', stamps: 3, stampsRequired: 10, minOrderMinor: 2000, rewardItemId: 'poulet', surprise: null, visitStamped: true, redemption: null, ...extra,
 });
 
 describe('Spec 043 — le cadeau à côté du nom', () => {
