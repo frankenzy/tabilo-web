@@ -13,8 +13,11 @@ export type GuestSessionState =
   | { phase: 'loading' }
   | { phase: 'ready'; token: string; context: GuestContext }
   | { phase: 'closed' }
-  /** Spec 027, R4 : toutes les commandes du client sont servies et réglées. */
-  | { phase: 'settled'; marker: number }
+  /**
+   * Spec 027, R4 : toutes les commandes du client sont servies et réglées.
+   * Spec 046, R7 : le jeton (réglé) et le contexte restent, pour lire la carte de fidélité et fêter un cadeau.
+   */
+  | { phase: 'settled'; marker: number; token: string | null; context: GuestContext | null }
   | { phase: 'error'; kind: 'invalid' | 'busy' | 'network' | 'suspended'; message: string };
 
 /**
@@ -79,7 +82,11 @@ export function useGuestSession(code: string) {
   /** Spec 027, R4 : la session est réglée — « Réglé · Merci », puis « Commander encore » rouvre une session. */
   const markSettled = useCallback(() => {
     storeToken(code, null);
-    setState((current) => ({ phase: 'settled', marker: current.phase === 'ready' ? current.context.marker : 0 }));
+    setState((current) =>
+      current.phase === 'ready'
+        ? { phase: 'settled', marker: current.context.marker, token: current.token, context: current.context }
+        : { phase: 'settled', marker: 0, token: null, context: null },
+    );
   }, [code]);
 
   /** Relit le contexte (carte, commande ouverte ou non) sans rouvrir de session. */

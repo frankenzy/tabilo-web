@@ -1,6 +1,6 @@
 import {
-  guestContextSchema, guestCreateResultSchema, guestRequestListSchema, guestRequestSchema, guestSessionSchema, loyaltyCardSchema,
-  type GuestContext, type GuestRequest, type LoyaltyCard,
+  guestContextSchema, guestCreateResultSchema, guestRequestListSchema, guestRequestSchema, guestSessionSchema, loyaltyCardSchema, loyaltyGiftSchema,
+  type GuestContext, type GuestRequest, type LoyaltyCard, type LoyaltyGift,
 } from '@/contracts';
 import { z } from 'zod';
 import { httpGuest } from '@/services/http';
@@ -23,6 +23,20 @@ export const guestApi = {
   async loyaltyRedeem(token: string): Promise<LoyaltyCard> {
     const response = await httpGuest.post('/guest/loyalty/redeem', {}, { headers: headers(token) });
     return loyaltyCardSchema.parse(response.data || null);
+  },
+  /** Spec 046, R9 : déballer un cadeau ; le lot est révélé. */
+  async giftReveal(token: string, giftId: string): Promise<LoyaltyGift> {
+    const response = await httpGuest.post(`/guest/loyalty/gifts/${giftId}/reveal`, {}, { headers: headers(token) });
+    return loyaltyGiftSchema.parse(response.data);
+  },
+  /** Spec 046, R7 : les feux d'artifice ont été joués. */
+  async giftCelebrated(token: string, giftId: string): Promise<void> {
+    await httpGuest.post(`/guest/loyalty/gifts/${giftId}/celebrated`, {}, { headers: headers(token) });
+  },
+  /** Spec 046, R10 : utiliser un cadeau (un par visite). */
+  async giftUse(token: string, giftId: string): Promise<LoyaltyGift> {
+    const response = await httpGuest.post(`/guest/loyalty/gifts/${giftId}/use`, {}, { headers: headers(token) });
+    return loyaltyGiftSchema.parse(response.data);
   },
   async openSession(code: string) {
     const response = await httpGuest.post('/guest/sessions', { code });

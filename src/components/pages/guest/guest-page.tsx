@@ -27,7 +27,7 @@ import { guestRequestsKey, upsert, useGuestRequests } from './use-guest-requests
 import { useGuestSession } from './use-guest-session';
 import { useBranding } from './use-branding';
 import { EstablishmentHeader } from './establishment-header';
-import { LoyaltyButton } from './loyalty-card';
+import { LoyaltyButton, SettledGift } from './loyalty-card';
 import { LocationExplanation, SettledScreen } from './session-screens';
 import { SessionMarker } from '@/components/ui/session-marker';
 
@@ -58,7 +58,15 @@ export function GuestPage({ code }: { code: string }) {
       </Screen>
     );
   }
-  if (state.phase === 'settled') return <SettledScreen marker={state.marker} onOrderAgain={retry} />;
+  if (state.phase === 'settled') {
+    return (
+      <SettledScreen
+        marker={state.marker}
+        onOrderAgain={retry}
+        gift={state.token && state.context ? <SettledGift token={state.token} context={state.context} /> : null}
+      />
+    );
+  }
   // Spec 035, R6 : compte suspendu — une horloge, compris sans lire ; on peut réessayer plus tard.
   if (state.phase === 'error' && state.kind === 'suspended') {
     return (

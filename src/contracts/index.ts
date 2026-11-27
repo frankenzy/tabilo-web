@@ -500,30 +500,68 @@ export interface SalesFigures {
   discountMinor?: number;
 }
 
-/** Spec 043 : carte de fidélité du client (téléphone). */
+/** Spec 046, R12 : états d'un cadeau. */
+export const giftStateSchema = z.enum(['wrapped', 'won', 'requested', 'used', 'expired']);
+export type GiftState = z.infer<typeof giftStateSchema>;
+
+/** Spec 046 : un cadeau du client ; le lot n'est connu qu'une fois le cadeau déballé (R9). */
+export const loyaltyGiftSchema = z.object({
+  id: z.string(),
+  state: giftStateSchema,
+  revealed: z.boolean(),
+  atStamp: z.number().int(),
+  unlockedAt: z.string(),
+  expiresAt: z.string(),
+  celebrate: z.boolean(),
+  prize: z.object({ name: z.string(), imageId: z.string().nullable(), kind: z.enum(['menu_item', 'free']) }).nullable(),
+});
+export type LoyaltyGift = z.infer<typeof loyaltyGiftSchema>;
+
+/** Spec 043 : carte de fidélité du client (téléphone) ; spec 046 : mode Surprise. */
 export const loyaltyCardSchema = z
   .object({
     token: z.string().optional(),
+    mode: z.enum(['classic', 'surprise']).default('classic'),
     stamps: z.number().int(),
     stampsRequired: z.number().int(),
     minOrderMinor: z.number().int(),
-    rewardItemId: z.string(),
+    rewardItemId: z.string().nullable(),
+    surprise: z.object({ giftsReceived: z.number().int(), gifts: z.array(loyaltyGiftSchema) }).nullable().default(null),
     redemption: z.object({ id: z.string(), validated: z.boolean() }).nullable(),
   })
   .nullable();
 export type LoyaltyCard = z.infer<typeof loyaltyCardSchema>;
 
-/** Spec 043, R1 : réglage de la carte de fidélité. */
+/** Spec 043, R1 et spec 046, R1 : réglage de la carte de fidélité. */
 export interface LoyaltyProgram {
-  stampsRequired: number;
+  mode?: 'classic' | 'surprise';
+  stampsRequired?: number;
   minOrderMinor: number;
-  rewardItemId: string;
+  rewardItemId?: string | null;
+  surpriseMin?: number;
+  surpriseMax?: number;
+  giftValidityDays?: number;
   isActive: boolean;
 }
 
-/** Spec 043, R4 : récompense à valider. */
+/** Spec 046, R2 : un lot du panier de cadeaux. */
+export interface LoyaltyPrize {
+  id: string;
+  kind: 'menu_item' | 'free';
+  menuItemId: string | null;
+  name: string;
+  imageId: string | null;
+  weight: number;
+  monthlyStock: number | null;
+  drawnThisMonth: number;
+  position: number;
+}
+
+/** Spec 043, R4 : récompense à valider ; spec 046, R10 : cadeau demandé. */
 export interface LoyaltyRedemption {
   id: string;
+  kind?: 'reward' | 'gift';
+  prizeKind?: 'menu_item' | 'free';
   tableId: string;
   sessionId: string;
   reward: { id: string; name: string; imageId: string | null } | null;
