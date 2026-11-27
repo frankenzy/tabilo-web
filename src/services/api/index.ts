@@ -1,6 +1,6 @@
 import type {
-  AppNotification, Area, AuditEntry, EscalationRule, Establishment, LiveOverview, Me, MenuCategory, MenuItem, Page, QrCode, SalesOverview, SalesPeriod, TableOccupation, TablesOverview, Timeline, TimelineQuery, TodayOverview,
-  Report, RequestType, Role, ServiceRequest, ServiceRequestDetail, StaffMember, Table, UnpaidAlert, UnpaidAlertResolution, WrittenOff,
+  AppNotification, Area, AuditEntry, LoyaltyProgram, LoyaltyRedemption, EscalationRule, Establishment, LiveOverview, Me, MenuCategory, MenuItem, Page, QrCode, SalesOverview, SalesPeriod, TableOccupation, TablesOverview, Timeline, TimelineQuery, TodayOverview,
+  OptionSale, Receipt, Report, RequestType, SalesSummary, Role, ServiceRequest, ServiceRequestDetail, StaffMember, SubscriptionOverview, Table, UnpaidAlert, UnpaidAlertResolution, WrittenOff,
 } from '@/contracts';
 import { API_BASE, http, httpAuth } from '@/services/http';
 import { setAccessToken } from '@/services/auth/auth-token';
@@ -15,7 +15,7 @@ export const authApi = {
   async login(body: { email: string; password: string }): Promise<void> {
     setAccessToken((await data(httpAuth.post<Tokens>('/auth/login', body))).accessToken);
   },
-  async register(body: Record<string, string>): Promise<void> {
+  async register(body: Record<string, string | boolean>): Promise<void> {
     setAccessToken((await data(httpAuth.post<Tokens>('/auth/register', body))).accessToken);
   },
   async logout(): Promise<void> {
@@ -30,6 +30,8 @@ export const authApi = {
     const response = await http.post<Tokens>('/auth/change-password', body, { withCredentials: true });
     setAccessToken(response.data.accessToken);
   },
+  /** Spec 036, R5 : nouveau mot de passe avec le lien donné par TABILO. */
+  resetPassword: (body: { token: string; password: string }) => httpAuth.post('/auth/reset-password', body),
 };
 
 export interface RequestFilters {
@@ -63,6 +65,13 @@ export const requestsApi = {
     data(http.post<{ settled: number; amountMinor: number }>(`${est(e)}/requests/settle-session`, { sessionId })),
   act: (e: string, id: string, action: RequestAction, body: object = {}) =>
     data(http.post<ServiceRequest>(`${est(e)}/requests/${id}/${action}`, body)),
+  /** Spec 033 : offrir une ligne, ou retirer le cadeau. */
+  offerLine: (e: string, id: string, itemId: string, offered: boolean) =>
+    data(
+      offered
+        ? http.post<ServiceRequest>(`${est(e)}/requests/${id}/items/${itemId}/offer`, {})
+        : http.delete<ServiceRequest>(`${est(e)}/requests/${id}/items/${itemId}/offer`),
+    ),
 };
 
 export type RequestAction =
@@ -87,6 +96,8 @@ export const floorApi = {
     data(http.patch<Table>(`${est(e)}/tables/${id}`, body)),
   archiveTable: (e: string, id: string) => data(http.delete(`${est(e)}/tables/${id}`)),
   qrCodes: (e: string) => data(http.get<QrCode[]>(`${est(e)}/qr-codes`)),
+  /** Spec 042, R5 : marquer imprimés les QR des tables. */
+  markQrPrinted: (e: string, tableIds: string[]) => data(http.post<{ printed: number }>(`${est(e)}/qr-codes/printed`, { tableIds })),
   regenerateQr: (e: string, tableId: string) => data(http.post<QrCode>(`${est(e)}/tables/${tableId}/qr/regenerate`)),
   closeSessions: (e: string, tableId: string) =>
     data(http.post<{ closed: number }>(`${est(e)}/tables/${tableId}/sessions/close`)),
@@ -131,6 +142,9 @@ export const escalationApi = {
 export const establishmentApi = {
   get: (e: string) => data(http.get<Establishment>(est(e))),
   update: (e: string, body: Partial<Omit<Establishment, 'id'>>) => data(http.patch<Establishment>(est(e), body)),
+  /** Spec 031 : logo de l'établissement. */
+  setLogo: (e: string, body: { mime: string; data: string }) => data(http.put<Establishment>(`${est(e)}/logo`, body)),
+  removeLogo: (e: string) => data(http.delete<Establishment>(`${est(e)}/logo`)),
 };
 
 export interface MenuItemInput {
@@ -139,6 +153,16 @@ export interface MenuItemInput {
   description: string | null;
   priceMinor: number;
   isAvailable: boolean;
+  /** Spec 032 : rubriques d'une formule. */
+  groups?: { name: string; choiceIds: string[] }[];
+  /** Spec 033 : prix promotionnel, null pour retirer la promotion. */
+  promoPriceMinor?: number | null;
+  /** Spec 039. */
+  promoSlots?: { days: number[]; start: string; end: string }[] | null;
+  promoName?: string | null;
+  availabilitySlots?: { days: number[]; start: string; end: string }[] | null;
+  /** Spec 038 : remplace les groupes d'options. */
+  optionGroups?: { name: string; multiple: boolean; required: boolean; options: { id?: string; name: string; priceMinor: number; isAvailable: boolean }[] }[];
 }
 
 export const menuApi = {
@@ -162,6 +186,12 @@ export const menuApi = {
 };
 
 /** Photo d'un article : publique, servie par son identifiant immuable (cache long). */
+/** Specs 034 et 037 : page « Abonnement » du propriétaire. */
+export const subscriptionApi = {
+  overview: (e: string) => data(http.get<SubscriptionOverview>(`${est(e)}/subscription`)),
+  receipt: (e: string, id: string) => data(http.get<Receipt>(`${est(e)}/subscription/receipts/${id}`)),
+};
+
 export const menuImageUrl = (imageId: string) => `${API_BASE}/guest/menu-images/${imageId}`;
 
 export const analyticsApi = {
@@ -174,6 +204,27 @@ export const analyticsApi = {
     data(http.get<Timeline>(`${est(e)}/analytics/timeline`, { params: query })),
   report: (e: string, params: { from: string; to: string; areaId?: string; assigneeId?: string }) =>
     data(http.get<Report>(`${est(e)}/analytics/report`, { params: clean(params) })),
+  /** Spec 040 : CSV des commandes de la période (dates AAAA-MM-JJ, fuseau de l'établissement). */
+  exportCsv: (e: string, from: string, to: string) =>
+    http.get<Blob>(`${est(e)}/analytics/export.csv`, { params: { from, to }, responseType: 'blob' }).then((response) => response.data),
+  /** Spec 040 : récapitulatif de la période. */
+  summary: (e: string, from: string, to: string) => data(http.get<SalesSummary>(`${est(e)}/analytics/summary`, { params: { from, to } })),
+  /** Spec 038, R8 bis : ventes par option. */
+  options: (e: string, from: string, to: string) => data(http.get<OptionSale[]>(`${est(e)}/analytics/options`, { params: { from, to } })),
+};
+
+/** Spec 043 : carte de fidélité de l'établissement et récompenses à valider. */
+export const loyaltyApi = {
+  get: (e: string) => data(http.get<LoyaltyProgram | null>(`${est(e)}/loyalty`)),
+  save: (e: string, body: LoyaltyProgram) => data(http.put<LoyaltyProgram>(`${est(e)}/loyalty`, body)),
+  pending: (e: string) => data(http.get<LoyaltyRedemption[]>(`${est(e)}/loyalty/redemptions`)),
+  validate: (e: string, id: string) => data(http.post(`${est(e)}/loyalty/redemptions/${id}/validate`, {})),
+};
+
+/** Spec 041, R3 : toutes les données du compte en ZIP (propriétaire). */
+export const privacyApi = {
+  exportData: (e: string) => http.get<Blob>(`${est(e)}/subscription/export`, { responseType: 'blob' }).then((response) => response.data),
+  acceptTerms: () => http.post('/auth/accept-terms', {}),
 };
 
 /** Spec 027, R9 : alertes de départ sans payer. */

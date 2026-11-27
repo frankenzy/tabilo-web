@@ -1,8 +1,9 @@
 'use client';
 
+import { useFeature } from '@/hooks/use-account';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, ChevronDown, Clock, Coffee, Footprints, HandCoins, MessageCircle, Pencil, Phone, Power, QrCode, Receipt, Smartphone, Timer, X } from 'lucide-react';
+import { Check, ChevronDown, Clock, Coffee, Footprints, Gift, HandCoins, MessageCircle, Pencil, Phone, Power, QrCode, Receipt, Smartphone, Timer, X } from 'lucide-react';
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { Button, ConfirmDialog } from '@/components/ui';
 import { SessionMarker } from '@/components/ui/session-marker';
@@ -15,9 +16,9 @@ import { useNow } from '@/hooks/use-now';
 import { cn } from '@/lib/utils';
 import { PrecisionBanner, PrecisionFlags } from './precisions';
 import { clientSlide, freeGesture, tableSheet, type ServerGroup } from './table-bill';
-import { floorApi, menuImageUrl, requestsApi } from '@/services/api';
+import { floorApi, loyaltyApi, menuImageUrl, requestsApi } from '@/services/api';
 import { errorMessage, toHttpError } from '@/services/http';
-import { useAuthStore } from '@/stores/auth.store';
+import { useAuthStore, useMembership } from '@/stores/auth.store';
 import { toast } from '@/stores/toast.store';
 import { formatMoney } from '@/utils/money';
 import { formatClock, formatTime, secondsSince } from '@/utils/time';
@@ -331,6 +332,8 @@ export function TableRequestsDialog({ table, areaName, status, requests, canClos
             )}
 
             {/* R4 : commandes de l'occupation. */}
+            {/* Spec 043, R4 : récompense de fidélité demandée à cette table, à valider. */}
+            <LoyaltyRewards tableId={table.id} onValidated={() => void refetch()} />
             {occupied && data && data.orders.length > 0 && (
               <section aria-labelledby="table-orders-title" className="stagger mt-7 animate-item-in" style={next()}>
                 <div className="flex items-baseline justify-between gap-2">
@@ -341,7 +344,16 @@ export function TableRequestsDialog({ table, areaName, status, requests, canClos
                 </div>
                 <ul className="mt-2 flex flex-col">
                   {data.orders.map((order) => (
-                    <OrderRow key={order.id} order={order} currency={currency} marker={order.sessionId ? markers.get(order.sessionId) : undefined} />
+                    <OrderRow
+                      key={order.id}
+                      order={order}
+                      currency={currency}
+                      marker={order.sessionId ? markers.get(order.sessionId) : undefined}
+                      onChanged={() => {
+                        void refetch();
+                        void queryClient.invalidateQueries({ queryKey: estKey(establishmentId, 'requests') });
+                      }}
+                    />
                   ))}
                 </ul>
               </section>
@@ -757,9 +769,64 @@ function ClientRow({
   );
 }
 
+/** Spec 043, R4 : la récompense devient une commande offerte, validée d'un toucher par un serveur. */
+function LoyaltyRewards({ tableId, onValidated }: { tableId: string; onValidated: () => void }) {
+  const establishmentId = useEstablishmentId();
+  const queryClient = useQueryClient();
+  const permissions = useMembership()?.permissions ?? [];
+  const key = estKey(establishmentId, 'loyalty', 'pending');
+  const pending = useQuery({ queryKey: key, queryFn: () => loyaltyApi.pending(establishmentId), refetchInterval: 15_000, enabled: permissions.includes('requests.read') });
+  const validate = useMutation({
+    mutationFn: (id: string) => loyaltyApi.validate(establishmentId, id),
+    onSuccess: () => {
+      toast.success('Récompense offerte');
+      void queryClient.invalidateQueries({ queryKey: key });
+      void queryClient.invalidateQueries({ queryKey: estKey(establishmentId, 'requests') });
+      onValidated();
+    },
+    onError: (error) => toast.error('Validation impossible', errorMessage(error)),
+  });
+  const rewards = (pending.data ?? []).filter((reward) => reward.tableId === tableId);
+  if (rewards.length === 0) return null;
+  return (
+    <ul className="mt-5 flex flex-col gap-2">
+      {rewards.map((reward) => (
+        <li key={reward.id} className="flex items-center gap-3 rounded-2xl bg-brand-soft p-3 ring-1 ring-brand">
+          <span className="grid size-10 shrink-0 place-items-center rounded-full bg-brand text-white" aria-hidden>
+            <Gift className="size-5" />
+          </span>
+          <span className="min-w-0 flex-1 text-[14px]">
+            <span className="block font-semibold text-ink">Carte de fidélité pleine</span>
+            <span className="block truncate text-ink-2">{reward.reward?.name ?? 'Récompense'} offert</span>
+          </span>
+          {permissions.includes('requests.handle') && (
+            <Button size="sm" loading={validate.isPending} onClick={() => validate.mutate(reward.id)}>
+              Valider
+            </Button>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 /** R4 : une commande — vignettes, plats et articles, heure, état, montant ; le détail se déplie. */
-function OrderRow({ order, currency, marker }: { order: OccupationOrder; currency: string; marker?: number }) {
+function OrderRow({ order, currency, marker, onChanged }: { order: OccupationOrder; currency: string; marker?: number; onChanged: () => void }) {
   const [open, setOpen] = useState(false);
+  const establishmentId = useEstablishmentId();
+  // Spec 033, R4 et R6 : offrir une ligne d'une commande non réglée, avec la permission « orders.offer ».
+  // Spec 034, R4 : « Offert » fait partie des promotions de la formule.
+  const promotions = useFeature('promotions');
+  const permissions = useMembership()?.permissions ?? [];
+  const canOffer = promotions && permissions.includes('orders.offer') && !order.paidAt && !order.writtenOffAt && order.status !== 'cancelled';
+  const offer = useMutation({
+    mutationFn: ({ itemId, offered }: { itemId: string; offered: boolean }) => requestsApi.offerLine(establishmentId, order.id, itemId, offered),
+    onSuccess: (_, { offered }) => {
+      toast.success(offered ? 'Ligne offerte' : 'Cadeau retiré');
+      onChanged();
+    },
+    onError: (error) => toast.error('Action impossible', errorMessage(error)),
+  });
   const { dishes, articles } = orderSummary(order.items);
   const state = orderStateLabel(order.status);
   const cancelled = state.tone === 'cancelled';
@@ -793,6 +860,8 @@ function OrderRow({ order, currency, marker }: { order: OccupationOrder; currenc
             <span className="tabular text-[12px] text-ink-3">{formatTime(order.createdAt)}</span>
             <StatePill state={state} />
             {/* Spec 026, R4 : une commande servie est réglée ou à régler ; spec 027, R9 : ou partie sans payer. */}
+            {/* Spec 030 : réglée avant d'être servie (« Régler quand on veut », « Caisse d'abord »). */}
+            {order.status !== 'resolved' && order.paidAt && <span className="rounded-full bg-done-soft px-1.5 py-px text-[11px] font-semibold text-done">Réglée</span>}
             {order.status === 'resolved' && (
               <span
                 className={cn(
@@ -814,15 +883,46 @@ function OrderRow({ order, currency, marker }: { order: OccupationOrder; currenc
         <div className="min-h-0 overflow-hidden">
           <PrecisionBanner note={order.note} className="mb-2" />
           <ul className="mb-3 flex flex-col rounded-xl bg-sunken/60 px-3">
-            {order.items.map((item) => (
-              <li key={item.menuItemId} className="flex h-11 items-center gap-3 border-b border-line last:border-0">
+            {order.items.map((item, index) => (
+              <li key={`${item.menuItemId}-${index}`} className="flex min-h-11 items-center gap-3 border-b border-line py-1 last:border-0">
                 <Thumb imageId={item.imageId} name={item.name} size="sm" />
-                <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{item.name}</span>
-                <span className="tabular shrink-0 text-[13px]">
-                  <span className="font-semibold text-ink">{item.quantity}</span>
-                  <span className="px-1 text-ink-3">×</span>
-                  <span className="text-ink-2">{formatMoney(item.unitPriceMinor, currency)}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[13px] text-ink">{item.name}</span>
+                  {/* Spec 032 : les choix de la formule. */}
+                  {((item.choices?.length ?? 0) > 0 || (item.options?.length ?? 0) > 0) && (
+                    <span className="block truncate text-[12px] text-ink-2">{[...(item.choices ?? []), ...(item.options ?? [])].map((part) => part.name).join(' · ')}</span>
+                  )}
                 </span>
+                {item.offeredAt ? (
+                  <span className="inline-flex shrink-0 items-center gap-1 text-[13px]">
+                    <s className="tabular text-ink-3">{formatMoney(item.unitPriceMinor * item.quantity, currency)}</s>
+                    <span className="inline-flex items-center gap-1 rounded-full bg-done-soft px-2 py-0.5 font-semibold text-done">
+                      <Gift className="size-3.5" aria-hidden />
+                      Offert
+                    </span>
+                  </span>
+                ) : (
+                  <span className="tabular shrink-0 text-[13px]">
+                    <span className="font-semibold text-ink">{item.quantity}</span>
+                    <span className="px-1 text-ink-3">×</span>
+                    <span className="text-ink-2">{formatMoney(item.unitPriceMinor, currency)}</span>
+                  </span>
+                )}
+                {canOffer && item.id && (
+                  <button
+                    type="button"
+                    disabled={offer.isPending}
+                    onClick={() => offer.mutate({ itemId: item.id!, offered: !item.offeredAt })}
+                    aria-label={item.offeredAt ? `Retirer le cadeau sur ${item.name}` : `Offrir ${item.name}`}
+                    title={item.offeredAt ? 'Retirer le cadeau' : 'Offrir'}
+                    className={cn(
+                      'grid size-8 shrink-0 place-items-center rounded-full ring-1 transition-colors disabled:opacity-40',
+                      item.offeredAt ? 'bg-done text-white ring-done' : 'text-ink-2 ring-line hover:text-done',
+                    )}
+                  >
+                    <Gift className="size-4" aria-hidden />
+                  </button>
+                )}
               </li>
             ))}
           </ul>

@@ -15,7 +15,7 @@ export type GuestSessionState =
   | { phase: 'closed' }
   /** Spec 027, R4 : toutes les commandes du client sont servies et réglées. */
   | { phase: 'settled'; marker: number }
-  | { phase: 'error'; kind: 'invalid' | 'busy' | 'network'; message: string };
+  | { phase: 'error'; kind: 'invalid' | 'busy' | 'network' | 'suspended'; message: string };
 
 /**
  * Ouvre (ou retrouve) la session de table à partir du code du QR.
@@ -50,7 +50,9 @@ export function useGuestSession(code: string) {
       setState({ phase: 'ready', token, context });
     } catch (error) {
       const http = toHttpError(error);
-      const kind = http.status === 404 || http.status === 400 ? 'invalid' : http.status === 429 ? 'busy' : 'network';
+      // Spec 035, R6 : compte suspendu, écran d'indisponibilité.
+      const kind =
+        http.code === 'ACCOUNT_SUSPENDED' ? 'suspended' : http.status === 404 || http.status === 400 ? 'invalid' : http.status === 429 ? 'busy' : 'network';
       const message =
         kind === 'invalid'
           ? 'Ce QR code n’est plus valide. Demandez de l’aide au personnel.'
@@ -94,8 +96,8 @@ export function useGuestSession(code: string) {
   return { state, retry, markClosed, markSettled, refresh };
 }
 
-function splitSession({ token, establishment, table, requestTypes, menu, orderingEnabled, pairingsEnabled, marker, zone }: GuestSession) {
-  return { token, context: { establishment, table, requestTypes, menu, orderingEnabled, pairingsEnabled, marker, zone } satisfies GuestContext };
+function splitSession({ token, establishment, table, requestTypes, menu, orderingEnabled, pairingsEnabled, marker, zone, serviceMode }: GuestSession) {
+  return { token, context: { establishment, table, requestTypes, menu, orderingEnabled, pairingsEnabled, marker, zone, serviceMode } satisfies GuestContext };
 }
 
 /**

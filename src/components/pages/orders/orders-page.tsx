@@ -49,7 +49,7 @@ const PILL_STYLE: Record<StepTone, string> = {
 
 const DOT_STYLE: Record<StepTone, string> = { red: 'bg-late', orange: 'bg-brand', violet: 'bg-ready', green: 'bg-done', ink: 'bg-white' };
 
-const STATUS_PILL_SHORT: Record<OrderColumn, string> = { todo: 'À préparer', preparing: 'En cours', ready: 'Prête', unpaid: 'À régler' };
+const STATUS_PILL_SHORT: Record<OrderColumn, string> = { collect: 'À encaisser', todo: 'À préparer', preparing: 'En cours', ready: 'Prête', unpaid: 'À régler' };
 
 /** Boutons à toucher (spec 025) : « prête » et « servie » se glissent et n'ont pas d'icône. */
 const STEP_ICON: Partial<Record<OrderStep['label'], LucideIcon>> = {
@@ -79,7 +79,7 @@ export function OrdersPage() {
   const areas = floor.data ?? [];
 
   const separateKitchen = establishment.data?.separateKitchen ?? false;
-  const columns = columnsFor(separateKitchen);
+  const columns = columnsFor(separateKitchen, establishment.data?.serviceMode);
   // Compteurs du filtre « État » : calculés avec les autres filtres, mais sans lui.
   const groups = useMemo(
     () => groupOrders(filterOrders([...(active.data?.items ?? []), ...(unpaid.data?.items ?? [])], filters, viewer.id), separateKitchen),
@@ -270,12 +270,20 @@ function OrderCard({ request, now, viewer, images, step, busy, onStep, onAcknowl
 
       {/* Une ligne par plat (R4) : image, nom, quantité à droite. */}
       <ul className="flex flex-1 flex-col px-2 py-1 sm:px-3">
-        {request.items.map((line) => {
+        {request.items.map((line, index) => {
           const image = line.menuItemId ? images.get(line.menuItemId) : undefined;
           return (
-            <li key={`${line.menuItemId ?? ''}-${line.name}`} className="flex items-center gap-2 py-1.5 sm:gap-3 sm:py-2">
+            <li key={`${line.menuItemId ?? ''}-${index}`} className="flex items-center gap-2 py-1.5 sm:gap-3 sm:py-2">
               <CategoryImage icon={image?.icon ?? 'utensils'} imageId={image?.imageId ?? null} name="" className="size-9 shrink-0 rounded-lg sm:size-11" />
-              <span className="line-clamp-2 min-w-0 flex-1 text-[13px] leading-tight font-medium text-ink sm:text-[15px]">{line.name}</span>
+              <span className="min-w-0 flex-1">
+                <span className="line-clamp-2 text-[13px] leading-tight font-medium text-ink sm:text-[15px]">{line.name}</span>
+                {/* Spec 032, CA-032-06 : les choix de la formule, sous son nom. */}
+                {((line.choices?.length ?? 0) > 0 || (line.options?.length ?? 0) > 0) && (
+                  <span className="mt-0.5 block text-[12px] leading-tight font-semibold text-brand-strong sm:text-[13px]">
+                    {[...(line.choices ?? []), ...(line.options ?? [])].map((part) => part.name).join(' · ')}
+                  </span>
+                )}
+              </span>
               <span className="tabular shrink-0 rounded-md bg-surface px-1.5 py-0.5 text-[13px] font-bold text-ink ring-1 ring-line sm:px-2 sm:py-1 sm:text-[15px]">×{line.quantity}</span>
             </li>
           );
@@ -381,13 +389,18 @@ function ServedToday({
             {request.paidAt ? 'Réglée' : 'À régler'}
           </span>
           <ul className="mt-2 flex flex-col gap-1.5">
-            {request.items.map((line) => {
+            {request.items.map((line, index) => {
               const image = line.menuItemId ? images.get(line.menuItemId) : undefined;
               return (
-                <li key={`${line.menuItemId ?? ''}-${line.name}`} className="flex items-center gap-2 text-sm text-ink">
+                <li key={`${line.menuItemId ?? ''}-${index}`} className="flex items-center gap-2 text-sm text-ink">
                   <CategoryImage icon={image?.icon ?? 'utensils'} imageId={image?.imageId ?? null} name="" className="size-7 shrink-0 rounded-md" />
                   <span className="tabular font-semibold">×{line.quantity}</span>
-                  <span className="truncate">{line.name}</span>
+                  <span className="truncate">
+                    {line.name}
+                    {((line.choices?.length ?? 0) > 0 || (line.options?.length ?? 0) > 0) && (
+                      <span className="text-ink-2"> ({[...(line.choices ?? []), ...(line.options ?? [])].map((part) => part.name).join(' · ')})</span>
+                    )}
+                  </span>
                 </li>
               );
             })}

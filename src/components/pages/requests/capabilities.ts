@@ -75,7 +75,8 @@ export function capabilitiesOf(request: ServiceRequest, viewer: Viewer, separate
     assign: supervise && ['pending', 'assigned', 'in_progress'].includes(request.status),
     transfer: request.status === 'in_progress' && handle && mine && !supervise,
     release: request.status === 'assigned' && own,
-    cancel: viewer.can('requests.cancel') && ['pending', 'accepted'].includes(request.status),
+    // Spec 030, R5 : une commande réglée ne s'annule plus ; à encaisser, elle s'annule encore.
+    cancel: viewer.can('requests.cancel') && ['awaiting_payment', 'pending', 'accepted'].includes(request.status) && !request.paidAt,
     acknowledge: viewer.can('requests.supervise') && request.escalationStatus === 'escalated',
   };
 }

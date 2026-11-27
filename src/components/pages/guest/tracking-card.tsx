@@ -1,6 +1,6 @@
 'use client';
 
-import { Check, ChevronDown, Clock, Receipt, RotateCcw, X } from 'lucide-react';
+import { Banknote, Check, ChevronDown, Clock, Receipt, RotateCcw, X } from 'lucide-react';
 import { useEffect, useId, useRef, useState, type CSSProperties } from 'react';
 import { SlideToConfirm } from '@/components/ui/slide-to-confirm';
 import { requestIcon } from '@/constants/requests';
@@ -10,8 +10,8 @@ import { formatMoney } from '@/utils/money';
 import { formatTime } from '@/utils/time';
 import { haptic, reducedMotion } from './fly-to-cart';
 import { GuestOrderLines, ItemPhoto } from './guest-menu';
-import { CancelOrderButton, OrderTracker } from './order-flow';
-import { LAST_STEP, reorderLines, SERVED_SPOTLIGHT_MS, stepOf, trackingSteps } from './order-logic';
+import { CancelOrderButton, OrderTracker, PayAtCounter } from './order-flow';
+import { awaitingPayment, LAST_STEP, reorderLines, SERVED_SPOTLIGHT_MS, stepOf, trackingSteps } from './order-logic';
 import type { Bill } from './use-bill';
 
 /** Spec 017, R4 : durée du dépliage automatique quand une étape est franchie. */
@@ -142,8 +142,10 @@ function TrackingCard({ request, token, currency, menu, spotlightAt, onDismiss, 
   // Spec 018 : servie, dans sa minute « Bon appétit ».
   const served = step === LAST_STEP && spotlightAt !== undefined;
   const canReorder = served && order && onReorder !== undefined && reorderLines(request, menu).length > 0;
+  // Spec 030, R6 : à payer à la caisse avant d'être préparée ; la carte s'ouvre pour montrer quoi faire.
+  const toPay = awaitingPayment(request);
   const panelId = useId();
-  const [open, setOpen] = useState(served);
+  const [open, setOpen] = useState(served || toPay);
   const [leaving, setLeaving] = useState(false);
   const [added, setAdded] = useState(false);
   // Ouverte par le client : le dépliage automatique ne la referme pas (spec 017, R4).
@@ -214,7 +216,10 @@ function TrackingCard({ request, token, currency, menu, spotlightAt, onDismiss, 
       )}
     >
       <div className="min-h-0 overflow-hidden">
-        <article aria-label={`${request.type.label}, ${steps[step].label}`} className="relative animate-rise overflow-hidden rounded-2xl bg-ink text-white">
+        <article
+          aria-label={`${request.type.label}, ${toPay ? 'Payez à la caisse' : steps[step].label}`}
+          className={cn('relative animate-rise overflow-hidden rounded-2xl text-white transition-colors duration-500', toPay ? 'bg-pay' : 'bg-ink')}
+        >
           <button
             type="button"
             onClick={toggle}
@@ -226,7 +231,8 @@ function TrackingCard({ request, token, currency, menu, spotlightAt, onDismiss, 
             <div className="min-w-0 flex-1">
               {/* Ligne 1 : l'étape, le total. Ligne 2 : frise miniature, qui s'en occupe, l'heure. */}
               <div className="flex items-center gap-2">
-                <span className="min-w-0 flex-1 truncate text-[15px] font-semibold">{steps[step].label}</span>
+                {toPay && <Banknote className="size-[18px] shrink-0" aria-hidden />}
+                <span className="min-w-0 flex-1 truncate text-[15px] font-semibold">{toPay ? 'Payez à la caisse' : steps[step].label}</span>
                 {order && request.totalMinor !== null && (
                   <span className="tabular shrink-0 text-[15px] font-semibold tracking-tight">{formatMoney(request.totalMinor, currency)}</span>
                 )}
@@ -235,7 +241,7 @@ function TrackingCard({ request, token, currency, menu, spotlightAt, onDismiss, 
               <div className="mt-1.5 flex items-center gap-2">
                 <MiniSteps step={step} />
                 <p role="status" className="min-w-0 flex-1 truncate text-[12px] text-white/60">
-                  {subtitle(request, step)}
+                  {toPay ? 'Puis on prépare' : subtitle(request, step)}
                 </p>
                 <span className="tabular shrink-0 text-[11px] text-white/45">{formatTime(request.createdAt)}</span>
               </div>
@@ -260,6 +266,7 @@ function TrackingCard({ request, token, currency, menu, spotlightAt, onDismiss, 
           >
             <div className="min-h-0 overflow-hidden">
               <div className="px-3.5 pb-3.5">
+                {toPay && request.totalMinor !== null && <PayAtCounter amount={formatMoney(request.totalMinor, currency)} tone="dark" />}
                 {order && <GuestOrderLines items={request.items} totalMinor={null} currency={currency} menu={menu} />}
                 <div className="mt-4">
                   <OrderTracker request={request} tone="dark" />

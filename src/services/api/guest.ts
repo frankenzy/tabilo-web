@@ -1,6 +1,6 @@
 import {
-  guestContextSchema, guestCreateResultSchema, guestRequestListSchema, guestRequestSchema, guestSessionSchema,
-  type GuestContext, type GuestRequest,
+  guestContextSchema, guestCreateResultSchema, guestRequestListSchema, guestRequestSchema, guestSessionSchema, loyaltyCardSchema,
+  type GuestContext, type GuestRequest, type LoyaltyCard,
 } from '@/contracts';
 import { z } from 'zod';
 import { httpGuest } from '@/services/http';
@@ -11,6 +11,19 @@ const SESSION_HEADER = 'x-table-session';
 const headers = (token: string) => ({ [SESSION_HEADER]: token });
 
 export const guestApi = {
+  /** Spec 043, R2 : présenter sa carte de fidélité (ou en recevoir une) ; null sans programme. */
+  async loyaltyAttach(token: string, cardToken: string | null): Promise<LoyaltyCard> {
+    const response = await httpGuest.post('/guest/loyalty/attach', cardToken ? { token: cardToken } : {}, { headers: headers(token) });
+    return loyaltyCardSchema.parse(response.data || null);
+  },
+  async loyalty(token: string): Promise<LoyaltyCard> {
+    const response = await httpGuest.get('/guest/loyalty', { headers: headers(token) });
+    return loyaltyCardSchema.parse(response.data || null);
+  },
+  async loyaltyRedeem(token: string): Promise<LoyaltyCard> {
+    const response = await httpGuest.post('/guest/loyalty/redeem', {}, { headers: headers(token) });
+    return loyaltyCardSchema.parse(response.data || null);
+  },
   async openSession(code: string) {
     const response = await httpGuest.post('/guest/sessions', { code });
     return guestSessionSchema.parse(response.data);
@@ -32,7 +45,8 @@ export const guestApi = {
   async order(
     token: string,
     body: {
-      items: { menuItemId: string; quantity: number }[];
+      /** Spec 032 : `choices` pour une formule, un plat par rubrique. */
+      items: { menuItemId: string; quantity: number; choices?: { groupId: string; menuItemId: string }[] }[];
       note?: string;
       /** Spec 027, R8 : position au moment de commander, ou raison de son absence. */
       location?: { latitude: number; longitude: number; accuracyM: number };

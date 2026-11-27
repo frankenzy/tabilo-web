@@ -18,15 +18,18 @@ export default function RegisterPage() {
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const parsed = registerSchema.safeParse(Object.fromEntries(new FormData(event.currentTarget)));
+    const form = new FormData(event.currentTarget);
+    const parsed = registerSchema.safeParse(Object.fromEntries(form));
     if (!parsed.success) return setErrors(fieldErrors(parsed.error));
+    // Spec 041, R2 : conditions et politique acceptées.
+    if (form.get('acceptTerms') !== 'on') return setErrors({ acceptTerms: 'Acceptez les conditions pour créer votre compte.' });
     setErrors({});
     setFormError(null);
     setSubmitting(true);
     try {
       // Fuseau du navigateur : celui de l'établissement dans la quasi-totalité des cas, modifiable ensuite.
       const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-      await authApi.register({ ...parsed.data, timezone });
+      await authApi.register({ ...parsed.data, timezone, acceptTerms: true });
       if (!(await restoreSession())) throw new Error('session');
       // Spec 006, R12 : le nouveau propriétaire crée sa salle depuis « Tables ».
       router.replace('/app/tables');
@@ -65,6 +68,25 @@ export default function RegisterPage() {
           error={errors.password}
           hint={`${PASSWORD_MIN_LENGTH} caractères au minimum.`}
         />
+        <label className="flex items-start gap-2.5 text-[14px] text-ink-2">
+          <input type="checkbox" name="acceptTerms" className="mt-1 size-4" />
+          <span>
+            J’accepte les{' '}
+            <Link href="/cgu" target="_blank" className="font-medium text-ink underline underline-offset-4">
+              conditions d’utilisation
+            </Link>{' '}
+            et la{' '}
+            <Link href="/confidentialite" target="_blank" className="font-medium text-ink underline underline-offset-4">
+              politique de confidentialité
+            </Link>
+            .
+          </span>
+        </label>
+        {errors.acceptTerms && (
+          <p role="alert" className="-mt-2 text-[13px] text-late">
+            {errors.acceptTerms}
+          </p>
+        )}
         <FormError message={formError} />
         <Button type="submit" size="lg" loading={submitting} className="mt-1">
           Créer mon compte

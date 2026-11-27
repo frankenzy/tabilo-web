@@ -1,5 +1,6 @@
 "use client";
 
+import { useFeature } from "@/hooks/use-account";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowDown,
@@ -8,6 +9,8 @@ import {
   ChevronDown,
   ImageOff,
   ImagePlus,
+  Layers,
+  Lock,
   Pencil,
   Plus,
   Search,
@@ -49,6 +52,17 @@ import { useMembership } from "@/stores/auth.store";
 import { toast } from "@/stores/toast.store";
 import { ImageError, shrinkImage } from "@/utils/image";
 import { formatMoney, parseMoney, toMajorInput } from "@/utils/money";
+import {
+  OptionGroupsEditor,
+  type OptionGroupDraft,
+} from "./options-editor";
+import { SlotsEditor, slotsDraftError } from "./slots-editor";
+import type { Slot } from "@/utils/slots";
+import {
+  BundleGroupsEditor,
+  bundleGroupsError,
+  type BundleGroupDraft,
+} from "./bundle-editor";
 import { CategoryImage } from "./category-image";
 import { filterItems, NO_ITEM_FILTER, type ItemFilter } from "./menu-filter";
 
@@ -78,6 +92,8 @@ export function MenuPage() {
   const canManage = (useMembership()?.permissions ?? []).includes(
     "menu.manage",
   );
+  // Spec 034, R7 : formules comprises dans Pro.
+  const bundles = useFeature("bundles");
   const { data, isPending, isError, error, refetch } = useMenu();
   const [editingCategory, setEditingCategory] = useState<
     MenuCategory | "new" | null
@@ -87,6 +103,8 @@ export function MenuPage() {
   const [editingItem, setEditingItem] = useState<{
     item?: MenuItem;
     categoryId: string;
+    /** Spec 032 : nouvelle formule. */
+    bundle?: boolean;
   } | null>(null);
   const [archivingItem, setArchivingItem] = useState<MenuItem | null>(null);
   // Recherche et filtre propres à chaque rubrique.
@@ -284,6 +302,32 @@ export function MenuPage() {
                               }
                             />
                           )}
+                          {canManage && (
+                            // Spec 032, P1 : « Nouvelle formule » dans la rubrique ; spec 034, R7 : cadenas hors Pro.
+                            <button
+                              type="button"
+                              onClick={() =>
+                                bundles
+                                  ? setEditingItem({
+                                      categoryId: category.id,
+                                      bundle: true,
+                                    })
+                                  : toast.error(
+                                      "Les formules sont comprises dans Pro",
+                                      "Voyez la page « Abonnement ».",
+                                    )
+                              }
+                              className="inline-flex h-9 items-center gap-1.5 rounded-full px-3 text-[13px] font-semibold text-ink ring-1 ring-line hover:bg-sunken"
+                              title="Nouvelle formule : un plat, une boisson, un prix"
+                            >
+                              {bundles ? (
+                                <Layers className="size-4" aria-hidden />
+                              ) : (
+                                <Lock className="size-4" aria-hidden />
+                              )}
+                              Formule
+                            </button>
+                          )}
                           {/* Recherche : une loupe qui s'ouvre en champ au clic, et reste ouverte tant qu'elle contient un texte. */}
                           <label className="relative">
                             <span className="sr-only">
@@ -461,6 +505,7 @@ export function MenuPage() {
       {editingItem && data && (
         <ItemDialog
           item={editingItem.item}
+          bundle={editingItem.bundle || editingItem.item?.isBundle}
           categoryId={editingItem.categoryId}
           categories={data}
           onClose={() => setEditingItem(null)}
@@ -593,6 +638,16 @@ function ItemRow({
           )}
         >
           {item.name}
+          {item.isBundle && (
+            <Badge tone="progress">
+              Formule · {item.groups.map((group) => group.name).join(" + ")}
+            </Badge>
+          )}
+          {item.promoPriceMinor != null && (
+            <Badge tone="late">
+              Promo · {formatMoney(item.promoPriceMinor, currency)}
+            </Badge>
+          )}
           {!item.isAvailable && <Badge tone="late">Épuisé</Badge>}
         </p>
         {item.description && (
@@ -864,6 +919,8 @@ const IMAGE_ERRORS: Record<string, string> = {
 
 interface ItemDialogProps {
   item?: MenuItem;
+  /** Spec 032 : l'article est une formule (création ou modification). */
+  bundle?: boolean;
   categoryId: string;
   categories: MenuCategory[];
   onClose: () => void;
@@ -872,6 +929,7 @@ interface ItemDialogProps {
 
 function ItemDialog({
   item,
+  bundle = false,
   categoryId,
   categories,
   onClose,
@@ -880,6 +938,40 @@ function ItemDialog({
   const establishmentId = useEstablishmentId();
   const currency = useCurrency();
   const [errors, setErrors] = useState<Record<string, string>>({});
+  // Spec 032 : rubriques de la formule, deux par défaut (Plat, Boisson).
+  // Spec 033, R1 : promotion active et son prix ; spec 034, R4 : comprise dans Pro.
+  const promotions = useFeature("promotions");
+  const [promo, setPromo] = useState(item?.promoPriceMinor != null);
+  // Spec 039 : créneaux de la promotion (vide = permanente) et de disponibilité (vide = toujours).
+  const [promoSlots, setPromoSlots] = useState<Slot[]>(item?.promoSlots ?? []);
+  const [availabilitySlots, setAvailabilitySlots] = useState<Slot[]>(
+    item?.availabilitySlots ?? [],
+  );
+  // Spec 038 : options et suppléments (plats seulement, module de Pro).
+  const optionsAllowed = useFeature("options");
+  const [optionGroups, setOptionGroups] = useState<OptionGroupDraft[]>(() =>
+    (item?.optionGroups ?? []).map((group) => ({
+      key: group.id,
+      name: group.name,
+      multiple: group.multiple,
+      required: group.required,
+      options: group.options.map((option) => ({
+        key: option.id,
+        id: option.id,
+        name: option.name,
+        price: toMajorInput(option.priceMinor, currency),
+        isAvailable: option.isAvailable,
+      })),
+    })),
+  );
+  const [groups, setGroups] = useState<BundleGroupDraft[]>(() =>
+    item?.isBundle
+      ? item.groups.map((group) => ({ key: group.id, name: group.name, choiceIds: group.choiceIds }))
+      : [
+          { key: "plat", name: "Plat", choiceIds: [] },
+          { key: "boisson", name: "Boisson", choiceIds: [] },
+        ],
+  );
   // Photo : null = inchangée ; 'remove' = à retirer ; sinon la photo réduite à envoyer.
   const [photo, setPhoto] = useState<
     { mime: string; data: string } | "remove" | null
@@ -899,7 +991,15 @@ function ItemDialog({
       return saved;
     },
     onSuccess: () => {
-      toast.success(item ? "Article modifié" : "Article ajouté");
+      toast.success(
+        bundle
+          ? item
+            ? "Formule modifiée"
+            : "Formule ajoutée"
+          : item
+            ? "Article modifié"
+            : "Article ajouté",
+      );
       onSaved();
       onClose();
     },
@@ -933,6 +1033,45 @@ function ItemDialog({
     if (!parsed.success) return setErrors(fieldErrors(parsed.error));
     const priceMinor = parseMoney(parsed.data.price, currency);
     if (priceMinor === null) return setErrors({ price: "Prix invalide." });
+    const groupsError = bundle ? bundleGroupsError(groups) : null;
+    if (groupsError) return setErrors({ groups: groupsError });
+    // Spec 038 et 039 : contrôles des options et des créneaux, comme l'API.
+    const slotsError =
+      slotsDraftError(promoSlots) ?? slotsDraftError(availabilitySlots);
+    if (slotsError) return setErrors({ slots: slotsError });
+    const options = [];
+    for (const group of optionGroups) {
+      if (!group.name.trim() || group.options.length < 2)
+        return setErrors({
+          options: "Chaque groupe a un nom et au moins deux options.",
+        });
+      const parsedOptions = [];
+      for (const option of group.options) {
+        const priceMinor = parseMoney(option.price || "0", currency);
+        if (!option.name.trim() || priceMinor === null)
+          return setErrors({
+            options: `Vérifiez les options de « ${group.name} » (nom et supplément).`,
+          });
+        parsedOptions.push({
+          ...(option.id ? { id: option.id } : {}),
+          name: option.name.trim(),
+          priceMinor,
+          isAvailable: option.isAvailable,
+        });
+      }
+      options.push({
+        name: group.name.trim(),
+        multiple: group.multiple,
+        required: group.required,
+        options: parsedOptions,
+      });
+    }
+    let promoPriceMinor: number | null = null;
+    if (promo) {
+      promoPriceMinor = parseMoney(String(form.get("promoPrice") ?? ""), currency);
+      if (promoPriceMinor === null) return setErrors({ promoPrice: "Prix promotionnel invalide." });
+      if (promoPriceMinor >= priceMinor) return setErrors({ promoPrice: "Le prix promotionnel doit être inférieur au prix." });
+    }
     setErrors({});
     const { categoryId, name, description, isAvailable } = parsed.data;
     save.mutate({
@@ -941,6 +1080,32 @@ function ItemDialog({
       description: description || null,
       priceMinor,
       isAvailable,
+      ...(promo || item?.promoPriceMinor != null ? { promoPriceMinor } : {}),
+      ...(promo
+        ? {
+            promoSlots: promoSlots.length > 0 ? promoSlots : null,
+            promoName: String(form.get("promoName") ?? "").trim() || null,
+          }
+        : item?.promoSlots
+          ? { promoSlots: null }
+          : {}),
+      ...(availabilitySlots.length > 0 || item?.availabilitySlots
+        ? {
+            availabilitySlots:
+              availabilitySlots.length > 0 ? availabilitySlots : null,
+          }
+        : {}),
+      ...(!bundle && (options.length > 0 || (item?.optionGroups.length ?? 0) > 0)
+        ? { optionGroups: options }
+        : {}),
+      ...(bundle
+        ? {
+            groups: groups.map((group) => ({
+              name: group.name.trim(),
+              choiceIds: group.choiceIds,
+            })),
+          }
+        : {}),
     });
   }
 
@@ -960,14 +1125,22 @@ function ItemDialog({
     <Dialog
       open
       onOpenChange={(open) => !open && !save.isPending && onClose()}
-      title={item ? "Modifier l’article" : "Nouvel article"}
+      title={
+        bundle
+          ? item
+            ? "Modifier la formule"
+            : "Nouvelle formule"
+          : item
+            ? "Modifier l’article"
+            : "Nouvel article"
+      }
     >
       <form onSubmit={submit} noValidate className="flex flex-col gap-4">
         <Input
           label="Nom"
           name="name"
           defaultValue={item?.name}
-          placeholder="Ex. : Garba"
+          placeholder={bundle ? "Ex. : Menu midi" : "Ex. : Garba"}
           error={errors.name}
           autoFocus
           maxLength={60}
@@ -1052,6 +1225,100 @@ function ItemDialog({
             </p>
           )}
         </fieldset>
+        {bundle && (
+          <div>
+            <BundleGroupsEditor
+              groups={groups}
+              categories={categories}
+              excludeId={item?.id}
+              onChange={setGroups}
+            />
+            {errors.groups && (
+              <p role="alert" className="mt-1.5 text-[13px] text-late">
+                {errors.groups}
+              </p>
+            )}
+          </div>
+        )}
+        {/* Spec 033, P1 : prix promotionnel, ancien prix barré chez le client. */}
+        <div className="flex flex-col gap-2">
+          <label className="flex items-center gap-2 text-[13px] font-medium text-ink">
+            <input
+              type="checkbox"
+              checked={promo}
+              disabled={!promotions && !promo}
+              onChange={(event) => setPromo(event.target.checked)}
+              className="size-4 accent-[var(--color-late)]"
+            />
+            Promotion
+            {!promotions && (
+              <span className="inline-flex items-center gap-1 text-[12px] font-normal text-ink-3">
+                <Lock className="size-3" aria-hidden />
+                Avec Pro
+              </span>
+            )}
+          </label>
+          {promo && (
+            <Input
+              label={`Prix promotionnel (${currency})`}
+              name="promoPrice"
+              inputMode="decimal"
+              defaultValue={item?.promoPriceMinor != null ? toMajorInput(item.promoPriceMinor, currency) : ""}
+              error={errors.promoPrice}
+              hint="Le client voit l’ancien prix barré. Décochez pour finir la promotion."
+            />
+          )}
+          {promo && (
+            // Spec 039, P1 : promotion programmée (happy hour).
+            <>
+              <Input
+                label="Nom de la promotion (facultatif)"
+                name="promoName"
+                defaultValue={item?.promoName ?? ""}
+                placeholder="Happy hour"
+                maxLength={30}
+              />
+              <SlotsEditor
+                label="Créneaux de la promotion (aucun = toute la journée)"
+                slots={promoSlots}
+                onChange={setPromoSlots}
+              />
+            </>
+          )}
+        </div>
+        {promotions && (
+          // Spec 039, P2 : disponible seulement à certaines heures.
+          <SlotsEditor
+            label="Disponible seulement à certaines heures (aucun créneau = toujours)"
+            slots={availabilitySlots}
+            onChange={setAvailabilitySlots}
+          />
+        )}
+        {errors.slots && (
+          <p role="alert" className="text-[13px] text-late">
+            {errors.slots}
+          </p>
+        )}
+        {!bundle &&
+          (optionsAllowed ? (
+            <div>
+              <OptionGroupsEditor
+                groups={optionGroups}
+                currency={currency}
+                onChange={setOptionGroups}
+              />
+              {errors.options && (
+                <p role="alert" className="mt-1.5 text-[13px] text-late">
+                  {errors.options}
+                </p>
+              )}
+            </div>
+          ) : (
+            <p className="inline-flex items-center gap-1.5 text-[13px] text-ink-3">
+              <Lock className="size-3.5" aria-hidden />
+              Options et suppléments : avec la formule Pro
+            </p>
+          ))}
         <Checkbox
           label="Disponible"
           hint="Décochez en cas de rupture : l’article reste affiché, mais ne peut plus être commandé."

@@ -1,4 +1,4 @@
-import type { MenuCategory, ServiceRequest } from '@/contracts';
+import type { MenuCategory, ServiceMode, ServiceRequest } from '@/contracts';
 import type { RequestAction } from '@/services/api';
 import type { Viewer } from '@/components/pages/requests/capabilities';
 import type { SlideTone } from '@/components/ui/slide-to-confirm';
@@ -14,17 +14,20 @@ export function slideTone(action: RequestAction): SlideTone {
  * Spec 007 : étapes d'une commande en cours. « Prêtes » n'existe qu'avec une cuisine séparée.
  * Spec 026, R2 : une commande servie et non réglée reste « À régler ».
  */
-export type OrderColumn = 'todo' | 'preparing' | 'ready' | 'unpaid';
+export type OrderColumn = 'collect' | 'todo' | 'preparing' | 'ready' | 'unpaid';
 
 export const COLUMN_LABELS: Record<OrderColumn, string> = {
+  // Spec 030, R7 : « Caisse d'abord », commandes à encaisser avant la préparation.
+  collect: 'À encaisser',
   todo: 'À préparer',
   preparing: 'En préparation',
   ready: 'Prêtes',
   unpaid: 'À régler',
 };
 
-export function columnsFor(separateKitchen: boolean): OrderColumn[] {
-  return separateKitchen ? ['todo', 'preparing', 'ready', 'unpaid'] : ['todo', 'preparing', 'unpaid'];
+export function columnsFor(separateKitchen: boolean, mode: ServiceMode = 'serve_then_pay'): OrderColumn[] {
+  const columns: OrderColumn[] = separateKitchen ? ['todo', 'preparing', 'ready', 'unpaid'] : ['todo', 'preparing', 'unpaid'];
+  return mode === 'pay_first' ? ['collect', ...columns] : columns;
 }
 
 /** Spec 026, R1 : commande servie et pas encore réglée. */
@@ -39,6 +42,8 @@ export function isOrder(request: Pick<ServiceRequest, 'type'>): boolean {
 
 export function columnOf(request: Pick<ServiceRequest, 'status'> & Partial<Pick<ServiceRequest, 'paidAt'>>): OrderColumn | null {
   switch (request.status) {
+    case 'awaiting_payment':
+      return 'collect';
     case 'pending':
     case 'assigned':
     case 'accepted':
@@ -56,9 +61,11 @@ export function columnOf(request: Pick<ServiceRequest, 'status'> & Partial<Pick<
 
 /** Commandes actives rangées par étape, la plus ancienne en premier : sert aux compteurs du filtre « État ». */
 export function groupOrders(requests: ServiceRequest[], separateKitchen: boolean): Record<OrderColumn, ServiceRequest[]> {
-  const groups: Record<OrderColumn, ServiceRequest[]> = { todo: [], preparing: [], ready: [], unpaid: [] };
+  const groups: Record<OrderColumn, ServiceRequest[]> = { collect: [], todo: [], preparing: [], ready: [], unpaid: [] };
+  // Spec 030 : une commande en cours peut être à la fois active et à régler ; elle n'apparaît qu'une fois.
+  const seen = new Set<string>();
   requests
-    .filter(isOrder)
+    .filter((request) => isOrder(request) && !seen.has(request.id) && seen.add(request.id))
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
     .forEach((request) => {
       const column = columnOf(request);
@@ -74,7 +81,7 @@ export type StepTone = 'red' | 'orange' | 'violet' | 'green' | 'ink';
 
 export interface OrderStep {
   action: RequestAction;
-  label: 'Accepter' | 'Préparation' | 'Glisser : prête' | 'Glisser pour servir' | 'Glisser pour régler';
+  label: 'Accepter' | 'Préparation' | 'Glisser : prête' | 'Glisser pour servir' | 'Glisser pour régler' | 'Glisser · Encaissé';
   tone: StepTone;
   /** Spec 025, R3 à R5 : « prête » et « servie » se glissent ; un toucher ne suffit pas. */
   gesture: 'tap' | 'slide';
@@ -92,6 +99,9 @@ export function nextStep(request: ServiceRequest, separateKitchen: boolean, view
   const mine = request.assignee?.id === viewer.id;
   const supervise = viewer.can('requests.assign');
   switch (request.status) {
+    case 'awaiting_payment':
+      // Spec 030, R7 : encaisser lance la préparation.
+      return { action: 'settle', label: 'Glisser · Encaissé', tone: 'ink', gesture: 'slide' };
     case 'pending':
       return ACCEPT;
     case 'assigned':
@@ -100,7 +110,8 @@ export function nextStep(request: ServiceRequest, separateKitchen: boolean, view
     case 'accepted':
       return mine || supervise ? { action: 'start', label: 'Préparation', tone: 'red', gesture: 'tap' } : null;
     case 'in_progress':
-      if (!mine && !supervise) return null;
+      // Spec 030 : partie en préparation sans personne affectée (encaissée, ou lancée tout de suite), elle est à toute l'équipe.
+      if (!mine && !supervise && request.assignee) return null;
       return separateKitchen ? { action: 'ready', label: 'Glisser : prête', tone: 'violet', gesture: 'slide' } : SERVE;
     case 'ready':
       // Le serveur qui sert n'est pas forcément celui qui a préparé.
@@ -136,8 +147,8 @@ export function startOfToday(now: number): string {
 
 /** Pastille d'état de la carte (R4), même couleur que le bouton d'étape (R5). */
 /** Spec 023, Q2 : « Prête » en violet ; le vert reste au bouton « Servie », qui mène à l'état « Servie ». */
-export const COLUMN_TONE: Record<OrderColumn, StepTone> = { todo: 'red', preparing: 'orange', ready: 'violet', unpaid: 'ink' };
-export const STATUS_PILL: Record<OrderColumn, string> = { todo: 'À préparer', preparing: 'En préparation', ready: 'Prête', unpaid: 'Servie · À régler' };
+export const COLUMN_TONE: Record<OrderColumn, StepTone> = { collect: 'ink', todo: 'red', preparing: 'orange', ready: 'violet', unpaid: 'ink' };
+export const STATUS_PILL: Record<OrderColumn, string> = { collect: 'À encaisser', todo: 'À préparer', preparing: 'En préparation', ready: 'Prête', unpaid: 'Servie · À régler' };
 
 /** Spec 007, R11 : recherche et filtres de l'écran « Commandes ». */
 export type WhoFilter = 'all' | 'mine' | 'nobody';
@@ -181,5 +192,5 @@ export function filterOrders<T extends Pick<ServiceRequest, 'table' | 'area' | '
  */
 export function liveGrid(groups: Record<OrderColumn, ServiceRequest[]>, status: OrderColumn | 'all'): ServiceRequest[] {
   if (status !== 'all') return groups[status];
-  return [...groups.todo, ...groups.preparing, ...groups.ready, ...groups.unpaid].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  return [...groups.collect, ...groups.todo, ...groups.preparing, ...groups.ready, ...groups.unpaid].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }

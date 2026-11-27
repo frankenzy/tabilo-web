@@ -1,5 +1,6 @@
 import { Ban, CheckCircle2, Flame, Send, ShoppingBag, Snowflake, UserRound, UtensilsCrossed, type LucideIcon } from 'lucide-react';
-import type { GuestRequest } from '@/contracts';
+import type { GuestRequest, ServiceMode } from '@/contracts';
+import { bundleKey } from './cart';
 
 /** Spec 013 : logique pure de la validation de commande (testée sans navigateur). */
 
@@ -69,9 +70,22 @@ export function servedTotal(requests: Pick<GuestRequest, 'status' | 'totalMinor'
   return requests.reduce((sum, r) => (r.type.kind === 'order' && r.status === 'resolved' ? sum + (r.totalMinor ?? 0) : sum), 0);
 }
 
-/** Spec 026, R8 : servi et pas encore réglé. */
-export function unpaidTotal(requests: Pick<GuestRequest, 'status' | 'totalMinor' | 'type' | 'paidAt'>[]): number {
-  return requests.reduce((sum, r) => (r.type.kind === 'order' && r.status === 'resolved' && !r.paidAt ? sum + (r.totalMinor ?? 0) : sum), 0);
+/**
+ * Spec 026, R8 : servi et pas encore réglé. Spec 030, R3 : en « Régler quand on veut », toute commande
+ * envoyée et non annulée compte ; une commande à encaisser se paie à la caisse, pas sur l'addition.
+ */
+export function unpaidTotal(
+  requests: Pick<GuestRequest, 'status' | 'totalMinor' | 'type' | 'paidAt'>[],
+  mode: ServiceMode = 'serve_then_pay',
+): number {
+  const counts = (status: GuestRequest['status']) =>
+    status === 'resolved' || (mode === 'pay_anytime' && status !== 'cancelled' && status !== 'awaiting_payment');
+  return requests.reduce((sum, r) => (r.type.kind === 'order' && counts(r.status) && !r.paidAt ? sum + (r.totalMinor ?? 0) : sum), 0);
+}
+
+/** Spec 030, R6 : commande à payer à la caisse avant d'être préparée. */
+export function awaitingPayment(request: Pick<GuestRequest, 'status'>): boolean {
+  return request.status === 'awaiting_payment';
 }
 
 /** R4 : ce que « Recommander » ajoute au panier — les plats encore disponibles, avec leur quantité. */
@@ -82,7 +96,12 @@ export function reorderLines(
   const available = new Set(menu.flatMap((category) => category.items).filter((item) => item.isAvailable).map((item) => item.id));
   const lines = new Map<string, number>();
   for (const line of request.items) {
-    if (line.menuItemId && available.has(line.menuItemId)) lines.set(line.menuItemId, (lines.get(line.menuItemId) ?? 0) + line.quantity);
+    if (!line.menuItemId || !available.has(line.menuItemId)) continue;
+    // Spec 032 : une formule se recommande avec la même composition, si chaque plat est encore disponible.
+    const choices = line.choices ?? [];
+    if (choices.some((choice) => !available.has(choice.menuItemId))) continue;
+    const key = choices.length > 0 ? bundleKey(line.menuItemId, choices.map((choice) => choice.menuItemId)) : line.menuItemId;
+    lines.set(key, (lines.get(key) ?? 0) + line.quantity);
   }
   return [...lines].map(([itemId, quantity]) => ({ itemId, quantity }));
 }
@@ -146,7 +165,7 @@ export type BillState =
   | { status: 'available'; dueMinor: number }
   | { status: 'pending'; dueMinor: number; pendingOrders: number };
 
-const OPEN_STATUSES = ['pending', 'assigned', 'accepted', 'in_progress', 'ready'];
+const OPEN_STATUSES = ['awaiting_payment', 'pending', 'assigned', 'accepted', 'in_progress', 'ready'];
 
 /**
  * Spec 028, R2 et R3 : barre « Glisser pour l'addition » s'il reste à régler ; facture « Le serveur arrive »
@@ -156,12 +175,15 @@ export function billState(
   requests: Pick<GuestRequest, 'status' | 'totalMinor' | 'type' | 'paidAt'>[],
   billAvailable: boolean,
   sending = false,
+  mode: ServiceMode = 'serve_then_pay',
 ): BillState {
-  if (!billAvailable) return { status: 'none' };
-  const dueMinor = unpaidTotal(requests);
+  // Spec 030, R8 : en « Caisse d'abord », pas d'addition.
+  if (!billAvailable || mode === 'pay_first') return { status: 'none' };
+  const dueMinor = unpaidTotal(requests, mode);
   const asked = sending || requests.some((r) => r.type.kind === 'bill' && OPEN_STATUSES.includes(r.status));
   if (asked) {
-    const pendingOrders = requests.filter((r) => r.type.kind === 'order' && OPEN_STATUSES.includes(r.status)).length;
+    // Pas encore comptées : en cours, sauf en « Régler quand on veut » où tout compte déjà.
+    const pendingOrders = mode === 'pay_anytime' ? 0 : requests.filter((r) => r.type.kind === 'order' && OPEN_STATUSES.includes(r.status)).length;
     return { status: 'pending', dueMinor, pendingOrders };
   }
   return dueMinor > 0 ? { status: 'available', dueMinor } : { status: 'none' };

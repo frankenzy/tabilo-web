@@ -1,5 +1,6 @@
 'use client';
 
+import { ExportPanel } from './export-panel';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { BarChart3 } from 'lucide-react';
 import { useMemo, useState } from 'react';
@@ -100,6 +101,8 @@ export function AnalyticsPage() {
           <ReportView report={data} />
         )}
       </div>
+      {/* Spec 040 et spec 038, R8 bis : export des ventes, ventes par option. */}
+      <ExportPanel />
     </>
   );
 }

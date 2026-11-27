@@ -1,6 +1,6 @@
 'use client';
 
-import { Check, Clock, History, Receipt, RotateCcw, X } from 'lucide-react';
+import { Check, Clock, Gift, History, Receipt, RotateCcw, X } from 'lucide-react';
 import { useState } from 'react';
 import { Dialog, FormError } from '@/components/ui';
 import { SessionMarker } from '@/components/ui/session-marker';
@@ -326,17 +326,34 @@ function OrderDetail({ request, currency, menu }: { request: GuestRequest; curre
   const byId = new Map(menu.flatMap((category) => category.items).map((item) => [item.id, item]));
   return (
     <ul className="flex flex-col rounded-xl bg-sunken/60 px-3">
-      {request.items.map((line) => {
+      {request.items.map((line, index) => {
         const item = line.menuItemId ? byId.get(line.menuItemId) : undefined;
         return (
-          <li key={`${line.menuItemId ?? ''}-${line.name}`} className="flex h-12 items-center gap-3 border-b border-line last:border-0">
+          <li key={`${line.menuItemId ?? ''}-${index}`} className="flex min-h-12 items-center gap-3 border-b border-line py-1 last:border-0">
             <ItemPhoto item={item ?? { name: line.name, imageId: null }} className="size-9 shrink-0 rounded-[9px] text-xs" />
-            <span className="min-w-0 flex-1 truncate text-[14px] font-medium text-ink">{line.name}</span>
-            <span className="tabular shrink-0 text-[13px] whitespace-nowrap">
-              <span className="font-semibold text-ink">{line.quantity}</span>
-              <span className="px-1 text-ink-3">×</span>
-              <span className="text-ink-2">{formatMoney(line.unitPriceMinor, currency)}</span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[14px] font-medium text-ink">{line.name}</span>
+              {/* Spec 032 : les choix de la formule. */}
+              {((line.choices?.length ?? 0) > 0 || (line.options?.length ?? 0) > 0) && (
+                <span className="block truncate text-[12px] text-ink-2">{[...(line.choices ?? []), ...(line.options ?? [])].map((part) => part.name).join(' · ')}</span>
+              )}
             </span>
+            {line.offeredAt ? (
+              // Spec 033, R4 : le cadeau, et le prix d'origine barré.
+              <span className="inline-flex shrink-0 items-center gap-1 text-[13px] whitespace-nowrap">
+                <s className="tabular text-ink-3">{formatMoney(line.unitPriceMinor * line.quantity, currency)}</s>
+                <span className="inline-flex items-center gap-1 rounded-full bg-done-soft px-2 py-0.5 font-semibold text-done">
+                  <Gift className="size-3.5" aria-hidden />
+                  Offert
+                </span>
+              </span>
+            ) : (
+              <span className="tabular shrink-0 text-[13px] whitespace-nowrap">
+                <span className="font-semibold text-ink">{line.quantity}</span>
+                <span className="px-1 text-ink-3">×</span>
+                <span className="text-ink-2">{formatMoney(line.unitPriceMinor, currency)}</span>
+              </span>
+            )}
           </li>
         );
       })}

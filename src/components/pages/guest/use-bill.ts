@@ -35,7 +35,7 @@ export function useBill(token: string, context: GuestContext, requests: GuestReq
   });
 
   return {
-    state: billState(requests, billType !== undefined, send.isPending),
+    state: billState(requests, billType !== undefined, send.isPending, context.serviceMode),
     ask: () => {
       if (billType && !send.isPending) send.mutate();
     },

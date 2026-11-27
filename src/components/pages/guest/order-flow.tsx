@@ -3,7 +3,7 @@
 export { composeNote, PRECISIONS, stepOf, trackingSteps } from './order-logic';
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { CheckCircle2, MapPin, Pencil, Trash2 } from 'lucide-react';
+import { ArrowRight, Banknote, CheckCircle2, MapPin, Pencil, Store, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { GuestRequest } from '@/contracts';
 import { cn } from '@/lib/utils';
@@ -129,13 +129,33 @@ export function OrderTracker({ request, tone }: { request: Pick<GuestRequest, 's
   );
 }
 
+// ------------------------------------------------------------ spec 030 : payer à la caisse
+
+/** Spec 030, R6 et R11 : billet → caisse, puis le montant — compris sans lire. */
+export function PayAtCounter({ amount, tone }: { amount: string; tone: 'dark' | 'light' }) {
+  const dark = tone === 'dark';
+  const disc = cn('grid size-12 shrink-0 place-items-center rounded-full', dark ? 'bg-white text-pay' : 'bg-pay text-white');
+  return (
+    <div role="status" aria-label={`Payez ${amount} à la caisse`} className={cn('mb-4 flex items-center gap-3 rounded-2xl px-4 py-3.5', dark ? 'bg-white/12 text-white' : 'bg-pay-soft text-pay')}>
+      <span className={disc} aria-hidden>
+        <Banknote className="size-6" />
+      </span>
+      <ArrowRight className={cn('size-5 shrink-0', dark ? 'text-white/70' : 'text-pay/70')} aria-hidden />
+      <span className={disc} aria-hidden>
+        <Store className="size-6" />
+      </span>
+      <span className="tabular ml-auto text-[22px] font-bold tracking-tight">{amount}</span>
+    </div>
+  );
+}
+
 // ------------------------------------------------------------ R7 annulation
 
 /**
  * Spec 013, R7 : annuler tant que personne n'a pris la commande. Premier toucher : le bouton passe au rouge
  * « Toucher encore pour annuler » pendant 4 secondes ; second toucher : annulation.
  */
-export function CancelOrderButton({ request, token, tone }: { request: Pick<GuestRequest, 'id' | 'status' | 'type'>; token: string; tone: 'dark' | 'light' }) {
+export function CancelOrderButton({ request, token, tone }: { request: Pick<GuestRequest, 'id' | 'status' | 'type' | 'paidAt'>; token: string; tone: 'dark' | 'light' }) {
   const queryClient = useQueryClient();
   const [armed, setArmed] = useState(false);
   useEffect(() => {
@@ -149,7 +169,8 @@ export function CancelOrderButton({ request, token, tone }: { request: Pick<Gues
     // Trop tard (déjà prise en charge) : on réaffiche l'état réel, le bouton disparaît.
     onError: () => queryClient.invalidateQueries({ queryKey: guestRequestsKey(token) }),
   });
-  if (request.status !== 'pending') return null;
+  // Spec 030, R5 et R6 : annulable en attente ou à encaisser, jamais une fois réglée.
+  if ((request.status !== 'pending' && request.status !== 'awaiting_payment') || request.paidAt) return null;
   const order = request.type.kind === 'order';
   return (
     <div>
