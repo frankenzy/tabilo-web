@@ -1,12 +1,15 @@
 import type { OccupationSession, ServiceRequest } from '@/contracts';
 
+/** Spec 048, R1 : le plus récent d'abord. */
+export const newestFirst = (a: { createdAt: string }, b: { createdAt: string }) => b.createdAt.localeCompare(a.createdAt);
+
 /** Spec 028, R10 : ce que la fiche d'une table met en avant quand l'addition est demandée. */
 export interface TableSheet {
-  /** Cartes d'addition en tête de fiche, la plus ancienne d'abord. */
+  /** Cartes d'addition en tête de fiche, la plus récente d'abord (spec 048). */
   bills: ServiceRequest[];
   /** Spec 029, R7 : appels et messages en tête de fiche, les messages d'un même client regroupés. */
   calls: ServerGroup[];
-  /** « En cours » sans l'addition, l'appel ni les messages. */
+  /** « En cours » sans l'addition, l'appel ni les messages, le plus récent d'abord (spec 048). */
   others: ServiceRequest[];
   /** Repères des clients qui ont demandé l'addition. */
   billMarkers: Set<number>;
@@ -28,7 +31,8 @@ const isServer = (request: ServiceRequest) => request.type.kind === 'call' || re
 
 export function serverGroups(requests: ServiceRequest[]): ServerGroup[] {
   const groups = new Map<string, ServerGroup>();
-  for (const request of [...requests].filter(isServer).sort((a, b) => a.createdAt.localeCompare(b.createdAt))) {
+  // Spec 048, R1 et R2 : dans chaque groupe, le plus récent d'abord.
+  for (const request of [...requests].filter(isServer).sort(newestFirst)) {
     const kind = request.type.kind as 'call' | 'message';
     const marker = request.marker ?? null;
     const key = kind === 'call' ? `call:${request.id}` : `message:${marker ?? request.id}`;
@@ -37,14 +41,14 @@ export function serverGroups(requests: ServiceRequest[]): ServerGroup[] {
     group.waiting = group.waiting || ['pending', 'assigned', 'accepted'].includes(request.status);
     groups.set(key, group);
   }
-  // L'appel d'abord : c'est le plus pressé.
-  return [...groups.values()].sort((a, b) => (a.kind === b.kind ? 0 : a.kind === 'call' ? -1 : 1));
+  // L'appel d'abord : c'est le plus pressé (groupe épinglé, spec 048, R2) ; à l'intérieur, le plus récent d'abord.
+  return [...groups.values()].sort((a, b) => (a.kind === b.kind ? newestFirst(a.requests[0], b.requests[0]) : a.kind === 'call' ? -1 : 1));
 }
 
 export function tableSheet(requests: ServiceRequest[], settledShown: boolean): TableSheet {
-  const bills = requests.filter((request) => request.type.kind === 'bill').sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  const bills = requests.filter((request) => request.type.kind === 'bill').sort(newestFirst);
   const calls = serverGroups(requests);
-  const others = requests.filter((request) => request.type.kind !== 'bill' && !isServer(request));
+  const others = requests.filter((request) => request.type.kind !== 'bill' && !isServer(request)).sort(newestFirst);
   const billMarkers = new Set(bills.flatMap((request) => (request.marker === null || request.marker === undefined ? [] : [request.marker])));
   return { bills, calls, others, billMarkers, compact: bills.length > 0 || calls.length > 0 || settledShown };
 }
@@ -59,9 +63,9 @@ export function freeGesture(loaded: boolean, unpaidMinor: number): 'slide' | 'bu
   return loaded && unpaidMinor === 0 ? 'slide' : 'button';
 }
 
-/** Spec 029, R6 : appels et messages que personne n'a encore pris, le plus récent en bas (au plus près du pouce). */
+/** Spec 029, R6 (révisée par la spec 048) : appels et messages que personne n'a encore pris, le plus récent en haut. */
 export function incomingCalls(requests: ServiceRequest[]): ServiceRequest[] {
   return requests
     .filter((request) => (request.type.kind === 'call' || request.type.kind === 'message') && (request.status === 'pending' || request.status === 'assigned'))
-    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    .sort(newestFirst);
 }

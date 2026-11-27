@@ -90,12 +90,12 @@ describe('Spec 029 — appel et message', () => {
     expect(isServerRequest({ type: WATER })).toBe(false);
   });
 
-  it('CA-029-05 — en bas de l’écran : appels et messages que personne n’a pris', () => {
+  it('CA-029-05 et CA-048-01 — en bas de l’écran : appels et messages que personne n’a pris, le plus récent en haut', () => {
     const call = staffRequest(CALL);
     const message = staffRequest(MESSAGE, { note: 'Une chaise pour bébé' });
     const taken = staffRequest(CALL, { status: 'in_progress', assignee: FATOU });
     const water = staffRequest(WATER);
-    expect(incomingCalls([water, taken, message, call]).map((request) => request.id)).toEqual([call.id, message.id]);
+    expect(incomingCalls([water, taken, call, message]).map((request) => request.id)).toEqual([message.id, call.id]);
   });
 
   it('CA-029-06 — « J’y vais » puis « Fait », en glissant', () => {
@@ -107,7 +107,7 @@ describe('Spec 029 — appel et message', () => {
     expect(capabilitiesOf(staffRequest(MESSAGE), viewer('yao', ['requests.read'])).primary).toBeNull();
   });
 
-  it('CA-029-06 — fiche de la table : appel en tête, messages d’un client regroupés, hors « En cours »', () => {
+  it('CA-029-06 et CA-048-01 — fiche de la table : appel en tête, messages d’un client regroupés (le plus récent d’abord), hors « En cours »', () => {
     const water = staffRequest(WATER);
     const first = staffRequest(MESSAGE, { marker: 2, note: 'Une chaise pour bébé' });
     const second = staffRequest(MESSAGE, { marker: 2, note: 'Et de la glace aussi' });
@@ -115,7 +115,9 @@ describe('Spec 029 — appel et message', () => {
     const call = staffRequest(CALL);
     const groups = serverGroups([first, water, other, call, second]);
     expect(groups.map((group) => group.kind)).toEqual(['call', 'message', 'message']);
-    expect(groups[1].requests.map((request) => request.note)).toEqual(['Une chaise pour bébé', 'Et de la glace aussi']);
+    // Spec 048 : le groupe au message le plus récent (« Du piment ») passe devant ; dans un groupe, le plus récent d'abord.
+    expect(groups.map((group) => group.marker)).toEqual([0, 4, 2]);
+    expect(groups[2].requests.map((request) => request.note)).toEqual(['Et de la glace aussi', 'Une chaise pour bébé']);
     expect(groups.every((group) => group.waiting)).toBe(true);
     const sheet = tableSheet([first, water, call], false);
     expect(sheet.others.map((request) => request.id)).toEqual([water.id]);

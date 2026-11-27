@@ -59,14 +59,14 @@ export function columnOf(request: Pick<ServiceRequest, 'status'> & Partial<Pick<
   }
 }
 
-/** Commandes actives rangées par étape, la plus ancienne en premier : sert aux compteurs du filtre « État ». */
+/** Commandes actives rangées par étape, la plus récente en premier (spec 048, R3) : sert aux compteurs du filtre « État ». */
 export function groupOrders(requests: ServiceRequest[], separateKitchen: boolean): Record<OrderColumn, ServiceRequest[]> {
   const groups: Record<OrderColumn, ServiceRequest[]> = { collect: [], todo: [], preparing: [], ready: [], unpaid: [] };
   // Spec 030 : une commande en cours peut être à la fois active et à régler ; elle n'apparaît qu'une fois.
   const seen = new Set<string>();
   requests
     .filter((request) => isOrder(request) && !seen.has(request.id) && seen.add(request.id))
-    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
     .forEach((request) => {
       const column = columnOf(request);
       // Réglage désactivé après coup : une commande déjà prête reste visible, avec « Servie ».
@@ -187,10 +187,10 @@ export function filterOrders<T extends Pick<ServiceRequest, 'table' | 'area' | '
 }
 
 /**
- * Spec 007, R3 : une seule grille, toutes étapes mêlées, la plus ancienne en premier.
+ * Spec 007, R3 (révisée par la spec 048, R3) : une seule grille, toutes étapes mêlées, la plus récente en premier.
  * Le filtre « État » garde seulement l'étape choisie.
  */
 export function liveGrid(groups: Record<OrderColumn, ServiceRequest[]>, status: OrderColumn | 'all'): ServiceRequest[] {
   if (status !== 'all') return groups[status];
-  return [...groups.collect, ...groups.todo, ...groups.preparing, ...groups.ready, ...groups.unpaid].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  return [...groups.collect, ...groups.todo, ...groups.preparing, ...groups.ready, ...groups.unpaid].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }

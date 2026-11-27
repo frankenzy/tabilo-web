@@ -104,7 +104,8 @@ export function ServerSheet({
   const field = useRef<HTMLTextAreaElement>(null);
   const messages = requests
     .filter((request) => request.type.kind === 'message' && ACTIVE.includes(request.status) && request.note)
-    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    // Spec 048, R1 : le message le plus récent d'abord.
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
   useEffect(() => {
     if (open) setWriting(startWriting);
