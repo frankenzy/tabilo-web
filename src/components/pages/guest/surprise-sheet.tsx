@@ -4,8 +4,9 @@ import { Check, Flag, Gift, ShoppingBag } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 import type { LoyaltyCard, LoyaltyGift } from '@/contracts';
 import { cn } from '@/lib/utils';
+import { formatMoney } from '@/utils/money';
 import { RevealedGift, WrappedGift } from './gift-box';
-import { sortGifts, waveNodes, type WaveNode } from './loyalty-logic';
+import { countsFrom, remainingLabel, sortGifts, waveNodes, type WaveNode } from './loyalty-logic';
 
 const STEP = 64;
 const HEIGHT = 92;
@@ -18,19 +19,21 @@ const AMPLITUDE = 16;
  */
 export function SurpriseSheet({
   card,
+  currency,
   canUse,
   usingId,
   onReveal,
   onUse,
 }: {
   card: NonNullable<LoyaltyCard>;
+  currency: string;
   /** Utiliser exige une visite ouverte (pas l'écran « Réglé · Merci »). */
   canUse: boolean;
   usingId: string | null;
   onReveal: (gift: LoyaltyGift) => Promise<unknown>;
   onUse: (gift: LoyaltyGift) => void;
 }) {
-  const surprise = card.surprise ?? { giftsReceived: 0, gifts: [] };
+  const surprise = card.surprise ?? { giftsReceived: 0, gifts: [], nextAt: null, remaining: null };
   const gifts = sortGifts(surprise.gifts);
   const wrapped = gifts.filter((gift) => gift.state === 'wrapped');
   const opened = gifts.filter((gift) => gift.state !== 'wrapped');
@@ -46,12 +49,24 @@ export function SurpriseSheet({
         </p>
       </header>
 
-      <p className="mt-3 flex items-center justify-center gap-2 text-[13px] text-ink-2">
-        <ShoppingBag className="size-4 text-brand" aria-hidden />
-        Commandez pour gagner des cadeaux
-      </p>
+      <div className="mt-3 flex flex-col items-center gap-0.5 text-center">
+        <p className="flex items-center gap-2 text-[13px] text-ink-2">
+          <ShoppingBag className="size-4 text-brand" aria-hidden />
+          Commandez pour gagner des cadeaux
+        </p>
+        {/* Spec 046, R15 : ce qui fait avancer la carte, en chiffres. */}
+        <p className="text-[12px] font-medium text-ink-3 tabular-nums">{countsFrom(card.minOrderMinor, (minor) => formatMoney(minor, currency))}</p>
+      </div>
 
-      <Wave nodes={waveNodes(card.stamps, surprise.gifts)} />
+      <Wave nodes={waveNodes(card.stamps, surprise.gifts, surprise.nextAt)} />
+
+      {surprise.remaining !== null && (
+        // Spec 046, R8 (révisée) : on sait quand vient le prochain cadeau.
+        <p className="mx-auto -mt-1 mb-2 flex items-center gap-1.5 rounded-full bg-brand-soft px-3 py-1 text-[13px] font-semibold text-brand-strong tabular-nums">
+          <Gift className="size-4" aria-hidden />
+          {remainingLabel(surprise.remaining)}
+        </p>
+      )}
 
       <section className="mt-2">
         <h3 className="mb-2 text-[15px] font-semibold text-ink">Vos cadeaux</h3>
@@ -83,7 +98,8 @@ export function SurpriseSheet({
 function Wave({ nodes }: { nodes: WaveNode[] }) {
   const scroller = useRef<HTMLDivElement>(null);
   const width = Math.max(nodes.length * STEP, 1);
-  const points = nodes.map((_, index) => ({ x: STEP / 2 + index * STEP, y: MID + (index % 2 === 0 ? -AMPLITUDE : AMPLITUDE) * 0.6 }));
+  // La hauteur dépend de la place du nœud depuis le départ, pas de son rang à l'écran : la vague ne se retourne pas.
+  const points = nodes.map((node, index) => ({ x: STEP / 2 + index * STEP, y: MID + (node.position % 2 === 0 ? -AMPLITUDE : AMPLITUDE) * 0.6 }));
   const path = points.reduce((acc, point, index) => {
     if (index === 0) return `M ${point.x} ${point.y}`;
     const previous = points[index - 1];
@@ -105,7 +121,7 @@ function Wave({ nodes }: { nodes: WaveNode[] }) {
         </svg>
         {nodes.map((node, index) => (
           <span
-            key={index}
+            key={node.position}
             className="absolute -translate-x-1/2 -translate-y-1/2 animate-pop-in"
             style={{ left: points[index].x, top: points[index].y, animationDelay: `${index * 40}ms` }}
           >
@@ -132,9 +148,16 @@ function WaveDot({ node }: { node: WaveNode }) {
       </span>
     );
   }
+  if (node.kind === 'todo') {
+    return <span className="block size-6 rounded-full border-2 border-dashed border-brand/50 bg-surface" />;
+  }
   if (node.kind === 'next') {
+    // Le prochain cadeau, emballé, à sa place ; « ? » : on ne sait pas ce qu'il contient.
     return (
-      <span className="grid size-10 place-items-center rounded-full border-2 border-dashed border-brand/60 bg-surface text-[18px] font-extrabold text-brand">?</span>
+      <span className="relative grid size-12 place-items-center rounded-2xl border-2 border-dashed border-brand/70 bg-brand-soft text-brand-strong ring-[3px] ring-surface">
+        <Gift className="size-6" strokeWidth={1.9} />
+        <span className="absolute -top-2 -right-2 grid size-5 place-items-center rounded-full bg-brand text-[12px] font-extrabold text-white ring-2 ring-surface">?</span>
+      </span>
     );
   }
   const wrapped = node.state === 'wrapped';

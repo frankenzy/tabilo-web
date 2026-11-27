@@ -526,7 +526,18 @@ export const loyaltyCardSchema = z
     stampsRequired: z.number().int(),
     minOrderMinor: z.number().int(),
     rewardItemId: z.string().nullable(),
-    surprise: z.object({ giftsReceived: z.number().int(), gifts: z.array(loyaltyGiftSchema) }).nullable().default(null),
+    surprise: z
+      .object({
+        giftsReceived: z.number().int(),
+        gifts: z.array(loyaltyGiftSchema),
+        /** Spec 046, R5 révisée : place du prochain cadeau (on sait quand, pas quoi). */
+        nextAt: z.number().int().nullable().default(null),
+        remaining: z.number().int().nullable().default(null),
+      })
+      .nullable()
+      .default(null),
+    /** Spec 046, R16 : la visite a-t-elle donné un tampon ? */
+    visitStamped: z.boolean().default(true),
     redemption: z.object({ id: z.string(), validated: z.boolean() }).nullable(),
   })
   .nullable();
