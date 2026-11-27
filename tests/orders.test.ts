@@ -97,21 +97,21 @@ describe('Spec 007 — écran Commandes', () => {
     expect(capabilitiesOf(request('ready', { assignee: { id: 'k', firstName: 'K', lastName: 'Y' } }), manager).cancel).toBe(false);
   });
 
-  it('R3 — une seule grille, toutes étapes mêlées, la plus ancienne en premier ; le filtre « État » isole une étape', () => {
+  it('R3 et CA-048-02 — une seule grille, toutes étapes mêlées, la plus récente en premier ; le filtre « État » isole une étape', () => {
     const koffi = { id: 'koffi', firstName: 'Koffi', lastName: 'Yao' };
     const preparing = request('in_progress', { assignee: koffi, createdAt: new Date(T0 - 900_000).toISOString() });
     const fresh = request('pending', { createdAt: new Date(T0).toISOString() });
     const ready = request('ready', { assignee: koffi, createdAt: new Date(T0 - 300_000).toISOString() });
     const groups = groupOrders([fresh, ready, preparing], true);
-    expect(liveGrid(groups, 'all').map((r) => r.id)).toEqual([preparing.id, ready.id, fresh.id]);
+    expect(liveGrid(groups, 'all').map((r) => r.id)).toEqual([fresh.id, ready.id, preparing.id]);
     expect(liveGrid(groups, 'todo').map((r) => r.id)).toEqual([fresh.id]);
     expect(hasFilters({ ...NO_FILTERS, status: 'ready' })).toBe(true);
   });
 
-  it('R3 — la plus ancienne commande est en premier dans son étape', () => {
+  it('CA-048-02 — la plus récente commande est en premier dans son étape', () => {
     const recent = request('pending', { createdAt: new Date(T0).toISOString() });
     const old = request('pending', { createdAt: new Date(T0 - 600_000).toISOString() });
-    expect(groupOrders([recent, old], false).todo.map((r) => r.id)).toEqual([old.id, recent.id]);
+    expect(groupOrders([old, recent], false).todo.map((r) => r.id)).toEqual([recent.id, old.id]);
   });
 
   it('CA-007-03 — chaque plat a sa photo, sinon l’image de sa rubrique', () => {

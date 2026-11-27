@@ -6,19 +6,14 @@ import { RequestCard, type Viewer } from '@/components/pages/requests/request-ca
 import { RequestDialogs, type RequestDialog } from '@/components/pages/requests/request-dialogs';
 import { useActiveRequests, useRequestAction, useUnpaidOrders } from '@/components/pages/requests/use-requests';
 import { Button, EmptyState, ErrorState, PageHeader, Spinner, Tabs } from '@/components/ui';
-import type { ServiceRequest } from '@/contracts';
 import { useNow } from '@/hooks/use-now';
+import { byUrgency } from './service-order';
 import { cn } from '@/lib/utils';
 import { errorMessage } from '@/services/http';
 import { useAuthStore, useMembership } from '@/stores/auth.store';
 
 type Tab = 'todo' | 'mine' | 'all' | 'unpaid';
 
-/** Ordre de traitement : prioritaires d'abord, puis les plus anciennes. */
-function byUrgency(a: ServiceRequest, b: ServiceRequest): number {
-  if (a.priority !== b.priority) return a.priority === 'high' ? -1 : 1;
-  return a.createdAt.localeCompare(b.createdAt);
-}
 
 export function ServicePage() {
   const me = useAuthStore((state) => state.me);
