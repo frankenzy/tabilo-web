@@ -1,7 +1,7 @@
 'use client';
 
 import { Check, Flag, Gift, ShoppingBag } from 'lucide-react';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { LoyaltyCard, LoyaltyGift } from '@/contracts';
 import { cn } from '@/lib/utils';
 import { formatMoney } from '@/utils/money';
@@ -33,10 +33,14 @@ export function SurpriseSheet({
   onReveal: (gift: LoyaltyGift) => Promise<unknown>;
   onUse: (gift: LoyaltyGift) => void;
 }) {
+  // Spec 047, R1 : le cadeau qu'on vient de déballer se fête (« Youpi ! ») et s'affiche en grand.
+  const [justRevealed, setJustRevealed] = useState<string | null>(null);
   const surprise = card.surprise ?? { giftsReceived: 0, gifts: [], nextAt: null, remaining: null };
   const gifts = sortGifts(surprise.gifts);
   const wrapped = gifts.filter((gift) => gift.state === 'wrapped');
-  const opened = gifts.filter((gift) => gift.state !== 'wrapped');
+  const opened = gifts
+    .filter((gift) => gift.state !== 'wrapped')
+    .sort((a, b) => Number(b.id === justRevealed) - Number(a.id === justRevealed));
 
   return (
     <div className="flex flex-col">
@@ -78,12 +82,19 @@ export function SurpriseSheet({
         ) : (
           <div className="flex flex-col gap-4">
             {wrapped.map((gift) => (
-              <WrappedGift key={gift.id} onReveal={() => onReveal(gift)} />
+              <WrappedGift key={gift.id} onReveal={() => onReveal(gift).then(() => setJustRevealed(gift.id))} />
             ))}
             {opened.length > 0 && (
               <div className="grid grid-cols-2 gap-3">
                 {opened.map((gift) => (
-                  <RevealedGift key={gift.id} gift={gift} canUse={canUse} using={usingId === gift.id} onUse={() => onUse(gift)} />
+                  <RevealedGift
+                    key={gift.id}
+                    gift={gift}
+                    canUse={canUse}
+                    youpi={gift.id === justRevealed}
+                    using={usingId === gift.id}
+                    onUse={() => onUse(gift)}
+                  />
                 ))}
               </div>
             )}

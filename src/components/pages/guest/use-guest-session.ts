@@ -18,6 +18,8 @@ export type GuestSessionState =
    * Spec 046, R7 : le jeton (réglé) et le contexte restent, pour lire la carte de fidélité et fêter un cadeau.
    */
   | { phase: 'settled'; marker: number; token: string | null; context: GuestContext | null }
+  /** Spec 047, R5 : le client a libéré la table — « À bientôt ». */
+  | { phase: 'left' }
   | { phase: 'error'; kind: 'invalid' | 'busy' | 'network' | 'suspended'; message: string };
 
 /**
@@ -89,6 +91,12 @@ export function useGuestSession(code: string) {
     );
   }, [code]);
 
+  /** Spec 047, R5 : la table est libérée ; le téléphone a déjà oublié la session (règlement). */
+  const markLeft = useCallback(() => {
+    storeToken(code, null);
+    setState({ phase: 'left' });
+  }, [code]);
+
   /** Relit le contexte (carte, commande ouverte ou non) sans rouvrir de session. */
   const refresh = useCallback(async () => {
     if (state.phase !== 'ready') return;
@@ -100,7 +108,7 @@ export function useGuestSession(code: string) {
     }
   }, [state]);
 
-  return { state, retry, markClosed, markSettled, refresh };
+  return { state, retry, markClosed, markSettled, markLeft, refresh };
 }
 
 function splitSession({ token, establishment, table, requestTypes, menu, orderingEnabled, pairingsEnabled, marker, zone, serviceMode }: GuestSession) {

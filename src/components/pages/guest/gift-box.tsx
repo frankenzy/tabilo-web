@@ -1,7 +1,7 @@
 'use client';
 
-import { Check, CheckCheck, ChevronsRight, Clock3, Gift, Loader2 } from 'lucide-react';
-import { useRef, useState, type PointerEvent } from 'react';
+import { Check, CheckCheck, ChevronsRight, Clock3, Gift, Loader2, PartyPopper, UtensilsCrossed } from 'lucide-react';
+import { useEffect, useRef, useState, type PointerEvent } from 'react';
 import type { LoyaltyGift } from '@/contracts';
 import { cn } from '@/lib/utils';
 import { haptic } from './fly-to-cart';
@@ -154,21 +154,81 @@ const STATE_CHIP: Record<Exclude<LoyaltyGift['state'], 'wrapped'>, { label: stri
 
 const dateFormat = new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'long' });
 
-/** Spec 046, R12 : un cadeau déballé, avec son image et son état ; « Utiliser » s'il est gagné et que la visite est ouverte. */
-export function RevealedGift({ gift, canUse, using, onUse }: { gift: LoyaltyGift; canUse: boolean; using: boolean; onUse: () => void }) {
+const CONFETTI = ['#ffd43b', 'var(--color-brand)', 'var(--color-done)', 'var(--color-progress)', '#f783ac', '#ffa94d'];
+const longDate = new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'long' });
+
+/**
+ * Spec 046, R12 : un cadeau déballé, avec son image et son état ; « Utiliser » s'il est gagné et que la visite est ouverte.
+ * Spec 047, R1 et R2 : juste déballé, il s'affiche en grand avec « Youpi ! » et des confettis ; sans visite ouverte,
+ * un rappel dit qu'il s'utilise à la prochaine commande.
+ */
+export function RevealedGift({ gift, canUse, youpi = false, using, onUse }: { gift: LoyaltyGift; canUse: boolean; youpi?: boolean; using: boolean; onUse: () => void }) {
   const state = gift.state === 'wrapped' ? 'won' : gift.state;
   const chip = STATE_CHIP[state];
   const Icon = chip.icon;
   const faded = state === 'used' || state === 'expired';
+  useEffect(() => {
+    if (youpi) haptic([16, 60, 16, 60, 30]);
+  }, [youpi]);
   return (
-    <article className={cn('flex animate-pop-in flex-col overflow-hidden rounded-2xl bg-surface ring-1 ring-line', faded && 'opacity-70')}>
-      <ItemPhoto item={{ name: gift.prize?.name ?? 'Cadeau', imageId: gift.prize?.imageId ?? null }} dimmed={faded} className="aspect-[4/3] w-full text-2xl" />
+    <div className={cn('relative', youpi && 'col-span-2')}>
+      {youpi && (
+        <>
+          <span className="pointer-events-none absolute inset-x-0 -top-2 z-10 h-0" aria-hidden>
+            {CONFETTI.map((color, index) => (
+              <span
+                key={index}
+                className="absolute h-3 w-2 animate-confetti rounded-[2px]"
+                style={{ left: `${10 + index * 16}%`, background: color, animationDelay: `${(index % 3) * 180}ms` }}
+              />
+            ))}
+          </span>
+          <p
+            role="status"
+            className="mx-auto mb-3 flex w-max animate-youpi items-center gap-2 rounded-full bg-done px-4 py-2 text-[18px] font-extrabold tracking-tight text-white shadow-[0_10px_24px_-10px_var(--color-done)]"
+          >
+            <PartyPopper className="size-5" aria-hidden />
+            Youpi !
+          </p>
+        </>
+      )}
+      <RevealedCard gift={gift} state={state} chip={chip} Icon={Icon} faded={faded} big={youpi} canUse={canUse} using={using} onUse={onUse} />
+      {youpi && !canUse && state === 'won' && (
+        <p className="mt-3 flex animate-rise items-center gap-3 rounded-2xl bg-sunken px-3 py-2.5 text-[14px] leading-snug text-ink-2">
+          <span className="grid size-9 shrink-0 place-items-center rounded-full bg-surface" aria-hidden>
+            <UtensilsCrossed className="size-4" />
+          </span>
+          <span>
+            <strong className="text-ink">Utilisez-le à votre prochaine commande.</strong> À utiliser avant le {longDate.format(new Date(gift.expiresAt))}.
+          </span>
+        </p>
+      )}
+    </div>
+  );
+}
+
+function RevealedCard({
+  gift, state, chip, Icon, faded, big, canUse, using, onUse,
+}: {
+  gift: LoyaltyGift;
+  state: Exclude<LoyaltyGift['state'], 'wrapped'>;
+  chip: { label: string; className: string };
+  Icon: typeof Check;
+  faded: boolean;
+  big: boolean;
+  canUse: boolean;
+  using: boolean;
+  onUse: () => void;
+}) {
+  return (
+    <article className={cn('flex flex-col overflow-hidden rounded-2xl bg-surface ring-1 ring-line', big ? 'animate-youpi shadow-[0_20px_40px_-24px_rgb(27_25_23/0.45)]' : 'animate-pop-in', faded && 'opacity-70')}>
+      <ItemPhoto item={{ name: gift.prize?.name ?? 'Cadeau', imageId: gift.prize?.imageId ?? null }} dimmed={faded} className={cn('w-full text-2xl', big ? 'aspect-[16/9]' : 'aspect-[4/3]')} />
       <span className={cn('flex items-center justify-center gap-1.5 py-1.5 text-[13px] font-semibold', chip.className)}>
         <Icon className={cn('size-4', state === 'requested' && 'animate-spin')} aria-hidden />
         {chip.label}
       </span>
       <div className="flex flex-1 flex-col gap-0.5 px-3 pt-2 pb-3">
-        <p className="line-clamp-2 text-[14px] font-semibold text-ink">{gift.prize?.name ?? 'Cadeau'}</p>
+        <p className={cn('line-clamp-2 font-semibold text-ink', big ? 'text-[18px]' : 'text-[14px]')}>{gift.prize?.name ?? 'Cadeau'}</p>
         <p className="text-[12px] text-ink-3">gagné le {dateFormat.format(new Date(gift.unlockedAt))}</p>
         {state === 'won' && canUse && (
           <button
